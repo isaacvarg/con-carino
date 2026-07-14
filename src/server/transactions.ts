@@ -3,7 +3,15 @@ import { getRequest } from '@tanstack/react-start/server'
 import { getSession } from 'start-authjs'
 import { TransactionType as TransactionTypeEnum } from '#/generated/prisma/enums'
 import type { TransactionType } from '#/generated/prisma/enums'
+import {
+  assertAllowedContentType,
+  assertUploadSize,
+  MAX_ATTACHMENTS_PER_TXN,
+  type AttachmentListItem,
+  type AttachmentUploadMeta,
+} from '#/lib/attachment-types'
 import { prisma } from '#/lib/prisma'
+import { assertObjectKeyOwnedByUser } from '#/lib/storage'
 import {
   toSignedTransactionAmount,
   transactionTypeNeedsDirection,
@@ -29,6 +37,7 @@ export type TransactionListItem = {
   payee: TaxonomyRef | null
   category: TaxonomyRef | null
   tags: TaxonomyRef[]
+  attachments: AttachmentListItem[]
 }
 
 const UUID_RE =
@@ -152,6 +161,8 @@ export type VisibleTransactionListItem = TransactionListItem & {
   }
 }
 
+type AttachmentRef = AttachmentListItem
+
 type TransactionWithTaxonomies = {
   id: string
   userId: string
@@ -163,6 +174,7 @@ type TransactionWithTaxonomies = {
   payee: TaxonomyRef | null
   category: TaxonomyRef | null
   tags: TaxonomyRef[]
+  attachments?: AttachmentRef[]
 }
 
 type TransactionWithAccount = TransactionWithTaxonomies & {
@@ -170,6 +182,16 @@ type TransactionWithAccount = TransactionWithTaxonomies & {
     id: string
     name: string
     isGlobal: boolean
+  }
+}
+
+function toAttachmentListItem(attachment: AttachmentRef): AttachmentListItem {
+  return {
+    id: attachment.id,
+    fileName: attachment.fileName,
+    contentType: attachment.contentType,
+    byteSize: attachment.byteSize,
+    storageKey: attachment.storageKey,
   }
 }
 
@@ -189,6 +211,7 @@ function toTransactionListItem(
       ? { id: txn.category.id, name: txn.category.name }
       : null,
     tags: txn.tags.map((tag) => ({ id: tag.id, name: tag.name })),
+    attachments: (txn.attachments ?? []).map(toAttachmentListItem),
   }
 }
 
@@ -210,7 +233,109 @@ function emptyTaxonomies() {
     payee: null as TaxonomyRef | null,
     category: null as TaxonomyRef | null,
     tags: [] as TaxonomyRef[],
+    attachments: [] as AttachmentListItem[],
   }
+}
+
+function parseAttachments(value: unknown): AttachmentUploadMeta[] {
+  if (value === undefined || value === null) {
+    return []
+  }
+  if (!Array.isArray(value)) {
+    throw new Error('Attachments must be an array.')
+  }
+  if (value.length > MAX_ATTACHMENTS_PER_TXN) {
+    throw new Error(
+      `You can attach at most ${MAX_ATTACHMENTS_PER_TXN} files.`,
+    )
+  }
+
+  const seenKeys = new Set<string>()
+  const attachments: AttachmentUploadMeta[] = []
+
+  for (const item of value) {
+    if (!item || typeof item !== 'object') {
+      throw new Error('Invalid attachment entry.')
+    }
+    const entry = item as Record<string, unknown>
+    const storageKey =
+      typeof entry.storageKey === 'string' ? entry.storageKey.trim() : ''
+    const fileName =
+      typeof entry.fileName === 'string' ? entry.fileName.trim() : ''
+    const contentType =
+      typeof entry.contentType === 'string' ? entry.contentType.trim() : ''
+    const byteSize =
+      typeof entry.byteSize === 'number'
+        ? entry.byteSize
+        : typeof entry.byteSize === 'string'
+          ? Number(entry.byteSize)
+          : NaN
+
+    if (!storageKey || !fileName) {
+      throw new Error('Each attachment needs a storage key and file name.')
+    }
+    assertAllowedContentType(contentType)
+    assertUploadSize(byteSize)
+
+    if (seenKeys.has(storageKey)) {
+      throw new Error('Duplicate attachment keys are not allowed.')
+    }
+    seenKeys.add(storageKey)
+
+    attachments.push({
+      storageKey,
+      fileName,
+      contentType,
+      byteSize,
+    })
+  }
+
+  return attachments
+}
+
+async function linkAttachments(
+  userId: string,
+  metas: AttachmentUploadMeta[],
+  transactionIds: string[],
+): Promise<AttachmentListItem[]> {
+  if (metas.length === 0) {
+    return []
+  }
+  if (transactionIds.length === 0) {
+    throw new Error('At least one transaction is required to link attachments.')
+  }
+
+  for (const meta of metas) {
+    assertObjectKeyOwnedByUser(meta.storageKey, userId)
+    assertAllowedContentType(meta.contentType)
+    assertUploadSize(meta.byteSize)
+  }
+
+  const created = await prisma.$transaction(
+    metas.map((meta) =>
+      prisma.attachment.create({
+        data: {
+          userId,
+          storageKey: meta.storageKey,
+          fileName: meta.fileName,
+          contentType: meta.contentType,
+          byteSize: meta.byteSize,
+          transactions: {
+            connect: transactionIds.map((id) => ({ id })),
+          },
+        },
+        select: {
+          id: true,
+          fileName: true,
+          contentType: true,
+          byteSize: true,
+          storageKey: true,
+        },
+      }),
+    ),
+  )
+
+  return created.map(toAttachmentListItem)
 }
 
 async function requireUserId() {
@@ -409,6 +534,7 @@ export const createTransaction = createServerFn({ method: 'POST' })
     const tags = Array.isArray(input.tags)
       ? input.tags.filter((tag): tag is string => typeof tag === 'string')
       : []
+    const attachments = parseAttachments(input.attachments)
 
     return {
       financialAccountId,
@@ -420,6 +546,7 @@ export const createTransaction = createServerFn({ method: 'POST' })
       payee,
       category,
       tags,
+      attachments,
     }
   })
   .handler(async ({ data }): Promise<TransactionListItem> => {
@@ -459,7 +586,14 @@ export const createTransaction = createServerFn({ method: 'POST' })
       },
     })
 
-    return toTransactionListItem(created)
+    const attachments = await linkAttachments(userId, data.attachments, [
+      created.id,
+    ])
+
+    return {
+      ...toTransactionListItem(created),
+      attachments,
+    }
   })
 
 export type TransferCreateResult = {
@@ -494,6 +628,7 @@ export const createTransfer = createServerFn({ method: 'POST' })
 
     const description =
       typeof input.description === 'string' ? input.description.trim() : ''
+    const attachments = parseAttachments(input.attachments)
 
     return {
       fromAccountId,
@@ -501,6 +636,7 @@ export const createTransfer = createServerFn({ method: 'POST' })
       amount,
       date,
       description: description || null,
+      attachments,
     }
   })
   .handler(async ({ data }): Promise<TransferCreateResult> => {
@@ -539,6 +675,11 @@ export const createTransfer = createServerFn({ method: 'POST' })
       }),
     ])
 
+    const attachments = await linkAttachments(userId, data.attachments, [
+      fromTxn.id,
+      toTxn.id,
+    ])
+
     const empty = emptyTaxonomies()
     return {
       transferGroupId,
@@ -551,6 +692,7 @@ export const createTransfer = createServerFn({ method: 'POST' })
         description: fromTxn.description,
         date: fromTxn.date.toISOString(),
         ...empty,
+        attachments,
       },
       to: {
         id: toTxn.id,
@@ -561,6 +703,7 @@ export const createTransfer = createServerFn({ method: 'POST' })
         description: toTxn.description,
         date: toTxn.date.toISOString(),
         ...empty,
+        attachments,
       },
     }
   })

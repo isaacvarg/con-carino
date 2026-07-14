@@ -12,6 +12,7 @@ model User {
   financialAccounts FinancialAccount[]
   accountGroups     AccountGroup[]
   transactions      Transaction[]
+  attachments       Attachment[]
 
   @@map("users")
 }

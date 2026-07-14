@@ -16,6 +16,10 @@ import {
   TRANSACTION_TYPE_OPTIONS,
   todayDateInputValue,
 } from './account-utils'
+import {
+  AttachmentsZone,
+  type AttachmentsZoneHandle,
+} from './AttachmentsZone'
 import { CreateCategoryForm } from './CreateCategoryForm'
 import { CreatePayeeForm } from './CreatePayeeForm'
 import { CreateTagForm } from './CreateTagForm'
@@ -69,9 +73,11 @@ export function AddTransactionForm({
   const payeeDialogRef = useRef<HTMLDialogElement>(null)
   const categoryDialogRef = useRef<HTMLDialogElement>(null)
   const tagDialogRef = useRef<HTMLDialogElement>(null)
+  const attachmentsRef = useRef<AttachmentsZoneHandle>(null)
   const [payeeOptions, setPayeeOptions] = useState(initialPayees)
   const [categoryOptions, setCategoryOptions] = useState(initialCategories)
   const [tagOptions, setTagOptions] = useState(initialTags)
+  const [attachmentsUploading, setAttachmentsUploading] = useState(false)
 
   const defaultValues: AddTransactionFormValues = {
     type: 'EXPENSE',
@@ -87,6 +93,7 @@ export function AddTransactionForm({
   const form = useForm({
     defaultValues,
     onSubmit: async ({ value }) => {
+      const attachments = await attachmentsRef.current?.uploadAll()
       await createTransaction({
         data: {
           financialAccountId: account.id,
@@ -97,6 +104,7 @@ export function AddTransactionForm({
           payee: value.payeeId || null,
           category: value.categoryId || null,
           tags: value.tagIds,
+          attachments: attachments ?? [],
           ...(transactionTypeNeedsDirection(value.type)
             ? { direction: value.direction }
             : {}),
@@ -432,6 +440,12 @@ export function AddTransactionForm({
           )}
         </form.Field>
 
+        <AttachmentsZone
+          ref={attachmentsRef}
+          disabled={attachmentsUploading}
+          onUploadingChange={setAttachmentsUploading}
+        />
+
         <form.Subscribe
           selector={(state) => [state.canSubmit, state.isSubmitting] as const}
         >
@@ -448,9 +462,11 @@ export function AddTransactionForm({
               <button
                 type="submit"
                 className="btn btn-primary"
-                disabled={!canSubmit || isSubmitting}
+                disabled={!canSubmit || isSubmitting || attachmentsUploading}
               >
-                {isSubmitting ? 'Saving…' : 'Create transaction'}
+                {isSubmitting || attachmentsUploading
+                  ? 'Saving…'
+                  : 'Create transaction'}
               </button>
             </div>
           )}

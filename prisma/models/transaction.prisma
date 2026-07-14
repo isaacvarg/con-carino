@@ -27,6 +27,7 @@ model Transaction {
   payee            Payee?           @relation(fields: [payeeId], references: [id], onDelete: SetNull)
   category         Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   tags             Tag[]
+  attachments      Attachment[]
 
   @@index([userId, date])
   @@index([financialAccountId, date])

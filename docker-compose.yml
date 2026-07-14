@@ -1,0 +1,25 @@
+# Local RustFS (S3-compatible object storage)
+# API:     http://127.0.0.1:9000
+# Console: http://127.0.0.1:9001
+#
+# App S3_* credentials in .env must match RUSTFS_ACCESS_KEY / RUSTFS_SECRET_KEY below.
+
+services:
+  rustfs:
+    image: rustfs/rustfs:latest
+    container_name: con-carino-rustfs
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    environment:
+      RUSTFS_ACCESS_KEY: ${S3_ACCESS_KEY_ID:-rustfsadmin}
+      RUSTFS_SECRET_KEY: ${S3_SECRET_ACCESS_KEY:-rustfsadmin}
+      RUSTFS_CONSOLE_ENABLE: 'true'
+      RUSTFS_ADDRESS: '0.0.0.0:9000'
+    volumes:
+      - rustfs_data:/data
+    command: ['/data']
+    restart: unless-stopped
+
+volumes:
+  rustfs_data:

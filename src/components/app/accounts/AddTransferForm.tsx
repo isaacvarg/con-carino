@@ -1,9 +1,14 @@
 import { useForm } from '@tanstack/react-form'
 import { Link, useNavigate } from '@tanstack/react-router'
+import { useRef, useState } from 'react'
 import type { AccountListItem } from '#/server/accounts'
 import { createTransfer } from '#/server/transactions'
 import { accountDetailSearchDefaults } from './account-detail-search'
 import { todayDateInputValue } from './account-utils'
+import {
+  AttachmentsZone,
+  type AttachmentsZoneHandle,
+} from './AttachmentsZone'
 
 type AddTransferFormValues = {
   fromAccountId: string
@@ -46,6 +51,8 @@ export function AddTransferForm({
   defaultFromAccountId,
 }: AddTransferFormProps) {
   const navigate = useNavigate()
+  const attachmentsRef = useRef<AttachmentsZoneHandle>(null)
+  const [attachmentsUploading, setAttachmentsUploading] = useState(false)
 
   const defaultToAccountId =
     accounts.find((account) => account.id !== defaultFromAccountId)?.id ?? ''
@@ -61,6 +68,7 @@ export function AddTransferForm({
   const form = useForm({
     defaultValues,
     onSubmit: async ({ value }) => {
+      const attachments = await attachmentsRef.current?.uploadAll()
       await createTransfer({
         data: {
           fromAccountId: value.fromAccountId,
@@ -68,6 +76,7 @@ export function AddTransferForm({
           amount: value.amount,
           date: value.date,
           description: value.description,
+          attachments: attachments ?? [],
         },
       })
       await navigate({
@@ -310,6 +319,12 @@ export function AddTransferForm({
           )}
         </form.Field>
 
+        <AttachmentsZone
+          ref={attachmentsRef}
+          disabled={attachmentsUploading}
+          onUploadingChange={setAttachmentsUploading}
+        />
+
         <form.Subscribe
           selector={(state) => [state.canSubmit, state.isSubmitting] as const}
         >
@@ -326,9 +341,11 @@ export function AddTransferForm({
               <button
                 type="submit"
                 className="btn btn-primary"
-                disabled={!canSubmit || isSubmitting}
+                disabled={!canSubmit || isSubmitting || attachmentsUploading}
               >
-                {isSubmitting ? 'Transferring…' : 'Create transfer'}
+                {isSubmitting || attachmentsUploading
+                  ? 'Transferring…'
+                  : 'Create transfer'}
               </button>
             </div>
           )}
