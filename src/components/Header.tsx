@@ -1,7 +1,15 @@
-import { Link } from '@tanstack/react-router'
+import { Link, useRouterState } from '@tanstack/react-router'
+import type { AuthSession } from 'start-authjs'
 import ThemeToggle from './ThemeToggle'
+import { signOut } from '#/lib/auth-client'
 
 export default function Header() {
+  const session = useRouterState({
+    select: (state) =>
+      (state.matches[0]?.context as { session?: AuthSession | null } | undefined)
+        ?.session ?? null,
+  })
+
   return (
     <header className="sticky top-0 z-50 border-b border-[var(--line)] bg-[var(--header-bg)] px-4 backdrop-blur-lg">
       <nav className="page-wrap flex flex-wrap items-center gap-x-3 gap-y-2 py-3 sm:py-4">
@@ -71,6 +79,28 @@ export default function Header() {
           </a>
 
           <ThemeToggle />
+
+          {session?.user ? (
+            <div className="flex items-center gap-2">
+              <span className="hidden text-sm font-semibold text-[var(--sea-ink-soft)] sm:inline">
+                {session.user.name ?? session.user.email}
+              </span>
+              <button
+                type="button"
+                onClick={() => void signOut()}
+                className="rounded-xl border border-[var(--line)] px-3 py-1.5 text-sm font-semibold text-[var(--sea-ink)] transition hover:bg-[var(--link-bg-hover)]"
+              >
+                Sign out
+              </button>
+            </div>
+          ) : (
+            <Link
+              to="/login"
+              className="rounded-xl border border-[var(--line)] px-3 py-1.5 text-sm font-semibold text-[var(--sea-ink)] no-underline transition hover:bg-[var(--link-bg-hover)]"
+            >
+              Sign in
+            </Link>
+          )}
         </div>
       </nav>
     </header>

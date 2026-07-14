@@ -1,0 +1,41 @@
+enum AccountType {
+  CHECKING
+  CREDIT_CARD
+  SAVINGS
+  LOAN
+  CASH
+  INVESTMENT
+}
+
+model AccountGroup {
+  id        String   @id @default(uuid())
+  userId    String
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accounts FinancialAccount[]
+
+  @@index([userId])
+  @@map("account_groups")
+}
+
+model FinancialAccount {
+  id             String      @id @default(uuid())
+  userId         String
+  name           String
+  type           AccountType
+  accountGroupId String?
+  initialBalance Decimal     @default(0) @db.Decimal(19, 4)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountGroup AccountGroup? @relation(fields: [accountGroupId], references: [id], onDelete: SetNull)
+  transactions Transaction[]
+
+  @@index([userId])
+  @@index([accountGroupId])
+  @@map("financial_accounts")
+}
