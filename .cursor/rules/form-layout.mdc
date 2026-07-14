@@ -1,0 +1,17 @@
+---
+description: App form label/spacing conventions (FormField / FormShell)
+globs: src/components/**/*.{tsx,ts}
+alwaysApply: false
+---
+
+# Form layout
+
+When creating or editing primary app forms (not table filters or header search):
+
+1. Use `FormShell`, `FormField`, `FormRow`, and `FormActions` from `#/components/app/ui/form`.
+2. Put labels **above** controls. Do not use DaisyUI `label` / `form-control` packing for primary fields.
+3. Vertical rhythm: field stack `gap-2` (via `FormField`), form sections `gap-6` (via `FormShell` / `.app-form`), actions bottom-right via `FormActions`.
+4. Prefer `FORM_INPUT_CLASS`, `FORM_SELECT_CLASS`, and `FORM_TEXTAREA_CLASS` for roomy controls.
+5. Inside modals/dialogs that already have a surface, use `FormShell card={false}`.
+6. Do not introduce mint/colored form canvases unless the design system already uses one.
+7. Reference implementation: `src/components/app/accounts/AddTransferForm.tsx`.

@@ -85,6 +85,7 @@ Default local production flow: `pnpm build` then `pnpm preview` until a host plu
 - Do not introduce Next.js patterns (`"use server"`, `app/` router, etc.).
 - Preserve file-based routes under `src/routes` and `#/*` import alias to `./src/*`.
 - `routeTree.gen.ts` is generated; prefer `pnpm generate-routes` / Vite plugin regeneration over hand-edits.
+- App forms use `#/components/app/ui/form` (`FormShell` / `FormField` / `FormRow` / `FormActions`); see `.cursor/rules/form-layout.mdc` and `AddTransferForm` as reference.
 
 ## Known gotchas
 
