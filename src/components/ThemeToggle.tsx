@@ -80,7 +80,7 @@ export default function ThemeToggle() {
     <label className="flex items-center gap-2">
       <span className="sr-only">Theme</span>
       <select
-        className="select select-bordered select-sm w-[9.5rem] font-semibold"
+        className="select select-bordered select-sm w-[9.5rem] font-semibold text-base-content"
         value={selection}
         onChange={onChange}
         aria-label="Color theme"

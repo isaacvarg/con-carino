@@ -11,6 +11,7 @@ model AccountGroup {
   id        String   @id @default(uuid())
   userId    String
   name      String
+  isGlobal  Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -28,6 +29,7 @@ model FinancialAccount {
   type           AccountType
   accountGroupId String?
   initialBalance Decimal     @default(0) @db.Decimal(19, 4)
+  isGlobal       Boolean     @default(false)
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 

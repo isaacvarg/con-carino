@@ -11,8 +11,21 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AboutRouteImport } from './routes/about'
-import { Route as IndexRouteImport } from './routes/index'
+import { Route as AppRouteImport } from './routes/_app'
+import { Route as AppIndexRouteImport } from './routes/_app/index'
+import { Route as AppTransactionsRouteImport } from './routes/_app/transactions'
+import { Route as AppSettingsRouteImport } from './routes/_app/settings'
+import { Route as AppInsightsRouteImport } from './routes/_app/insights'
+import { Route as AppDocumentsRouteImport } from './routes/_app/documents'
+import { Route as AppCareRouteImport } from './routes/_app/care'
+import { Route as AppAccountsRouteImport } from './routes/_app/accounts'
+import { Route as AppAccountsIndexRouteImport } from './routes/_app/accounts/index'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as AppAccountsNewRouteImport } from './routes/_app/accounts/new'
+import { Route as AppAccountsAccountIdRouteImport } from './routes/_app/accounts/$accountId'
+import { Route as AppAccountsAccountIdIndexRouteImport } from './routes/_app/accounts/$accountId/index'
+import { Route as AppAccountsAccountIdSettingsRouteImport } from './routes/_app/accounts/$accountId/settings'
+import { Route as AppAccountsAccountIdTransactionsNewRouteImport } from './routes/_app/accounts/$accountId/transactions/new'
 
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
@@ -24,46 +37,196 @@ const AboutRoute = AboutRouteImport.update({
   path: '/about',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
+const AppRoute = AppRouteImport.update({
+  id: '/_app',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AppRoute,
+} as any)
+const AppTransactionsRoute = AppTransactionsRouteImport.update({
+  id: '/transactions',
+  path: '/transactions',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsRoute = AppSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppInsightsRoute = AppInsightsRouteImport.update({
+  id: '/insights',
+  path: '/insights',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppDocumentsRoute = AppDocumentsRouteImport.update({
+  id: '/documents',
+  path: '/documents',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppCareRoute = AppCareRouteImport.update({
+  id: '/care',
+  path: '/care',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppAccountsRoute = AppAccountsRouteImport.update({
+  id: '/accounts',
+  path: '/accounts',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppAccountsIndexRoute = AppAccountsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppAccountsRoute,
 } as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppAccountsNewRoute = AppAccountsNewRouteImport.update({
+  id: '/new',
+  path: '/new',
+  getParentRoute: () => AppAccountsRoute,
+} as any)
+const AppAccountsAccountIdRoute = AppAccountsAccountIdRouteImport.update({
+  id: '/$accountId',
+  path: '/$accountId',
+  getParentRoute: () => AppAccountsRoute,
+} as any)
+const AppAccountsAccountIdIndexRoute =
+  AppAccountsAccountIdIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AppAccountsAccountIdRoute,
+  } as any)
+const AppAccountsAccountIdSettingsRoute =
+  AppAccountsAccountIdSettingsRouteImport.update({
+    id: '/settings',
+    path: '/settings',
+    getParentRoute: () => AppAccountsAccountIdRoute,
+  } as any)
+const AppAccountsAccountIdTransactionsNewRoute =
+  AppAccountsAccountIdTransactionsNewRouteImport.update({
+    id: '/transactions/new',
+    path: '/transactions/new',
+    getParentRoute: () => AppAccountsAccountIdRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
+  '/': typeof AppIndexRoute
   '/about': typeof AboutRoute
   '/login': typeof LoginRoute
+  '/accounts': typeof AppAccountsRouteWithChildren
+  '/care': typeof AppCareRoute
+  '/documents': typeof AppDocumentsRoute
+  '/insights': typeof AppInsightsRoute
+  '/settings': typeof AppSettingsRoute
+  '/transactions': typeof AppTransactionsRoute
+  '/accounts/$accountId': typeof AppAccountsAccountIdRouteWithChildren
+  '/accounts/new': typeof AppAccountsNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/accounts/': typeof AppAccountsIndexRoute
+  '/accounts/$accountId/settings': typeof AppAccountsAccountIdSettingsRoute
+  '/accounts/$accountId/': typeof AppAccountsAccountIdIndexRoute
+  '/accounts/$accountId/transactions/new': typeof AppAccountsAccountIdTransactionsNewRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/login': typeof LoginRoute
+  '/care': typeof AppCareRoute
+  '/documents': typeof AppDocumentsRoute
+  '/insights': typeof AppInsightsRoute
+  '/settings': typeof AppSettingsRoute
+  '/transactions': typeof AppTransactionsRoute
+  '/': typeof AppIndexRoute
+  '/accounts/new': typeof AppAccountsNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/accounts': typeof AppAccountsIndexRoute
+  '/accounts/$accountId/settings': typeof AppAccountsAccountIdSettingsRoute
+  '/accounts/$accountId': typeof AppAccountsAccountIdIndexRoute
+  '/accounts/$accountId/transactions/new': typeof AppAccountsAccountIdTransactionsNewRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
+  '/_app': typeof AppRouteWithChildren
   '/about': typeof AboutRoute
   '/login': typeof LoginRoute
+  '/_app/accounts': typeof AppAccountsRouteWithChildren
+  '/_app/care': typeof AppCareRoute
+  '/_app/documents': typeof AppDocumentsRoute
+  '/_app/insights': typeof AppInsightsRoute
+  '/_app/settings': typeof AppSettingsRoute
+  '/_app/transactions': typeof AppTransactionsRoute
+  '/_app/': typeof AppIndexRoute
+  '/_app/accounts/$accountId': typeof AppAccountsAccountIdRouteWithChildren
+  '/_app/accounts/new': typeof AppAccountsNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/_app/accounts/': typeof AppAccountsIndexRoute
+  '/_app/accounts/$accountId/settings': typeof AppAccountsAccountIdSettingsRoute
+  '/_app/accounts/$accountId/': typeof AppAccountsAccountIdIndexRoute
+  '/_app/accounts/$accountId/transactions/new': typeof AppAccountsAccountIdTransactionsNewRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/about' | '/login' | '/api/auth/$'
+  fullPaths:
+    | '/'
+    | '/about'
+    | '/login'
+    | '/accounts'
+    | '/care'
+    | '/documents'
+    | '/insights'
+    | '/settings'
+    | '/transactions'
+    | '/accounts/$accountId'
+    | '/accounts/new'
+    | '/api/auth/$'
+    | '/accounts/'
+    | '/accounts/$accountId/settings'
+    | '/accounts/$accountId/'
+    | '/accounts/$accountId/transactions/new'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/about' | '/login' | '/api/auth/$'
-  id: '__root__' | '/' | '/about' | '/login' | '/api/auth/$'
+  to:
+    | '/about'
+    | '/login'
+    | '/care'
+    | '/documents'
+    | '/insights'
+    | '/settings'
+    | '/transactions'
+    | '/'
+    | '/accounts/new'
+    | '/api/auth/$'
+    | '/accounts'
+    | '/accounts/$accountId/settings'
+    | '/accounts/$accountId'
+    | '/accounts/$accountId/transactions/new'
+  id:
+    | '__root__'
+    | '/_app'
+    | '/about'
+    | '/login'
+    | '/_app/accounts'
+    | '/_app/care'
+    | '/_app/documents'
+    | '/_app/insights'
+    | '/_app/settings'
+    | '/_app/transactions'
+    | '/_app/'
+    | '/_app/accounts/$accountId'
+    | '/_app/accounts/new'
+    | '/api/auth/$'
+    | '/_app/accounts/'
+    | '/_app/accounts/$accountId/settings'
+    | '/_app/accounts/$accountId/'
+    | '/_app/accounts/$accountId/transactions/new'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
+  AppRoute: typeof AppRouteWithChildren
   AboutRoute: typeof AboutRoute
   LoginRoute: typeof LoginRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
@@ -85,12 +248,68 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AboutRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
+    '/_app': {
+      id: '/_app'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_app/': {
+      id: '/_app/'
       path: '/'
       fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/transactions': {
+      id: '/_app/transactions'
+      path: '/transactions'
+      fullPath: '/transactions'
+      preLoaderRoute: typeof AppTransactionsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings': {
+      id: '/_app/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AppSettingsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/insights': {
+      id: '/_app/insights'
+      path: '/insights'
+      fullPath: '/insights'
+      preLoaderRoute: typeof AppInsightsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/documents': {
+      id: '/_app/documents'
+      path: '/documents'
+      fullPath: '/documents'
+      preLoaderRoute: typeof AppDocumentsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/care': {
+      id: '/_app/care'
+      path: '/care'
+      fullPath: '/care'
+      preLoaderRoute: typeof AppCareRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/accounts': {
+      id: '/_app/accounts'
+      path: '/accounts'
+      fullPath: '/accounts'
+      preLoaderRoute: typeof AppAccountsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/accounts/': {
+      id: '/_app/accounts/'
+      path: '/'
+      fullPath: '/accounts/'
+      preLoaderRoute: typeof AppAccountsIndexRouteImport
+      parentRoute: typeof AppAccountsRoute
     }
     '/api/auth/$': {
       id: '/api/auth/$'
@@ -99,11 +318,100 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_app/accounts/new': {
+      id: '/_app/accounts/new'
+      path: '/new'
+      fullPath: '/accounts/new'
+      preLoaderRoute: typeof AppAccountsNewRouteImport
+      parentRoute: typeof AppAccountsRoute
+    }
+    '/_app/accounts/$accountId': {
+      id: '/_app/accounts/$accountId'
+      path: '/$accountId'
+      fullPath: '/accounts/$accountId'
+      preLoaderRoute: typeof AppAccountsAccountIdRouteImport
+      parentRoute: typeof AppAccountsRoute
+    }
+    '/_app/accounts/$accountId/': {
+      id: '/_app/accounts/$accountId/'
+      path: '/'
+      fullPath: '/accounts/$accountId/'
+      preLoaderRoute: typeof AppAccountsAccountIdIndexRouteImport
+      parentRoute: typeof AppAccountsAccountIdRoute
+    }
+    '/_app/accounts/$accountId/settings': {
+      id: '/_app/accounts/$accountId/settings'
+      path: '/settings'
+      fullPath: '/accounts/$accountId/settings'
+      preLoaderRoute: typeof AppAccountsAccountIdSettingsRouteImport
+      parentRoute: typeof AppAccountsAccountIdRoute
+    }
+    '/_app/accounts/$accountId/transactions/new': {
+      id: '/_app/accounts/$accountId/transactions/new'
+      path: '/transactions/new'
+      fullPath: '/accounts/$accountId/transactions/new'
+      preLoaderRoute: typeof AppAccountsAccountIdTransactionsNewRouteImport
+      parentRoute: typeof AppAccountsAccountIdRoute
+    }
   }
 }
 
+interface AppAccountsAccountIdRouteChildren {
+  AppAccountsAccountIdSettingsRoute: typeof AppAccountsAccountIdSettingsRoute
+  AppAccountsAccountIdIndexRoute: typeof AppAccountsAccountIdIndexRoute
+  AppAccountsAccountIdTransactionsNewRoute: typeof AppAccountsAccountIdTransactionsNewRoute
+}
+
+const AppAccountsAccountIdRouteChildren: AppAccountsAccountIdRouteChildren = {
+  AppAccountsAccountIdSettingsRoute: AppAccountsAccountIdSettingsRoute,
+  AppAccountsAccountIdIndexRoute: AppAccountsAccountIdIndexRoute,
+  AppAccountsAccountIdTransactionsNewRoute:
+    AppAccountsAccountIdTransactionsNewRoute,
+}
+
+const AppAccountsAccountIdRouteWithChildren =
+  AppAccountsAccountIdRoute._addFileChildren(AppAccountsAccountIdRouteChildren)
+
+interface AppAccountsRouteChildren {
+  AppAccountsAccountIdRoute: typeof AppAccountsAccountIdRouteWithChildren
+  AppAccountsNewRoute: typeof AppAccountsNewRoute
+  AppAccountsIndexRoute: typeof AppAccountsIndexRoute
+}
+
+const AppAccountsRouteChildren: AppAccountsRouteChildren = {
+  AppAccountsAccountIdRoute: AppAccountsAccountIdRouteWithChildren,
+  AppAccountsNewRoute: AppAccountsNewRoute,
+  AppAccountsIndexRoute: AppAccountsIndexRoute,
+}
+
+const AppAccountsRouteWithChildren = AppAccountsRoute._addFileChildren(
+  AppAccountsRouteChildren,
+)
+
+interface AppRouteChildren {
+  AppAccountsRoute: typeof AppAccountsRouteWithChildren
+  AppCareRoute: typeof AppCareRoute
+  AppDocumentsRoute: typeof AppDocumentsRoute
+  AppInsightsRoute: typeof AppInsightsRoute
+  AppSettingsRoute: typeof AppSettingsRoute
+  AppTransactionsRoute: typeof AppTransactionsRoute
+  AppIndexRoute: typeof AppIndexRoute
+}
+
+const AppRouteChildren: AppRouteChildren = {
+  AppAccountsRoute: AppAccountsRouteWithChildren,
+  AppCareRoute: AppCareRoute,
+  AppDocumentsRoute: AppDocumentsRoute,
+  AppInsightsRoute: AppInsightsRoute,
+  AppSettingsRoute: AppSettingsRoute,
+  AppTransactionsRoute: AppTransactionsRoute,
+  AppIndexRoute: AppIndexRoute,
+}
+
+const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
+  AppRoute: AppRouteWithChildren,
   AboutRoute: AboutRoute,
   LoginRoute: LoginRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,

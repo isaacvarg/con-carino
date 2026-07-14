@@ -6,6 +6,48 @@
   themes: all;
 }
 
+@plugin "daisyui/theme" {
+  name: "concarino";
+  default: true;
+  prefersdark: false;
+  color-scheme: light;
+
+  --color-base-100: oklch(100% 0 0);
+  --color-base-200: oklch(97% 0.005 160);
+  --color-base-300: oklch(93% 0.01 160);
+  --color-base-content: oklch(22% 0.02 175);
+
+  --color-primary: oklch(90% 0.1 130);
+  --color-primary-content: oklch(25% 0.04 175);
+
+  --color-secondary: oklch(25% 0.035 175);
+  --color-secondary-content: oklch(98% 0.01 130);
+
+  --color-accent: oklch(78% 0.09 160);
+  --color-accent-content: oklch(22% 0.02 175);
+
+  --color-neutral: oklch(30% 0.02 175);
+  --color-neutral-content: oklch(98% 0 0);
+
+  --color-info: oklch(75% 0.1 220);
+  --color-info-content: oklch(25% 0.04 220);
+  --color-success: oklch(85% 0.08 145);
+  --color-success-content: oklch(25% 0.04 145);
+  --color-warning: oklch(85% 0.1 70);
+  --color-warning-content: oklch(30% 0.05 70);
+  --color-error: oklch(80% 0.1 25);
+  --color-error-content: oklch(30% 0.06 25);
+
+  --radius-selector: 1.5rem;
+  --radius-field: 9999px;
+  --radius-box: 1.75rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
+
 @theme {
   --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
 }
@@ -57,15 +99,10 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Do not force link color — daisyUI text-* utilities (and themeing) need to win */
 a {
-  color: var(--lagoon-deep);
-  text-decoration-color: color-mix(in oklab, var(--lagoon-deep) 40%, transparent);
   text-decoration-thickness: 1px;
   text-underline-offset: 2px;
-}
-
-a:hover {
-  color: color-mix(in oklab, var(--lagoon-deep) 80%, var(--sea-ink));
 }
 
 code {

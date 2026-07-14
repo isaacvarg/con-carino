@@ -1,5 +1,6 @@
-/** daisyUI built-in theme names (v5). */
+/** daisyUI theme names (built-in + brand). */
 export const THEMES = [
+  'concarino',
   'light',
   'dark',
   'cupcake',
@@ -69,5 +70,8 @@ export function colorSchemeForTheme(theme: ThemeName): 'light' | 'dark' {
 }
 
 export function formatThemeLabel(theme: ThemeName): string {
+  if (theme === 'concarino') {
+    return 'Con cariño'
+  }
   return theme.charAt(0).toUpperCase() + theme.slice(1)
 }
