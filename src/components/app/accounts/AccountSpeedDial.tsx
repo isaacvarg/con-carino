@@ -16,20 +16,26 @@ const ACTIONS = [
   {
     id: 'transaction',
     label: 'Transaction',
+    icon: HiPlus,
+    to: '/accounts/$accountId/transactions/new' as const,
+  },
+  {
+    id: 'transfer',
+    label: 'Transfer',
     icon: HiSwitchHorizontal,
-    wired: true,
+    to: '/accounts/$accountId/transfers/new' as const,
   },
   {
     id: 'expense',
     label: 'Expense',
     icon: HiOutlineCash,
-    wired: false,
+    to: null,
   },
   {
     id: 'note',
     label: 'Note',
     icon: HiDocumentText,
-    wired: false,
+    to: null,
   },
 ] as const
 
@@ -53,44 +59,14 @@ export function AccountSpeedDial({ accountId }: AccountSpeedDialProps) {
               </>
             )
 
-            if (action.wired) {
+            if (action.to) {
               return (
                 <li key={action.id}>
                   <Link
-                    to="/accounts/$accountId/transactions/new"
+                    to={action.to}
                     params={{ accountId }}
                     className="flex items-center gap-2"
-                    onClick={(event) => {
-                      // #region agent log
-                      const target = event.currentTarget
-                      fetch(
-                        'http://127.0.0.1:7370/ingest/1b862042-6039-4f52-970e-ddff822b37a8',
-                        {
-                          method: 'POST',
-                          headers: {
-                            'Content-Type': 'application/json',
-                            'X-Debug-Session-Id': 'd29c5e',
-                          },
-                          body: JSON.stringify({
-                            sessionId: 'd29c5e',
-                            runId: 'post-fix',
-                            hypothesisId: 'H4',
-                            location: 'AccountSpeedDial.tsx:transactionLink',
-                            message: 'Speed dial transaction clicked',
-                            data: {
-                              accountId,
-                              href: target.getAttribute('href'),
-                              defaultPrevented: event.defaultPrevented,
-                              pathname: window.location.pathname,
-                              search: window.location.search,
-                            },
-                            timestamp: Date.now(),
-                          }),
-                        },
-                      ).catch(() => {})
-                      // #endregion
-                      setOpen(false)
-                    }}
+                    onClick={() => setOpen(false)}
                   >
                     {content}
                   </Link>

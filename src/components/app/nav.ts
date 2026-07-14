@@ -75,6 +75,9 @@ export function titleForPath(pathname: string): string {
   if (/^\/accounts\/[^/]+\/transactions\/new$/.test(path)) {
     return 'Add transaction'
   }
+  if (/^\/accounts\/[^/]+\/transfers\/new$/.test(path)) {
+    return 'Transfer'
+  }
   if (/^\/accounts\/[^/]+$/.test(path) && path !== '/accounts/new') {
     return 'Account'
   }

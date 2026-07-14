@@ -14,6 +14,7 @@ export type AccountListItem = {
   name: string
   type: AccountType
   initialBalance: string
+  currentBalance: string
   isGlobal: boolean
   accountGroupId: string | null
   accountGroup: { id: string; name: string; isGlobal: boolean } | null
@@ -131,6 +132,41 @@ function validateCreateInput(data: unknown): CreateAccountInput {
   }
 }
 
+function formatBalance(value: number): string {
+  return value.toFixed(4)
+}
+
+async function currentBalancesForAccounts(
+  accounts: Array<{ id: string; initialBalance: { toString(): string } }>,
+): Promise<Map<string, string>> {
+  if (accounts.length === 0) {
+    return new Map()
+  }
+
+  const sums = await prisma.transaction.groupBy({
+    by: ['financialAccountId'],
+    where: {
+      financialAccountId: { in: accounts.map((account) => account.id) },
+    },
+    _sum: { amount: true },
+  })
+
+  const txnSumByAccountId = new Map(
+    sums.map((row) => [
+      row.financialAccountId,
+      Number(row._sum.amount?.toString() ?? '0'),
+    ]),
+  )
+
+  return new Map(
+    accounts.map((account) => {
+      const opening = Number(account.initialBalance.toString())
+      const txnSum = txnSumByAccountId.get(account.id) ?? 0
+      return [account.id, formatBalance(opening + txnSum)]
+    }),
+  )
+}
+
 export const listAccounts = createServerFn({ method: 'GET' }).handler(
   async (): Promise<AccountListItem[]> => {
     const userId = await requireUserId()
@@ -144,12 +180,17 @@ export const listAccounts = createServerFn({ method: 'GET' }).handler(
       orderBy: [{ name: 'asc' }],
     })
 
+    const balances = await currentBalancesForAccounts(accounts)
+
     return accounts.map((account) => ({
       id: account.id,
       userId: account.userId,
       name: account.name,
       type: account.type,
       initialBalance: account.initialBalance.toString(),
+      currentBalance:
+        balances.get(account.id) ??
+        formatBalance(Number(account.initialBalance.toString())),
       isGlobal: account.isGlobal,
       accountGroupId: account.accountGroupId,
       accountGroup: account.accountGroup,
@@ -188,6 +229,7 @@ function toAccountListItem(
     accountGroup: { id: string; name: string; isGlobal: boolean } | null
   },
   currentUserId: string,
+  currentBalance: string,
 ): AccountListItem {
   return {
     id: account.id,
@@ -195,11 +237,34 @@ function toAccountListItem(
     name: account.name,
     type: account.type,
     initialBalance: account.initialBalance.toString(),
+    currentBalance,
     isGlobal: account.isGlobal,
     accountGroupId: account.accountGroupId,
     accountGroup: account.accountGroup,
     isOwned: account.userId === currentUserId,
   }
+}
+
+async function toAccountListItemWithBalance(
+  account: {
+    id: string
+    userId: string
+    name: string
+    type: AccountType
+    initialBalance: { toString(): string }
+    isGlobal: boolean
+    accountGroupId: string | null
+    accountGroup: { id: string; name: string; isGlobal: boolean } | null
+  },
+  currentUserId: string,
+): Promise<AccountListItem> {
+  const balances = await currentBalancesForAccounts([account])
+  return toAccountListItem(
+    account,
+    currentUserId,
+    balances.get(account.id) ??
+      formatBalance(Number(account.initialBalance.toString())),
+  )
 }
 
 async function findVisibleAccount(userId: string, accountId: string) {
@@ -235,7 +300,7 @@ export const getAccount = createServerFn({ method: 'GET' })
     if (!account) {
       throw new Error('Account not found.')
     }
-    return toAccountListItem(account, userId)
+    return toAccountListItemWithBalance(account, userId)
   })
 
 export const checkAccountNameAvailable = createServerFn({ method: 'POST' })
@@ -331,7 +396,7 @@ export const updateAccount = createServerFn({ method: 'POST' })
       },
     })
 
-    return toAccountListItem(updated, userId)
+    return toAccountListItemWithBalance(updated, userId)
   })
 
 export const createAccount = createServerFn({ method: 'POST' })
@@ -396,12 +461,14 @@ export const createAccount = createServerFn({ method: 'POST' })
       })
     })
 
+    const initialBalanceText = account.initialBalance.toString()
     return {
       id: account.id,
       userId: account.userId,
       name: account.name,
       type: account.type,
-      initialBalance: account.initialBalance.toString(),
+      initialBalance: initialBalanceText,
+      currentBalance: formatBalance(Number(initialBalanceText)),
       isGlobal: account.isGlobal,
       accountGroupId: account.accountGroupId,
       accountGroup: account.accountGroup,

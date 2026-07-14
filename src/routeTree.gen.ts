@@ -25,6 +25,7 @@ import { Route as AppAccountsNewRouteImport } from './routes/_app/accounts/new'
 import { Route as AppAccountsAccountIdRouteImport } from './routes/_app/accounts/$accountId'
 import { Route as AppAccountsAccountIdIndexRouteImport } from './routes/_app/accounts/$accountId/index'
 import { Route as AppAccountsAccountIdSettingsRouteImport } from './routes/_app/accounts/$accountId/settings'
+import { Route as AppAccountsAccountIdTransfersNewRouteImport } from './routes/_app/accounts/$accountId/transfers/new'
 import { Route as AppAccountsAccountIdTransactionsNewRouteImport } from './routes/_app/accounts/$accountId/transactions/new'
 
 const LoginRoute = LoginRouteImport.update({
@@ -108,6 +109,12 @@ const AppAccountsAccountIdSettingsRoute =
     path: '/settings',
     getParentRoute: () => AppAccountsAccountIdRoute,
   } as any)
+const AppAccountsAccountIdTransfersNewRoute =
+  AppAccountsAccountIdTransfersNewRouteImport.update({
+    id: '/transfers/new',
+    path: '/transfers/new',
+    getParentRoute: () => AppAccountsAccountIdRoute,
+  } as any)
 const AppAccountsAccountIdTransactionsNewRoute =
   AppAccountsAccountIdTransactionsNewRouteImport.update({
     id: '/transactions/new',
@@ -132,6 +139,7 @@ export interface FileRoutesByFullPath {
   '/accounts/$accountId/settings': typeof AppAccountsAccountIdSettingsRoute
   '/accounts/$accountId/': typeof AppAccountsAccountIdIndexRoute
   '/accounts/$accountId/transactions/new': typeof AppAccountsAccountIdTransactionsNewRoute
+  '/accounts/$accountId/transfers/new': typeof AppAccountsAccountIdTransfersNewRoute
 }
 export interface FileRoutesByTo {
   '/about': typeof AboutRoute
@@ -148,6 +156,7 @@ export interface FileRoutesByTo {
   '/accounts/$accountId/settings': typeof AppAccountsAccountIdSettingsRoute
   '/accounts/$accountId': typeof AppAccountsAccountIdIndexRoute
   '/accounts/$accountId/transactions/new': typeof AppAccountsAccountIdTransactionsNewRoute
+  '/accounts/$accountId/transfers/new': typeof AppAccountsAccountIdTransfersNewRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -168,6 +177,7 @@ export interface FileRoutesById {
   '/_app/accounts/$accountId/settings': typeof AppAccountsAccountIdSettingsRoute
   '/_app/accounts/$accountId/': typeof AppAccountsAccountIdIndexRoute
   '/_app/accounts/$accountId/transactions/new': typeof AppAccountsAccountIdTransactionsNewRoute
+  '/_app/accounts/$accountId/transfers/new': typeof AppAccountsAccountIdTransfersNewRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -188,6 +198,7 @@ export interface FileRouteTypes {
     | '/accounts/$accountId/settings'
     | '/accounts/$accountId/'
     | '/accounts/$accountId/transactions/new'
+    | '/accounts/$accountId/transfers/new'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/about'
@@ -204,6 +215,7 @@ export interface FileRouteTypes {
     | '/accounts/$accountId/settings'
     | '/accounts/$accountId'
     | '/accounts/$accountId/transactions/new'
+    | '/accounts/$accountId/transfers/new'
   id:
     | '__root__'
     | '/_app'
@@ -223,6 +235,7 @@ export interface FileRouteTypes {
     | '/_app/accounts/$accountId/settings'
     | '/_app/accounts/$accountId/'
     | '/_app/accounts/$accountId/transactions/new'
+    | '/_app/accounts/$accountId/transfers/new'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -346,6 +359,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAccountsAccountIdSettingsRouteImport
       parentRoute: typeof AppAccountsAccountIdRoute
     }
+    '/_app/accounts/$accountId/transfers/new': {
+      id: '/_app/accounts/$accountId/transfers/new'
+      path: '/transfers/new'
+      fullPath: '/accounts/$accountId/transfers/new'
+      preLoaderRoute: typeof AppAccountsAccountIdTransfersNewRouteImport
+      parentRoute: typeof AppAccountsAccountIdRoute
+    }
     '/_app/accounts/$accountId/transactions/new': {
       id: '/_app/accounts/$accountId/transactions/new'
       path: '/transactions/new'
@@ -360,6 +380,7 @@ interface AppAccountsAccountIdRouteChildren {
   AppAccountsAccountIdSettingsRoute: typeof AppAccountsAccountIdSettingsRoute
   AppAccountsAccountIdIndexRoute: typeof AppAccountsAccountIdIndexRoute
   AppAccountsAccountIdTransactionsNewRoute: typeof AppAccountsAccountIdTransactionsNewRoute
+  AppAccountsAccountIdTransfersNewRoute: typeof AppAccountsAccountIdTransfersNewRoute
 }
 
 const AppAccountsAccountIdRouteChildren: AppAccountsAccountIdRouteChildren = {
@@ -367,6 +388,7 @@ const AppAccountsAccountIdRouteChildren: AppAccountsAccountIdRouteChildren = {
   AppAccountsAccountIdIndexRoute: AppAccountsAccountIdIndexRoute,
   AppAccountsAccountIdTransactionsNewRoute:
     AppAccountsAccountIdTransactionsNewRoute,
+  AppAccountsAccountIdTransfersNewRoute: AppAccountsAccountIdTransfersNewRoute,
 }
 
 const AppAccountsAccountIdRouteWithChildren =

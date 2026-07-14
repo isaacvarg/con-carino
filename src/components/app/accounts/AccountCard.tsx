@@ -34,10 +34,10 @@ export function AccountCard({ account }: AccountCardProps) {
 
       <div>
         <p className="text-xs uppercase tracking-wide text-base-content/50">
-          Opening balance
+          Current balance
         </p>
         <p className="mt-1 text-2xl font-semibold tracking-tight text-base-content">
-          {formatAccountCurrency(account.initialBalance)}
+          {formatAccountCurrency(account.currentBalance)}
         </p>
       </div>
     </Link>

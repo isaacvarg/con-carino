@@ -37,7 +37,9 @@ export default function AppHeader({ onMenuClick }: AppHeaderProps) {
   const isAccountRoute =
     Boolean(account) &&
     path !== '/accounts/new' &&
-    /^\/accounts\/[^/]+(?:\/settings|\/transactions\/new)?$/.test(path)
+    /^\/accounts\/[^/]+(?:\/settings|\/transactions\/new|\/transfers\/new)?$/.test(
+      path,
+    )
   const title = isAccountRoute ? account!.name : titleForPath(pathname)
   const displayName =
     session?.user?.name ?? session?.user?.email ?? 'Guest'

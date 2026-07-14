@@ -1,18 +1,30 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, redirect } from '@tanstack/react-router'
+import { AllTransactionsTable } from '#/components/app/transactions/AllTransactionsTable'
+import { validateTransactionsSearch } from '#/components/app/transactions/transactions-search'
+import { listVisibleTransactions } from '#/server/transactions'
 
 export const Route = createFileRoute('/_app/transactions')({
+  beforeLoad: ({ context, location }) => {
+    if (!context.session) {
+      throw redirect({
+        to: '/login',
+        search: { redirect: location.href },
+      })
+    }
+  },
+  validateSearch: validateTransactionsSearch,
+  loader: async () => {
+    const transactions = await listVisibleTransactions()
+    return { transactions }
+  },
   component: TransactionsPage,
 })
 
 function TransactionsPage() {
+  const { transactions } = Route.useLoaderData()
+  const search = Route.useSearch()
+
   return (
-    <div className="card bg-base-100 shadow-sm">
-      <div className="card-body">
-        <h2 className="card-title">Transactions</h2>
-        <p className="text-base-content/60">
-          Browse and filter all of your transactions here.
-        </p>
-      </div>
-    </div>
+    <AllTransactionsTable transactions={transactions} search={search} />
   )
 }
