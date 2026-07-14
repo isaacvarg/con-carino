@@ -1,81 +1,97 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ChangeEvent } from 'react'
+import {
+  THEMES,
+  colorSchemeForTheme,
+  formatThemeLabel,
+  isThemeSelection,
+  type ThemeName,
+  type ThemeSelection,
+} from '#/lib/themes'
 
-type ThemeMode = 'light' | 'dark' | 'auto'
+const STORAGE_KEY = 'theme'
 
-function getInitialMode(): ThemeMode {
+function getInitialSelection(): ThemeSelection {
   if (typeof window === 'undefined') {
-    return 'auto'
+    return 'system'
   }
 
-  const stored = window.localStorage.getItem('theme')
-  if (stored === 'light' || stored === 'dark' || stored === 'auto') {
+  const stored = window.localStorage.getItem(STORAGE_KEY)
+  if (stored && isThemeSelection(stored)) {
     return stored
   }
 
-  return 'auto'
-}
-
-function applyThemeMode(mode: ThemeMode) {
-  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-  const resolved = mode === 'auto' ? (prefersDark ? 'dark' : 'light') : mode
-
-  document.documentElement.classList.remove('light', 'dark')
-  document.documentElement.classList.add(resolved)
-
-  if (mode === 'auto') {
-    document.documentElement.removeAttribute('data-theme')
-  } else {
-    document.documentElement.setAttribute('data-theme', mode)
+  // Migrate legacy light/dark/auto values
+  if (stored === 'auto') {
+    return 'system'
   }
 
-  document.documentElement.style.colorScheme = resolved
+  return 'system'
+}
+
+export function applyThemeSelection(selection: ThemeSelection) {
+  const root = document.documentElement
+  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+
+  if (selection === 'system') {
+    root.removeAttribute('data-theme')
+    root.style.colorScheme = prefersDark ? 'dark' : 'light'
+    return
+  }
+
+  root.setAttribute('data-theme', selection)
+  root.style.colorScheme = colorSchemeForTheme(selection)
 }
 
 export default function ThemeToggle() {
-  const [mode, setMode] = useState<ThemeMode>('auto')
+  const [selection, setSelection] = useState<ThemeSelection>('system')
 
   useEffect(() => {
-    const initialMode = getInitialMode()
-    setMode(initialMode)
-    applyThemeMode(initialMode)
+    const initial = getInitialSelection()
+    setSelection(initial)
+    applyThemeSelection(initial)
   }, [])
 
   useEffect(() => {
-    if (mode !== 'auto') {
+    if (selection !== 'system') {
       return
     }
 
     const media = window.matchMedia('(prefers-color-scheme: dark)')
-    const onChange = () => applyThemeMode('auto')
+    const onChange = () => applyThemeSelection('system')
 
     media.addEventListener('change', onChange)
     return () => {
       media.removeEventListener('change', onChange)
     }
-  }, [mode])
+  }, [selection])
 
-  function toggleMode() {
-    const nextMode: ThemeMode =
-      mode === 'light' ? 'dark' : mode === 'dark' ? 'auto' : 'light'
-    setMode(nextMode)
-    applyThemeMode(nextMode)
-    window.localStorage.setItem('theme', nextMode)
+  function onChange(event: ChangeEvent<HTMLSelectElement>) {
+    const next = event.target.value
+    if (!isThemeSelection(next)) {
+      return
+    }
+
+    setSelection(next)
+    applyThemeSelection(next)
+    window.localStorage.setItem(STORAGE_KEY, next)
   }
 
-  const label =
-    mode === 'auto'
-      ? 'Theme mode: auto (system). Click to switch to light mode.'
-      : `Theme mode: ${mode}. Click to switch mode.`
-
   return (
-    <button
-      type="button"
-      onClick={toggleMode}
-      aria-label={label}
-      title={label}
-      className="rounded-full border border-[var(--chip-line)] bg-[var(--chip-bg)] px-3 py-1.5 text-sm font-semibold text-[var(--sea-ink)] shadow-[0_8px_22px_rgba(30,90,72,0.08)] transition hover:-translate-y-0.5"
-    >
-      {mode === 'auto' ? 'Auto' : mode === 'dark' ? 'Dark' : 'Light'}
-    </button>
+    <label className="flex items-center gap-2">
+      <span className="sr-only">Theme</span>
+      <select
+        className="select select-bordered select-sm w-[9.5rem] font-semibold"
+        value={selection}
+        onChange={onChange}
+        aria-label="Color theme"
+      >
+        <option value="system">System</option>
+        {THEMES.map((theme: ThemeName) => (
+          <option key={theme} value={theme}>
+            {formatThemeLabel(theme)}
+          </option>
+        ))}
+      </select>
+    </label>
   )
 }
