@@ -357,6 +357,38 @@ pre code {
   background: color-mix(in oklab, var(--lagoon) 8%, transparent);
 }
 
+/* App form layout — prefer React helpers in #/components/app/ui/form */
+@layer components {
+  .app-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  .app-form-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .app-form-label {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    font-weight: 500;
+    color: var(--color-base-content);
+  }
+
+  .app-form-actions {
+    margin-top: 0.5rem;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    border-top: 1px solid var(--color-base-200);
+    padding-top: 1rem;
+  }
+}
+
 button,
 .island-shell,
 a {

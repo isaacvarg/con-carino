@@ -28,6 +28,7 @@ model Transaction {
   category         Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   tags             Tag[]
   attachments      Attachment[]
+  careInvoice      CareInvoice?
 
   @@index([userId, date])
   @@index([financialAccountId, date])

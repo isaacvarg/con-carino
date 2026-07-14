@@ -1,18 +1,4 @@
-export function TaxonomyFieldError({
-  id,
-  errors,
-}: {
-  id: string
-  errors: Array<string | undefined>
-}) {
-  const message = errors.filter(Boolean)[0]
-  if (!message) return null
-  return (
-    <p id={id} className="mt-1 text-sm text-error" role="alert">
-      {message}
-    </p>
-  )
-}
+import { FORM_INPUT_CLASS, FormField } from '#/components/app/ui/form'
 
 type ColorFieldProps = {
   id: string
@@ -32,10 +18,7 @@ export function ColorField({
   const swatchValue = /^#[0-9a-fA-F]{6}$/.test(value) ? value : '#000000'
 
   return (
-    <div>
-      <label className="label" htmlFor={id}>
-        <span className="label-text font-medium">{label}</span>
-      </label>
+    <FormField label={label} htmlFor={id}>
       <div className="flex items-center gap-2">
         <input
           type="color"
@@ -47,13 +30,13 @@ export function ColorField({
         <input
           id={id}
           type="text"
-          className="input input-bordered w-full"
+          className={FORM_INPUT_CLASS}
           value={value}
           onBlur={onBlur}
           onChange={(event) => onChange(event.target.value)}
           placeholder="#000000"
         />
       </div>
-    </div>
+    </FormField>
   )
 }

@@ -2,6 +2,16 @@ import { useForm } from '@tanstack/react-form'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useRef, useState } from 'react'
 import { HiPlus } from 'react-icons/hi'
+import {
+  FORM_INPUT_CLASS,
+  FORM_SELECT_CLASS,
+  FORM_TEXTAREA_CLASS,
+  FormActions,
+  FormField,
+  FormFieldError,
+  FormRow,
+  FormShell,
+} from '#/components/app/ui/form'
 import type { TransactionType } from '#/generated/prisma/enums'
 import type { TaxonomyListItem } from '#/lib/taxonomy-types'
 import type { AccountListItem } from '#/server/accounts'
@@ -41,22 +51,6 @@ type AddTransactionFormProps = {
   payees: TaxonomyListItem[]
   categories: TaxonomyListItem[]
   tags: TaxonomyListItem[]
-}
-
-function FieldError({
-  id,
-  errors,
-}: {
-  id: string
-  errors: Array<string | undefined>
-}) {
-  const message = errors.filter(Boolean)[0]
-  if (!message) return null
-  return (
-    <p id={id} className="mt-1 text-sm text-error" role="alert">
-      {message}
-    </p>
-  )
 }
 
 function sortByName<T extends { name: string }>(items: T[]): T[] {
@@ -139,8 +133,7 @@ export function AddTransactionForm({
         </Link>
       </div>
 
-      <form
-        className="flex flex-col gap-5 rounded-box bg-base-100 p-5 shadow-sm sm:p-6"
+      <FormShell
         onSubmit={(event) => {
           event.preventDefault()
           event.stopPropagation()
@@ -155,14 +148,11 @@ export function AddTransactionForm({
           }}
         >
           {(field) => (
-            <div>
-              <label className="label" htmlFor={field.name}>
-                <span className="label-text font-medium">Type</span>
-              </label>
+            <FormField label="Type" htmlFor={field.name}>
               <select
                 id={field.name}
                 name={field.name}
-                className="select select-bordered w-full"
+                className={FORM_SELECT_CLASS}
                 value={field.state.value}
                 onBlur={field.handleBlur}
                 onChange={(event) => {
@@ -182,7 +172,7 @@ export function AddTransactionForm({
                   </option>
                 ))}
               </select>
-            </div>
+            </FormField>
           )}
         </form.Field>
 
@@ -199,16 +189,11 @@ export function AddTransactionForm({
                 }}
               >
                 {(field) => (
-                  <div>
-                    <label className="label" htmlFor={field.name}>
-                      <span className="label-text font-medium">
-                        Effect on account
-                      </span>
-                    </label>
+                  <FormField label="Effect on account" htmlFor={field.name}>
                     <select
                       id={field.name}
                       name={field.name}
-                      className="select select-bordered w-full"
+                      className={FORM_SELECT_CLASS}
                       value={field.state.value}
                       onBlur={field.handleBlur}
                       onChange={(event) =>
@@ -220,98 +205,105 @@ export function AddTransactionForm({
                       <option value="in">In (increases balance)</option>
                       <option value="out">Out (decreases balance)</option>
                     </select>
-                  </div>
+                  </FormField>
                 )}
               </form.Field>
             ) : null
           }
         </form.Subscribe>
 
-        <form.Field
-          name="amount"
-          validators={{
-            onChange: ({ value }) => {
-              if (!value.trim()) return 'Amount is required.'
-              const amount = Number(value)
-              if (!Number.isFinite(amount)) return 'Enter a valid number.'
-              if (amount <= 0) return 'Amount must be greater than zero.'
-              return undefined
-            },
-          }}
-        >
-          {(field) => {
-            const errorId = `${field.name}-error`
-            const hasError = field.state.meta.errors.length > 0
-            return (
-              <div>
-                <label className="label" htmlFor={field.name}>
-                  <span className="label-text font-medium">Amount</span>
-                </label>
-                <input
-                  id={field.name}
-                  name={field.name}
-                  type="number"
-                  step="0.01"
-                  min="0.01"
-                  className="input input-bordered w-full"
-                  value={field.state.value}
-                  onBlur={field.handleBlur}
-                  onChange={(event) => field.handleChange(event.target.value)}
-                  aria-invalid={hasError}
-                  aria-describedby={hasError ? errorId : undefined}
-                />
-                <p className="mt-1 text-xs text-base-content/50">
-                  Enter a positive amount. Sign is applied from the type.
-                </p>
-                <FieldError id={errorId} errors={field.state.meta.errors} />
-              </div>
-            )
-          }}
-        </form.Field>
+        <FormRow>
+          <form.Field
+            name="amount"
+            validators={{
+              onChange: ({ value }) => {
+                if (!value.trim()) return 'Amount is required.'
+                const amount = Number(value)
+                if (!Number.isFinite(amount)) return 'Enter a valid number.'
+                if (amount <= 0) return 'Amount must be greater than zero.'
+                return undefined
+              },
+            }}
+          >
+            {(field) => {
+              const errorId = `${field.name}-error`
+              const hasError = field.state.meta.errors.length > 0
+              return (
+                <FormField
+                  label="Amount"
+                  htmlFor={field.name}
+                  hint="Enter a positive amount. Sign is applied from the type."
+                  error={
+                    <FormFieldError
+                      id={errorId}
+                      errors={field.state.meta.errors}
+                    />
+                  }
+                >
+                  <input
+                    id={field.name}
+                    name={field.name}
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    className={FORM_INPUT_CLASS}
+                    value={field.state.value}
+                    onBlur={field.handleBlur}
+                    onChange={(event) => field.handleChange(event.target.value)}
+                    aria-invalid={hasError}
+                    aria-describedby={hasError ? errorId : undefined}
+                  />
+                </FormField>
+              )
+            }}
+          </form.Field>
 
-        <form.Field
-          name="date"
-          validators={{
-            onChange: ({ value }) =>
-              value.trim() ? undefined : 'Date is required.',
-          }}
-        >
-          {(field) => {
-            const errorId = `${field.name}-error`
-            const hasError = field.state.meta.errors.length > 0
-            return (
-              <div>
-                <label className="label" htmlFor={field.name}>
-                  <span className="label-text font-medium">Date</span>
-                </label>
-                <input
-                  id={field.name}
-                  name={field.name}
-                  type="date"
-                  className="input input-bordered w-full"
-                  value={field.state.value}
-                  onBlur={field.handleBlur}
-                  onChange={(event) => field.handleChange(event.target.value)}
-                  aria-invalid={hasError}
-                  aria-describedby={hasError ? errorId : undefined}
-                />
-                <FieldError id={errorId} errors={field.state.meta.errors} />
-              </div>
-            )
-          }}
-        </form.Field>
+          <form.Field
+            name="date"
+            validators={{
+              onChange: ({ value }) =>
+                value.trim() ? undefined : 'Date is required.',
+            }}
+          >
+            {(field) => {
+              const errorId = `${field.name}-error`
+              const hasError = field.state.meta.errors.length > 0
+              return (
+                <FormField
+                  label="Date"
+                  htmlFor={field.name}
+                  error={
+                    <FormFieldError
+                      id={errorId}
+                      errors={field.state.meta.errors}
+                    />
+                  }
+                >
+                  <input
+                    id={field.name}
+                    name={field.name}
+                    type="date"
+                    className={FORM_INPUT_CLASS}
+                    value={field.state.value}
+                    onBlur={field.handleBlur}
+                    onChange={(event) => field.handleChange(event.target.value)}
+                    aria-invalid={hasError}
+                    aria-describedby={hasError ? errorId : undefined}
+                  />
+                </FormField>
+              )
+            }}
+          </form.Field>
+        </FormRow>
 
         <form.Field name="payeeId">
           {(field) => (
-            <div>
-              <label className="label" htmlFor={field.name}>
-                <span className="label-text font-medium">Payee</span>
-              </label>
+            <FormField label="Payee" htmlFor={field.name}>
               <div className="flex items-center gap-2">
                 <select
                   id={field.name}
                   name={field.name}
-                  className="select select-bordered min-w-0 flex-1"
+                  className={`${FORM_SELECT_CLASS} min-w-0 flex-1`}
                   value={field.state.value}
                   onBlur={field.handleBlur}
                   onChange={(event) => field.handleChange(event.target.value)}
@@ -332,21 +324,18 @@ export function AddTransactionForm({
                   <HiPlus className="size-5" aria-hidden />
                 </button>
               </div>
-            </div>
+            </FormField>
           )}
         </form.Field>
 
         <form.Field name="categoryId">
           {(field) => (
-            <div>
-              <label className="label" htmlFor={field.name}>
-                <span className="label-text font-medium">Category</span>
-              </label>
+            <FormField label="Category" htmlFor={field.name}>
               <div className="flex items-center gap-2">
                 <select
                   id={field.name}
                   name={field.name}
-                  className="select select-bordered min-w-0 flex-1"
+                  className={`${FORM_SELECT_CLASS} min-w-0 flex-1`}
                   value={field.state.value}
                   onBlur={field.handleBlur}
                   onChange={(event) => field.handleChange(event.target.value)}
@@ -367,21 +356,22 @@ export function AddTransactionForm({
                   <HiPlus className="size-5" aria-hidden />
                 </button>
               </div>
-            </div>
+            </FormField>
           )}
         </form.Field>
 
         <form.Field name="tagIds">
           {(field) => (
-            <div>
-              <label className="label" htmlFor={field.name}>
-                <span className="label-text font-medium">Tags</span>
-              </label>
+            <FormField
+              label="Tags"
+              htmlFor={field.name}
+              hint="Hold Ctrl/Cmd to select multiple tags."
+            >
               <div className="flex items-start gap-2">
                 <select
                   id={field.name}
                   name={field.name}
-                  className="select select-bordered h-auto min-h-24 min-w-0 flex-1 py-2"
+                  className={`${FORM_SELECT_CLASS} h-auto min-h-24 min-w-0 flex-1 py-2`}
                   multiple
                   value={field.state.value}
                   onBlur={field.handleBlur}
@@ -414,29 +404,23 @@ export function AddTransactionForm({
                   <HiPlus className="size-5" aria-hidden />
                 </button>
               </div>
-              <p className="mt-1 text-xs text-base-content/50">
-                Hold Ctrl/Cmd to select multiple tags.
-              </p>
-            </div>
+            </FormField>
           )}
         </form.Field>
 
         <form.Field name="description">
           {(field) => (
-            <div>
-              <label className="label" htmlFor={field.name}>
-                <span className="label-text font-medium">Description</span>
-              </label>
+            <FormField label="Description" htmlFor={field.name}>
               <textarea
                 id={field.name}
                 name={field.name}
-                className="textarea textarea-bordered w-full"
+                className={FORM_TEXTAREA_CLASS}
                 rows={3}
                 value={field.state.value}
                 onBlur={field.handleBlur}
                 onChange={(event) => field.handleChange(event.target.value)}
               />
-            </div>
+            </FormField>
           )}
         </form.Field>
 
@@ -450,7 +434,7 @@ export function AddTransactionForm({
           selector={(state) => [state.canSubmit, state.isSubmitting] as const}
         >
           {([canSubmit, isSubmitting]) => (
-            <div className="flex flex-wrap justify-end gap-2 border-t border-base-200 pt-4">
+            <FormActions>
               <Link
                 to="/accounts/$accountId"
                 params={{ accountId: account.id }}
@@ -468,10 +452,10 @@ export function AddTransactionForm({
                   ? 'Saving…'
                   : 'Create transaction'}
               </button>
-            </div>
+            </FormActions>
           )}
         </form.Subscribe>
-      </form>
+      </FormShell>
 
       <TaxonomyCreateDialog ref={payeeDialogRef} title="Add payee">
         <CreatePayeeForm

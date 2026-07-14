@@ -1,0 +1,99 @@
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
+
+export function formatDayTime(iso: string): string {
+  const d = new Date(iso)
+  return d.toLocaleString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
+export function formatTimeRange(startsAt: string, endsAt: string): string {
+  const start = new Date(startsAt)
+  const end = new Date(endsAt)
+  const sameDay =
+    start.getFullYear() === end.getFullYear() &&
+    start.getMonth() === end.getMonth() &&
+    start.getDate() === end.getDate()
+  const timeOpts: Intl.DateTimeFormatOptions = {
+    hour: 'numeric',
+    minute: '2-digit',
+  }
+  if (sameDay) {
+    return `${start.toLocaleDateString(undefined, {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+    })} · ${start.toLocaleTimeString(undefined, timeOpts)}–${end.toLocaleTimeString(undefined, timeOpts)}`
+  }
+  return `${start.toLocaleString(undefined, {
+    ...timeOpts,
+    month: 'short',
+    day: 'numeric',
+  })} – ${end.toLocaleString(undefined, {
+    ...timeOpts,
+    month: 'short',
+    day: 'numeric',
+  })}`
+}
+
+export function toDateInputValue(date: Date): string {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+export function toLocalIsoFromParts(dateStr: string, timeStr: string): string {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const [hh, mm] = timeStr.split(':').map(Number)
+  return new Date(y!, m! - 1, d!, hh!, mm!, 0, 0).toISOString()
+}
+
+export function monthGrid(year: number, month: number): Date[] {
+  const first = new Date(year, month, 1)
+  const start = new Date(first)
+  start.setDate(1 - first.getDay())
+  const cells: Date[] = []
+  for (let i = 0; i < 42; i++) {
+    const day = new Date(start)
+    day.setDate(start.getDate() + i)
+    cells.push(day)
+  }
+  return cells
+}
+
+export function isSameLocalDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  )
+}
+
+export function dayKey(date: Date): string {
+  return toDateInputValue(date)
+}
+
+export function personChipStyle(color: string | null | undefined): {
+  backgroundColor?: string
+  color?: string
+} {
+  if (!color) return {}
+  return { backgroundColor: color, color: '#fff' }
+}
+
+export { DAY_NAMES }
+
+export const PERSON_COLOR_OPTIONS = [
+  '#0d9488',
+  '#2563eb',
+  '#db2777',
+  '#ca8a04',
+  '#7c3aed',
+  '#ea580c',
+  '#475569',
+]

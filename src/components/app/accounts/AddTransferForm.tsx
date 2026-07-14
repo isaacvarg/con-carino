@@ -1,6 +1,16 @@
 import { useForm } from '@tanstack/react-form'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useRef, useState } from 'react'
+import {
+  FORM_INPUT_CLASS,
+  FORM_SELECT_CLASS,
+  FORM_TEXTAREA_CLASS,
+  FormActions,
+  FormField,
+  FormFieldError,
+  FormRow,
+  FormShell,
+} from '#/components/app/ui/form'
 import type { AccountListItem } from '#/server/accounts'
 import { createTransfer } from '#/server/transactions'
 import { accountDetailSearchDefaults } from './account-detail-search'
@@ -23,22 +33,6 @@ type AddTransferFormProps = {
   returnAccountId: string
   accounts: AccountListItem[]
   defaultFromAccountId: string
-}
-
-function FieldError({
-  id,
-  errors,
-}: {
-  id: string
-  errors: Array<string | undefined>
-}) {
-  const message = errors.filter(Boolean)[0]
-  if (!message) return null
-  return (
-    <p id={id} className="mt-1 text-sm text-error" role="alert">
-      {message}
-    </p>
-  )
 }
 
 function accountOptionLabel(account: AccountListItem): string {
@@ -106,8 +100,7 @@ export function AddTransferForm({
         </Link>
       </div>
 
-      <form
-        className="flex flex-col gap-5 rounded-box bg-base-100 p-5 shadow-sm sm:p-6"
+      <FormShell
         onSubmit={(event) => {
           event.preventDefault()
           event.stopPropagation()
@@ -128,14 +121,21 @@ export function AddTransferForm({
                   const errorId = `${field.name}-error`
                   const hasError = field.state.meta.errors.length > 0
                   return (
-                    <div>
-                      <label className="label" htmlFor={field.name}>
-                        <span className="label-text font-medium">From</span>
-                      </label>
+                    <FormField
+                      label="From"
+                      htmlFor={field.name}
+                      hint="Withdrawal (−) from this account."
+                      error={
+                        <FormFieldError
+                          id={errorId}
+                          errors={field.state.meta.errors}
+                        />
+                      }
+                    >
                       <select
                         id={field.name}
                         name={field.name}
-                        className="select select-bordered w-full"
+                        className={FORM_SELECT_CLASS}
                         value={field.state.value}
                         onBlur={field.handleBlur}
                         onChange={(event) => {
@@ -157,14 +157,7 @@ export function AddTransferForm({
                           </option>
                         ))}
                       </select>
-                      <p className="mt-1 text-xs text-base-content/50">
-                        Withdrawal (−) from this account.
-                      </p>
-                      <FieldError
-                        id={errorId}
-                        errors={field.state.meta.errors}
-                      />
-                    </div>
+                    </FormField>
                   )
                 }}
               </form.Field>
@@ -188,14 +181,21 @@ export function AddTransferForm({
                     (account) => account.id !== fromAccountId,
                   )
                   return (
-                    <div>
-                      <label className="label" htmlFor={field.name}>
-                        <span className="label-text font-medium">To</span>
-                      </label>
+                    <FormField
+                      label="To"
+                      htmlFor={field.name}
+                      hint="Deposit (+) into this account."
+                      error={
+                        <FormFieldError
+                          id={errorId}
+                          errors={field.state.meta.errors}
+                        />
+                      }
+                    >
                       <select
                         id={field.name}
                         name={field.name}
-                        className="select select-bordered w-full"
+                        className={FORM_SELECT_CLASS}
                         value={field.state.value}
                         onBlur={field.handleBlur}
                         onChange={(event) =>
@@ -214,14 +214,7 @@ export function AddTransferForm({
                           ))
                         )}
                       </select>
-                      <p className="mt-1 text-xs text-base-content/50">
-                        Deposit (+) into this account.
-                      </p>
-                      <FieldError
-                        id={errorId}
-                        errors={field.state.meta.errors}
-                      />
-                    </div>
+                    </FormField>
                   )
                 }}
               </form.Field>
@@ -229,93 +222,102 @@ export function AddTransferForm({
           )}
         </form.Subscribe>
 
-        <form.Field
-          name="amount"
-          validators={{
-            onChange: ({ value }) => {
-              if (!value.trim()) return 'Amount is required.'
-              const amount = Number(value)
-              if (!Number.isFinite(amount)) return 'Enter a valid number.'
-              if (amount <= 0) return 'Amount must be greater than zero.'
-              return undefined
-            },
-          }}
-        >
-          {(field) => {
-            const errorId = `${field.name}-error`
-            const hasError = field.state.meta.errors.length > 0
-            return (
-              <div>
-                <label className="label" htmlFor={field.name}>
-                  <span className="label-text font-medium">Amount</span>
-                </label>
-                <input
-                  id={field.name}
-                  name={field.name}
-                  type="number"
-                  step="0.01"
-                  min="0.01"
-                  className="input input-bordered w-full"
-                  value={field.state.value}
-                  onBlur={field.handleBlur}
-                  onChange={(event) => field.handleChange(event.target.value)}
-                  aria-invalid={hasError}
-                  aria-describedby={hasError ? errorId : undefined}
-                />
-                <FieldError id={errorId} errors={field.state.meta.errors} />
-              </div>
-            )
-          }}
-        </form.Field>
+        <FormRow>
+          <form.Field
+            name="amount"
+            validators={{
+              onChange: ({ value }) => {
+                if (!value.trim()) return 'Amount is required.'
+                const amount = Number(value)
+                if (!Number.isFinite(amount)) return 'Enter a valid number.'
+                if (amount <= 0) return 'Amount must be greater than zero.'
+                return undefined
+              },
+            }}
+          >
+            {(field) => {
+              const errorId = `${field.name}-error`
+              const hasError = field.state.meta.errors.length > 0
+              return (
+                <FormField
+                  label="Amount"
+                  htmlFor={field.name}
+                  error={
+                    <FormFieldError
+                      id={errorId}
+                      errors={field.state.meta.errors}
+                    />
+                  }
+                >
+                  <input
+                    id={field.name}
+                    name={field.name}
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    className={FORM_INPUT_CLASS}
+                    value={field.state.value}
+                    onBlur={field.handleBlur}
+                    onChange={(event) => field.handleChange(event.target.value)}
+                    aria-invalid={hasError}
+                    aria-describedby={hasError ? errorId : undefined}
+                  />
+                </FormField>
+              )
+            }}
+          </form.Field>
 
-        <form.Field
-          name="date"
-          validators={{
-            onChange: ({ value }) =>
-              value.trim() ? undefined : 'Date is required.',
-          }}
-        >
-          {(field) => {
-            const errorId = `${field.name}-error`
-            const hasError = field.state.meta.errors.length > 0
-            return (
-              <div>
-                <label className="label" htmlFor={field.name}>
-                  <span className="label-text font-medium">Date</span>
-                </label>
-                <input
-                  id={field.name}
-                  name={field.name}
-                  type="date"
-                  className="input input-bordered w-full"
-                  value={field.state.value}
-                  onBlur={field.handleBlur}
-                  onChange={(event) => field.handleChange(event.target.value)}
-                  aria-invalid={hasError}
-                  aria-describedby={hasError ? errorId : undefined}
-                />
-                <FieldError id={errorId} errors={field.state.meta.errors} />
-              </div>
-            )
-          }}
-        </form.Field>
+          <form.Field
+            name="date"
+            validators={{
+              onChange: ({ value }) =>
+                value.trim() ? undefined : 'Date is required.',
+            }}
+          >
+            {(field) => {
+              const errorId = `${field.name}-error`
+              const hasError = field.state.meta.errors.length > 0
+              return (
+                <FormField
+                  label="Date"
+                  htmlFor={field.name}
+                  error={
+                    <FormFieldError
+                      id={errorId}
+                      errors={field.state.meta.errors}
+                    />
+                  }
+                >
+                  <input
+                    id={field.name}
+                    name={field.name}
+                    type="date"
+                    className={FORM_INPUT_CLASS}
+                    value={field.state.value}
+                    onBlur={field.handleBlur}
+                    onChange={(event) => field.handleChange(event.target.value)}
+                    aria-invalid={hasError}
+                    aria-describedby={hasError ? errorId : undefined}
+                  />
+                </FormField>
+              )
+            }}
+          </form.Field>
+        </FormRow>
 
         <form.Field name="description">
           {(field) => (
-            <div>
-              <label className="label" htmlFor={field.name}>
-                <span className="label-text font-medium">Description</span>
-              </label>
+            <FormField label="Description" htmlFor={field.name}>
               <textarea
                 id={field.name}
                 name={field.name}
-                className="textarea textarea-bordered w-full"
+                className={FORM_TEXTAREA_CLASS}
                 rows={3}
                 value={field.state.value}
                 onBlur={field.handleBlur}
                 onChange={(event) => field.handleChange(event.target.value)}
               />
-            </div>
+            </FormField>
           )}
         </form.Field>
 
@@ -329,7 +331,7 @@ export function AddTransferForm({
           selector={(state) => [state.canSubmit, state.isSubmitting] as const}
         >
           {([canSubmit, isSubmitting]) => (
-            <div className="flex flex-wrap justify-end gap-2 border-t border-base-200 pt-4">
+            <FormActions>
               <Link
                 to="/accounts/$accountId"
                 params={{ accountId: returnAccountId }}
@@ -347,10 +349,10 @@ export function AddTransferForm({
                   ? 'Transferring…'
                   : 'Create transfer'}
               </button>
-            </div>
+            </FormActions>
           )}
         </form.Subscribe>
-      </form>
+      </FormShell>
     </div>
   )
 }

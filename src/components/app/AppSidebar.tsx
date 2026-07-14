@@ -1,5 +1,4 @@
 import { Link } from '@tanstack/react-router'
-import { HiOutlineLockClosed } from 'react-icons/hi'
 import { APP_NAV } from './nav'
 
 type AppSidebarProps = {
@@ -43,8 +42,8 @@ export default function AppSidebar({ onNavigate }: AppSidebarProps) {
                   to={item.to}
                   onClick={(event) => {
                     onNavigate?.()
-                    // Drop DaisyUI/browser :focus flash after navigation
-                    ;(event.currentTarget as HTMLAnchorElement).blur()
+                      // Drop DaisyUI/browser :focus flash after navigation
+                      ; (event.currentTarget as HTMLAnchorElement).blur()
                   }}
                   activeOptions={{
                     exact: item.to === '/',
@@ -69,20 +68,6 @@ export default function AppSidebar({ onNavigate }: AppSidebarProps) {
         </ul>
       </nav>
 
-      <div className="mt-6 rounded-box bg-secondary p-5 text-secondary-content">
-        <div className="mb-3 flex size-10 items-center justify-center rounded-full bg-secondary-content/15 text-secondary-content">
-          <HiOutlineLockClosed className="size-5" aria-hidden />
-        </div>
-        <p className="mb-4 text-sm leading-snug text-secondary-content">
-          Gain full access to your finances with detailed analytics and graphs.
-        </p>
-        <button
-          type="button"
-          className="btn btn-primary btn-block btn-sm text-primary-content"
-        >
-          Get Pro
-        </button>
-      </div>
     </aside>
   )
 }

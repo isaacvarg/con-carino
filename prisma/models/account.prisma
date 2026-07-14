@@ -36,6 +36,7 @@ model FinancialAccount {
   user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   accountGroup AccountGroup? @relation(fields: [accountGroupId], references: [id], onDelete: SetNull)
   transactions Transaction[]
+  careInvoices CareInvoice[]
 
   @@index([userId])
   @@index([accountGroupId])

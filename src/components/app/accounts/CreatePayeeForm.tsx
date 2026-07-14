@@ -1,8 +1,16 @@
 import { useForm } from '@tanstack/react-form'
 import type { RefObject } from 'react'
+import {
+  FORM_INPUT_CLASS,
+  FORM_TEXTAREA_CLASS,
+  FormActions,
+  FormField,
+  FormFieldError,
+  FormShell,
+} from '#/components/app/ui/form'
 import type { PayeeRecord } from '#/lib/taxonomy-types'
 import { createPayee } from '#/server/taxonomies'
-import { ColorField, TaxonomyFieldError } from './taxonomy-form-fields'
+import { ColorField } from './taxonomy-form-fields'
 
 type CreatePayeeFormValues = {
   name: string
@@ -46,8 +54,8 @@ export function CreatePayeeForm({
   })
 
   return (
-    <form
-      className="flex flex-col gap-4"
+    <FormShell
+      card={false}
       onSubmit={(event) => {
         event.preventDefault()
         event.stopPropagation()
@@ -65,15 +73,21 @@ export function CreatePayeeForm({
           const errorId = `${field.name}-error`
           const hasError = field.state.meta.errors.length > 0
           return (
-            <div>
-              <label className="label" htmlFor={field.name}>
-                <span className="label-text font-medium">Name</span>
-              </label>
+            <FormField
+              label="Name"
+              htmlFor={field.name}
+              error={
+                <FormFieldError
+                  id={errorId}
+                  errors={field.state.meta.errors}
+                />
+              }
+            >
               <input
                 id={field.name}
                 name={field.name}
                 type="text"
-                className="input input-bordered w-full"
+                className={FORM_INPUT_CLASS}
                 value={field.state.value}
                 onBlur={field.handleBlur}
                 onChange={(event) => field.handleChange(event.target.value)}
@@ -81,48 +95,41 @@ export function CreatePayeeForm({
                 aria-describedby={hasError ? errorId : undefined}
                 autoFocus
               />
-              <TaxonomyFieldError id={errorId} errors={field.state.meta.errors} />
-            </div>
+            </FormField>
           )
         }}
       </form.Field>
 
       <form.Field name="description">
         {(field) => (
-          <div>
-            <label className="label" htmlFor={field.name}>
-              <span className="label-text font-medium">Description</span>
-            </label>
+          <FormField label="Description" htmlFor={field.name}>
             <textarea
               id={field.name}
               name={field.name}
-              className="textarea textarea-bordered w-full"
+              className={FORM_TEXTAREA_CLASS}
               rows={2}
               value={field.state.value}
               onBlur={field.handleBlur}
               onChange={(event) => field.handleChange(event.target.value)}
             />
-          </div>
+          </FormField>
         )}
       </form.Field>
 
       <form.Field name="iconId">
         {(field) => (
-          <div>
-            <label className="label" htmlFor={field.name}>
-              <span className="label-text font-medium">Icon ID</span>
-            </label>
+          <FormField label="Icon ID" htmlFor={field.name}>
             <input
               id={field.name}
               name={field.name}
               type="text"
-              className="input input-bordered w-full"
+              className={FORM_INPUT_CLASS}
               value={field.state.value}
               onBlur={field.handleBlur}
               onChange={(event) => field.handleChange(event.target.value)}
               placeholder="Optional"
             />
-          </div>
+          </FormField>
         )}
       </form.Field>
 
@@ -154,7 +161,7 @@ export function CreatePayeeForm({
         selector={(state) => [state.canSubmit, state.isSubmitting] as const}
       >
         {([canSubmit, isSubmitting]) => (
-          <div className="modal-action mt-2">
+          <FormActions>
             <button
               type="button"
               className="btn btn-ghost"
@@ -169,9 +176,9 @@ export function CreatePayeeForm({
             >
               {isSubmitting ? 'Saving…' : 'Save payee'}
             </button>
-          </div>
+          </FormActions>
         )}
       </form.Subscribe>
-    </form>
+    </FormShell>
   )
 }

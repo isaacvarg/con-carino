@@ -1,5 +1,12 @@
 import { useForm } from '@tanstack/react-form'
 import { Link, useNavigate } from '@tanstack/react-router'
+import {
+  FORM_INPUT_CLASS,
+  FormActions,
+  FormField,
+  FormFieldError,
+  FormShell,
+} from '#/components/app/ui/form'
 import type { AccountListItem } from '#/server/accounts'
 import {
   checkAccountNameAvailable,
@@ -9,22 +16,6 @@ import { accountDetailSearchDefaults } from './account-detail-search'
 
 type AccountSettingsFormProps = {
   account: AccountListItem
-}
-
-function FieldError({
-  id,
-  errors,
-}: {
-  id: string
-  errors: Array<string | undefined>
-}) {
-  const message = errors.filter(Boolean)[0]
-  if (!message) return null
-  return (
-    <p id={id} className="mt-1 text-sm text-error" role="alert">
-      {message}
-    </p>
-  )
 }
 
 export function AccountSettingsForm({ account }: AccountSettingsFormProps) {
@@ -72,8 +63,7 @@ export function AccountSettingsForm({ account }: AccountSettingsFormProps) {
         </Link>
       </div>
 
-      <form
-        className="flex flex-col gap-5 rounded-box bg-base-100 p-5 shadow-sm sm:p-6"
+      <FormShell
         onSubmit={(event) => {
           event.preventDefault()
           event.stopPropagation()
@@ -102,14 +92,23 @@ export function AccountSettingsForm({ account }: AccountSettingsFormProps) {
             const errorId = `${field.name}-error`
             const hasError = field.state.meta.errors.length > 0
             return (
-              <div>
-                <label className="label" htmlFor={field.name}>
-                  <span className="label-text font-medium">Name</span>
-                </label>
+              <FormField
+                label="Name"
+                htmlFor={field.name}
+                hint={
+                  field.state.meta.isValidating ? 'Checking name…' : undefined
+                }
+                error={
+                  <FormFieldError
+                    id={errorId}
+                    errors={field.state.meta.errors}
+                  />
+                }
+              >
                 <input
                   id={field.name}
                   name={field.name}
-                  className="input input-bordered w-full"
+                  className={FORM_INPUT_CLASS}
                   value={field.state.value}
                   onBlur={field.handleBlur}
                   onChange={(event) => field.handleChange(event.target.value)}
@@ -117,13 +116,7 @@ export function AccountSettingsForm({ account }: AccountSettingsFormProps) {
                   aria-describedby={hasError ? errorId : undefined}
                   autoComplete="off"
                 />
-                {field.state.meta.isValidating ? (
-                  <p className="mt-1 text-xs text-base-content/50">
-                    Checking name…
-                  </p>
-                ) : null}
-                <FieldError id={errorId} errors={field.state.meta.errors} />
-              </div>
+              </FormField>
             )
           }}
         </form.Field>
@@ -155,7 +148,7 @@ export function AccountSettingsForm({ account }: AccountSettingsFormProps) {
           selector={(state) => [state.canSubmit, state.isSubmitting] as const}
         >
           {([canSubmit, isSubmitting]) => (
-            <div className="flex flex-wrap justify-end gap-2 border-t border-base-200 pt-4">
+            <FormActions>
               <Link
                 to="/accounts/$accountId"
                 params={{ accountId: account.id }}
@@ -171,10 +164,10 @@ export function AccountSettingsForm({ account }: AccountSettingsFormProps) {
               >
                 {isSubmitting ? 'Saving…' : 'Save settings'}
               </button>
-            </div>
+            </FormActions>
           )}
         </form.Subscribe>
-      </form>
+      </FormShell>
     </div>
   )
 }

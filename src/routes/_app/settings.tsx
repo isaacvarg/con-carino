@@ -1,18 +1,17 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { Outlet, createFileRoute, redirect } from '@tanstack/react-router'
 
 export const Route = createFileRoute('/_app/settings')({
-  component: SettingsPage,
+  beforeLoad: ({ context, location }) => {
+    if (!context.session) {
+      throw redirect({
+        to: '/login',
+        search: { redirect: location.href },
+      })
+    }
+  },
+  component: SettingsLayout,
 })
 
-function SettingsPage() {
-  return (
-    <div className="card bg-base-100 shadow-sm">
-      <div className="card-body">
-        <h2 className="card-title">Settings</h2>
-        <p className="text-base-content/60">
-          Profile and application preferences will appear here.
-        </p>
-      </div>
-    </div>
-  )
+function SettingsLayout() {
+  return <Outlet />
 }

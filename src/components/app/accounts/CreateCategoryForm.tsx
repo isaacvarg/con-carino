@@ -1,8 +1,15 @@
 import { useForm } from '@tanstack/react-form'
 import type { RefObject } from 'react'
+import {
+  FORM_INPUT_CLASS,
+  FormActions,
+  FormField,
+  FormFieldError,
+  FormShell,
+} from '#/components/app/ui/form'
 import type { CategoryRecord } from '#/lib/taxonomy-types'
 import { createCategory } from '#/server/taxonomies'
-import { ColorField, TaxonomyFieldError } from './taxonomy-form-fields'
+import { ColorField } from './taxonomy-form-fields'
 
 type CreateCategoryFormValues = {
   name: string
@@ -46,8 +53,8 @@ export function CreateCategoryForm({
   })
 
   return (
-    <form
-      className="flex flex-col gap-4"
+    <FormShell
+      card={false}
       onSubmit={(event) => {
         event.preventDefault()
         event.stopPropagation()
@@ -65,15 +72,21 @@ export function CreateCategoryForm({
           const errorId = `${field.name}-error`
           const hasError = field.state.meta.errors.length > 0
           return (
-            <div>
-              <label className="label" htmlFor={field.name}>
-                <span className="label-text font-medium">Name</span>
-              </label>
+            <FormField
+              label="Name"
+              htmlFor={field.name}
+              error={
+                <FormFieldError
+                  id={errorId}
+                  errors={field.state.meta.errors}
+                />
+              }
+            >
               <input
                 id={field.name}
                 name={field.name}
                 type="text"
-                className="input input-bordered w-full"
+                className={FORM_INPUT_CLASS}
                 value={field.state.value}
                 onBlur={field.handleBlur}
                 onChange={(event) => field.handleChange(event.target.value)}
@@ -81,8 +94,7 @@ export function CreateCategoryForm({
                 aria-describedby={hasError ? errorId : undefined}
                 autoFocus
               />
-              <TaxonomyFieldError id={errorId} errors={field.state.meta.errors} />
-            </div>
+            </FormField>
           )
         }}
       </form.Field>
@@ -104,21 +116,18 @@ export function CreateCategoryForm({
 
       <form.Field name="iconId">
         {(field) => (
-          <div>
-            <label className="label" htmlFor={field.name}>
-              <span className="label-text font-medium">Icon ID</span>
-            </label>
+          <FormField label="Icon ID" htmlFor={field.name}>
             <input
               id={field.name}
               name={field.name}
               type="text"
-              className="input input-bordered w-full"
+              className={FORM_INPUT_CLASS}
               value={field.state.value}
               onBlur={field.handleBlur}
               onChange={(event) => field.handleChange(event.target.value)}
               placeholder="Optional"
             />
-          </div>
+          </FormField>
         )}
       </form.Field>
 
@@ -150,7 +159,7 @@ export function CreateCategoryForm({
         selector={(state) => [state.canSubmit, state.isSubmitting] as const}
       >
         {([canSubmit, isSubmitting]) => (
-          <div className="modal-action mt-2">
+          <FormActions>
             <button
               type="button"
               className="btn btn-ghost"
@@ -165,9 +174,9 @@ export function CreateCategoryForm({
             >
               {isSubmitting ? 'Saving…' : 'Save category'}
             </button>
-          </div>
+          </FormActions>
         )}
       </form.Subscribe>
-    </form>
+    </FormShell>
   )
 }

@@ -5,6 +5,7 @@ import {
   HiOutlineDocumentText,
   HiOutlineHeart,
   HiOutlineLightBulb,
+  HiOutlineReceiptTax,
   HiOutlineSwitchHorizontal,
   HiOutlineViewGrid,
 } from 'react-icons/hi'
@@ -16,6 +17,7 @@ export type AppNavItem = {
     | '/accounts'
     | '/transactions'
     | '/care'
+    | '/invoices'
     | '/documents'
     | '/insights'
     | '/settings'
@@ -47,6 +49,12 @@ export const APP_NAV: AppNavItem[] = [
     to: '/care',
     icon: HiOutlineHeart,
     title: 'Care',
+  },
+  {
+    label: 'Invoices',
+    to: '/invoices',
+    icon: HiOutlineReceiptTax,
+    title: 'Invoices',
   },
   {
     label: 'Documents',
@@ -81,6 +89,8 @@ export function titleForPath(pathname: string): string {
   if (/^\/accounts\/[^/]+$/.test(path) && path !== '/accounts/new') {
     return 'Account'
   }
+  if (path === '/settings/loved-one') return 'Loved one'
+  if (path === '/settings/people') return 'People'
   const exact = APP_NAV.find((item) => item.to === path)
   if (exact) return exact.title
   return 'Dashboard'

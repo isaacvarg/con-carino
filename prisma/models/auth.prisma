@@ -13,6 +13,9 @@ model User {
   accountGroups     AccountGroup[]
   transactions      Transaction[]
   attachments       Attachment[]
+  carePerson        CarePerson?
+  swapRequestsMade  CareSwapRequest[] @relation("SwapRequestedBy")
+  swapRequestsReviewed CareSwapRequest[] @relation("SwapReviewedBy")
 
   @@map("users")
 }

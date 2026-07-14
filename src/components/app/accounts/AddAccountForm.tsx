@@ -1,5 +1,13 @@
 import { useForm } from '@tanstack/react-form'
 import { Link, useNavigate } from '@tanstack/react-router'
+import {
+  FORM_INPUT_CLASS,
+  FORM_SELECT_CLASS,
+  FormActions,
+  FormField,
+  FormFieldError,
+  FormShell,
+} from '#/components/app/ui/form'
 import type { AccountType } from '#/generated/prisma/enums'
 import type { AccountGroupListItem } from '#/server/accounts'
 import {
@@ -25,22 +33,6 @@ type AddAccountFormValues = {
 
 type AddAccountFormProps = {
   groups: AccountGroupListItem[]
-}
-
-function FieldError({
-  id,
-  errors,
-}: {
-  id: string
-  errors: Array<string | undefined>
-}) {
-  const message = errors.filter(Boolean)[0]
-  if (!message) return null
-  return (
-    <p id={id} className="mt-1 text-sm text-error" role="alert">
-      {message}
-    </p>
-  )
 }
 
 const defaultValues: AddAccountFormValues = {
@@ -80,8 +72,7 @@ export function AddAccountForm({ groups }: AddAccountFormProps) {
         </Link>
       </div>
 
-      <form
-        className="flex flex-col gap-5 rounded-box bg-base-100 p-5 shadow-sm sm:p-6"
+      <FormShell
         onSubmit={(event) => {
           event.preventDefault()
           event.stopPropagation()
@@ -110,14 +101,23 @@ export function AddAccountForm({ groups }: AddAccountFormProps) {
             const errorId = `${field.name}-error`
             const hasError = field.state.meta.errors.length > 0
             return (
-              <div>
-                <label className="label" htmlFor={field.name}>
-                  <span className="label-text font-medium">Name</span>
-                </label>
+              <FormField
+                label="Name"
+                htmlFor={field.name}
+                hint={
+                  field.state.meta.isValidating ? 'Checking name…' : undefined
+                }
+                error={
+                  <FormFieldError
+                    id={errorId}
+                    errors={field.state.meta.errors}
+                  />
+                }
+              >
                 <input
                   id={field.name}
                   name={field.name}
-                  className="input input-bordered w-full"
+                  className={FORM_INPUT_CLASS}
                   value={field.state.value}
                   onBlur={field.handleBlur}
                   onChange={(event) => field.handleChange(event.target.value)}
@@ -125,13 +125,7 @@ export function AddAccountForm({ groups }: AddAccountFormProps) {
                   aria-describedby={hasError ? errorId : undefined}
                   autoComplete="off"
                 />
-                {field.state.meta.isValidating ? (
-                  <p className="mt-1 text-xs text-base-content/50">
-                    Checking name…
-                  </p>
-                ) : null}
-                <FieldError id={errorId} errors={field.state.meta.errors} />
-              </div>
+              </FormField>
             )
           }}
         </form.Field>
@@ -144,14 +138,11 @@ export function AddAccountForm({ groups }: AddAccountFormProps) {
           }}
         >
           {(field) => (
-            <div>
-              <label className="label" htmlFor={field.name}>
-                <span className="label-text font-medium">Type</span>
-              </label>
+            <FormField label="Type" htmlFor={field.name}>
               <select
                 id={field.name}
                 name={field.name}
-                className="select select-bordered w-full"
+                className={FORM_SELECT_CLASS}
                 value={field.state.value}
                 onBlur={field.handleBlur}
                 onChange={(event) =>
@@ -164,7 +155,7 @@ export function AddAccountForm({ groups }: AddAccountFormProps) {
                   </option>
                 ))}
               </select>
-            </div>
+            </FormField>
           )}
         </form.Field>
 
@@ -183,26 +174,29 @@ export function AddAccountForm({ groups }: AddAccountFormProps) {
             const errorId = `${field.name}-error`
             const hasError = field.state.meta.errors.length > 0
             return (
-              <div>
-                <label className="label" htmlFor={field.name}>
-                  <span className="label-text font-medium">
-                    Opening balance
-                  </span>
-                </label>
+              <FormField
+                label="Opening balance"
+                htmlFor={field.name}
+                error={
+                  <FormFieldError
+                    id={errorId}
+                    errors={field.state.meta.errors}
+                  />
+                }
+              >
                 <input
                   id={field.name}
                   name={field.name}
                   type="number"
                   step="0.01"
-                  className="input input-bordered w-full"
+                  className={FORM_INPUT_CLASS}
                   value={field.state.value}
                   onBlur={field.handleBlur}
                   onChange={(event) => field.handleChange(event.target.value)}
                   aria-invalid={hasError}
                   aria-describedby={hasError ? errorId : undefined}
                 />
-                <FieldError id={errorId} errors={field.state.meta.errors} />
-              </div>
+              </FormField>
             )
           }}
         </form.Field>
@@ -233,9 +227,7 @@ export function AddAccountForm({ groups }: AddAccountFormProps) {
         <form.Field name="groupMode">
           {(field) => (
             <fieldset>
-              <legend className="label-text mb-2 font-medium">
-                Account group
-              </legend>
+              <legend className="app-form-label mb-2">Account group</legend>
               <div className="flex flex-col gap-2">
                 {(
                   [
@@ -291,16 +283,20 @@ export function AddAccountForm({ groups }: AddAccountFormProps) {
                     const errorId = `${field.name}-error`
                     const hasError = field.state.meta.errors.length > 0
                     return (
-                      <div>
-                        <label className="label" htmlFor={field.name}>
-                          <span className="label-text font-medium">
-                            Existing group
-                          </span>
-                        </label>
+                      <FormField
+                        label="Existing group"
+                        htmlFor={field.name}
+                        error={
+                          <FormFieldError
+                            id={errorId}
+                            errors={field.state.meta.errors}
+                          />
+                        }
+                      >
                         <select
                           id={field.name}
                           name={field.name}
-                          className="select select-bordered w-full"
+                          className={FORM_SELECT_CLASS}
                           value={field.state.value}
                           onBlur={field.handleBlur}
                           onChange={(event) =>
@@ -317,11 +313,7 @@ export function AddAccountForm({ groups }: AddAccountFormProps) {
                             </option>
                           ))}
                         </select>
-                        <FieldError
-                          id={errorId}
-                          errors={field.state.meta.errors}
-                        />
-                      </div>
+                      </FormField>
                     )
                   }}
                 </form.Field>
@@ -345,16 +337,20 @@ export function AddAccountForm({ groups }: AddAccountFormProps) {
                       const errorId = `${field.name}-error`
                       const hasError = field.state.meta.errors.length > 0
                       return (
-                        <div>
-                          <label className="label" htmlFor={field.name}>
-                            <span className="label-text font-medium">
-                              New group name
-                            </span>
-                          </label>
+                        <FormField
+                          label="New group name"
+                          htmlFor={field.name}
+                          error={
+                            <FormFieldError
+                              id={errorId}
+                              errors={field.state.meta.errors}
+                            />
+                          }
+                        >
                           <input
                             id={field.name}
                             name={field.name}
-                            className="input input-bordered w-full"
+                            className={FORM_INPUT_CLASS}
                             value={field.state.value}
                             onBlur={field.handleBlur}
                             onChange={(event) =>
@@ -364,11 +360,7 @@ export function AddAccountForm({ groups }: AddAccountFormProps) {
                             aria-describedby={hasError ? errorId : undefined}
                             autoComplete="off"
                           />
-                          <FieldError
-                            id={errorId}
-                            errors={field.state.meta.errors}
-                          />
-                        </div>
+                        </FormField>
                       )
                     }}
                   </form.Field>
@@ -402,7 +394,7 @@ export function AddAccountForm({ groups }: AddAccountFormProps) {
           selector={(state) => [state.canSubmit, state.isSubmitting] as const}
         >
           {([canSubmit, isSubmitting]) => (
-            <div className="flex flex-wrap justify-end gap-2 border-t border-base-200 pt-4">
+            <FormActions>
               <Link to="/accounts" className="btn btn-ghost">
                 Cancel
               </Link>
@@ -413,10 +405,10 @@ export function AddAccountForm({ groups }: AddAccountFormProps) {
               >
                 {isSubmitting ? 'Saving…' : 'Create account'}
               </button>
-            </div>
+            </FormActions>
           )}
         </form.Subscribe>
-      </form>
+      </FormShell>
     </div>
   )
 }
