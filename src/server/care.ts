@@ -35,7 +35,7 @@ import {
 } from '#/lib/activity'
 import { prisma } from '#/lib/prisma'
 import { toSignedTransactionAmount } from '#/lib/transaction-amount'
-import { logActivity } from '#/server/activity'
+import { logActivity } from '#/server/activity-log'
 import { authConfig } from '#/utils/auth'
 
 const FREQUENCIES = Object.values(CareCoverageFrequencyEnum)
@@ -1267,6 +1267,70 @@ export type CareCalendarPayload = {
   openInvoiceCount: number
 }
 
+const CALENDAR_MAINTENANCE_TTL_MS = 30_000
+
+type CalendarMaintenanceCache = {
+  padStartMs: number
+  padEndMs: number
+  completedAt: number
+}
+
+let calendarMaintenanceInFlight: Promise<void> | null = null
+let calendarMaintenanceCache: CalendarMaintenanceCache | null = null
+
+/**
+ * Serialize write-heavy calendar prep so concurrent GET/preload calls share one run.
+ * Skips when the same (or wider) range finished within the TTL window.
+ */
+async function ensureCalendarMaintenance(padStart: Date, padEnd: Date) {
+  const padStartMs = padStart.getTime()
+  const padEndMs = padEnd.getTime()
+  const now = Date.now()
+  const cached = calendarMaintenanceCache
+  if (
+    cached &&
+    now - cached.completedAt < CALENDAR_MAINTENANCE_TTL_MS &&
+    cached.padStartMs <= padStartMs &&
+    cached.padEndMs >= padEndMs
+  ) {
+    return
+  }
+
+  if (calendarMaintenanceInFlight) {
+    await calendarMaintenanceInFlight
+    const after = calendarMaintenanceCache
+    if (
+      after &&
+      Date.now() - after.completedAt < CALENDAR_MAINTENANCE_TTL_MS &&
+      after.padStartMs <= padStartMs &&
+      after.padEndMs >= padEndMs
+    ) {
+      return
+    }
+  }
+
+  const run = (async () => {
+    await ensureDefaultTypes()
+    await syncRequiredCoverageSeries()
+    await materializeSeriesInRange(padStart, padEnd)
+    await completeDueShifts()
+    calendarMaintenanceCache = {
+      padStartMs,
+      padEndMs,
+      completedAt: Date.now(),
+    }
+  })()
+
+  calendarMaintenanceInFlight = run
+  try {
+    await run
+  } finally {
+    if (calendarMaintenanceInFlight === run) {
+      calendarMaintenanceInFlight = null
+    }
+  }
+}
+
 export const listCareCalendar = createServerFn({ method: 'GET' })
   .validator((data: unknown) => {
     if (!data || typeof data !== 'object') throw new Error('Invalid payload.')
@@ -1278,16 +1342,13 @@ export const listCareCalendar = createServerFn({ method: 'GET' })
   })
   .handler(async ({ data }): Promise<CareCalendarPayload> => {
     await requireUserId()
-    await ensureDefaultTypes()
 
     const padStart = new Date(data.rangeStart)
     padStart.setDate(padStart.getDate() - 7)
     const padEnd = new Date(data.rangeEnd)
     padEnd.setDate(padEnd.getDate() + 90)
 
-    await syncRequiredCoverageSeries()
-    await materializeSeriesInRange(padStart, padEnd)
-    await completeDueShifts()
+    await ensureCalendarMaintenance(padStart, padEnd)
 
     const settings = await loadCareSettingsDto()
 

@@ -14,7 +14,6 @@ export function getRouter() {
     } satisfies RouterContext,
     scrollRestoration: true,
     defaultPreload: 'intent',
-    defaultPreloadStaleTime: 0,
   })
 
   return router

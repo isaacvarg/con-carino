@@ -21,7 +21,7 @@ import {
   transactionTypeNeedsDirection,
   type TransactionDirection,
 } from '#/lib/transaction-amount'
-import { logActivity } from '#/server/activity'
+import { logActivity } from '#/server/activity-log'
 import { authConfig } from '#/utils/auth'
 
 const TRANSACTION_ACTIVITY_FIELDS = [

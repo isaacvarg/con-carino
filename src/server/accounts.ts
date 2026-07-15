@@ -9,7 +9,7 @@ import {
   diffChanges,
 } from '#/lib/activity'
 import { prisma } from '#/lib/prisma'
-import { logActivity } from '#/server/activity'
+import { logActivity } from '#/server/activity-log'
 import { authConfig } from '#/utils/auth'
 
 const ACCOUNT_ACTIVITY_FIELDS = [
