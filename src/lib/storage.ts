@@ -59,6 +59,8 @@ export function getS3Client(): S3Client {
       secretAccessKey,
     },
     forcePathStyle,
+    requestChecksumCalculation: 'WHEN_REQUIRED',
+    responseChecksumValidation: 'WHEN_REQUIRED',
   })
 
   if (process.env.NODE_ENV !== 'production') {
