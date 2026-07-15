@@ -280,7 +280,7 @@ export function CarePeoplePanel({
                   {types.map((t) => (
                     <option key={t.id} value={t.id}>
                       {t.name}
-                      {t.isPaid ? ' (paid)' : ''}
+                      {t.isPaid ? ' ($)' : ''}
                     </option>
                   ))}
                 </select>
@@ -288,7 +288,7 @@ export function CarePeoplePanel({
             </FormRow>
             <FormRow>
               <FormField
-                label="Linked app user (optional)"
+                label="Linked App User"
                 htmlFor="person-user"
               >
                 <select
@@ -307,7 +307,7 @@ export function CarePeoplePanel({
               </FormField>
               {selectedTypeIsPaid ? (
                 <FormField
-                  label="Hourly rate override"
+                  label="Hourly Rate"
                   htmlFor="person-rate"
                 >
                   <input
@@ -324,7 +324,7 @@ export function CarePeoplePanel({
             {selectedTypeIsPaid ? (
               <>
                 <FormRow>
-                  <FormField label="Pay interval" htmlFor="person-pay-interval">
+                  <FormField label="Pay Interval" htmlFor="person-pay-interval">
                     <select
                       id="person-pay-interval"
                       className={FORM_SELECT_CLASS}
@@ -341,7 +341,7 @@ export function CarePeoplePanel({
                     </select>
                   </FormField>
                   {payInterval === 'WEEKLY' || payInterval === 'BIWEEKLY' ? (
-                    <FormField label="Pay day" htmlFor="person-pay-weekday">
+                    <FormField label="Pay Day" htmlFor="person-pay-weekday">
                       <select
                         id="person-pay-weekday"
                         className={FORM_SELECT_CLASS}
@@ -358,7 +358,7 @@ export function CarePeoplePanel({
                   ) : null}
                   {payInterval === 'MONTHLY' ? (
                     <FormField
-                      label="Pay day of month"
+                      label="Pay Day of Month"
                       htmlFor="person-pay-month-day"
                     >
                       <input
@@ -376,7 +376,7 @@ export function CarePeoplePanel({
                 </FormRow>
                 {payInterval === 'BIWEEKLY' ? (
                   <FormField
-                    label="Pay anchor date (a known payday)"
+                    label="Pay Anchor Date (A Known Payday)"
                     htmlFor="person-pay-anchor"
                   >
                     <input
@@ -394,14 +394,14 @@ export function CarePeoplePanel({
             <FormRow>
               <ColorField
                 id="person-bg-color"
-                label="Background color"
+                label="Background Color"
                 value={bgColor}
                 onBlur={() => {}}
                 onChange={setBgColor}
               />
               <ColorField
                 id="person-text-color"
-                label="Text color"
+                label="Text Color"
                 value={textColor}
                 onBlur={() => {}}
                 onChange={setTextColor}
@@ -528,7 +528,7 @@ export function CarePeoplePanel({
                 required
               />
             </FormField>
-            <FormField label="Must be paid" htmlFor="type-is-paid">
+            <FormField label="Must Be Paid" htmlFor="type-is-paid">
               <input
                 id="type-is-paid"
                 type="checkbox"
@@ -538,7 +538,7 @@ export function CarePeoplePanel({
               />
             </FormField>
             {typeIsPaid ? (
-              <FormField label="Default hourly rate" htmlFor="type-rate">
+              <FormField label="Default Hourly Rate" htmlFor="type-rate">
                 <input
                   id="type-rate"
                   className={FORM_INPUT_CLASS}
