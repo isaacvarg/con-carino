@@ -39,6 +39,7 @@ import {
   diffChanges,
 } from '#/lib/activity'
 import { prisma } from '#/lib/prisma'
+import type { PrismaClient } from '#/generated/prisma/client'
 import { toSignedTransactionAmount } from '#/lib/transaction-amount'
 import { logActivity } from '#/server/activity-log'
 import { authConfig } from '#/utils/auth'
@@ -602,7 +603,7 @@ async function billingStatusForAssigneeId(
   return rate !== null ? 'ACCRUED' : 'NOT_BILLABLE'
 }
 
-type DbClient = typeof prisma
+type DbClient = PrismaClient
 
 async function removeOccurrenceFromOpenInvoice(
   occurrenceId: string,
