@@ -116,7 +116,7 @@ export function AllTransactionsTable({
   transactions,
   search,
 }: AllTransactionsTableProps) {
-  const navigate = useNavigate({ from: '/transactions' })
+  const navigate = useNavigate({ from: '/transactions/' })
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
 
   const sorting = useMemo(() => parseSort(search.sort), [search.sort])
@@ -264,6 +264,7 @@ export function AllTransactionsTable({
               params={{ accountId: account.id }}
               search={accountDetailSearchDefaults}
               className="link link-hover"
+              onClick={(event) => event.stopPropagation()}
             >
               {account.name}
               {account.isGlobal ? (
@@ -413,22 +414,9 @@ export function AllTransactionsTable({
   })
 
   const pageCount = table.getPageCount()
-  const filteredCount = table.getFilteredRowModel().rows.length
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-base-content">
-            Transactions
-          </h2>
-          <p className="text-sm text-base-content/60">
-            {filteredCount} of {transactions.length} shown · owned and global
-            accounts
-          </p>
-        </div>
-      </div>
-
       <div className="flex flex-wrap items-end gap-3 rounded-box bg-base-100 p-4 shadow-sm">
         <label className="form-control min-w-56 flex-1">
           <span className="label-text mb-1 text-sm">Filter</span>
@@ -554,9 +542,27 @@ export function AllTransactionsTable({
               </tr>
             ) : (
               table.getRowModel().rows.map((row) => (
-                <tr key={row.id} data-selected={row.getIsSelected()}>
+                <tr
+                  key={row.id}
+                  data-selected={row.getIsSelected()}
+                  className="cursor-pointer hover:bg-base-200/70"
+                  onClick={() => {
+                    void navigate({
+                      to: '/transactions/$transactionId',
+                      params: { transactionId: row.original.id },
+                    })
+                  }}
+                >
                   {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id}>
+                    <td
+                      key={cell.id}
+                      onClick={
+                        cell.column.id === 'select' ||
+                        cell.column.id === 'account'
+                          ? (event) => event.stopPropagation()
+                          : undefined
+                      }
+                    >
                       {flexRender(
                         cell.column.columnDef.cell,
                         cell.getContext(),
