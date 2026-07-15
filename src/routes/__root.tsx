@@ -3,8 +3,6 @@ import {
   Scripts,
   createRootRouteWithContext,
 } from '@tanstack/react-router'
-import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
-import { TanStackDevtools } from '@tanstack/react-devtools'
 import type { RouterContext } from '../router'
 import { fetchSession } from '../server/auth'
 
@@ -80,17 +78,6 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       </head>
       <body className="bg-base-100 text-base-content font-sans antialiased [overflow-wrap:anywhere] selection:bg-primary/24">
         {children}
-        <TanStackDevtools
-          config={{
-            position: 'bottom-right',
-          }}
-          plugins={[
-            {
-              name: 'Tanstack Router',
-              render: <TanStackRouterDevtoolsPanel />,
-            },
-          ]}
-        />
         <Scripts />
       </body>
     </html>

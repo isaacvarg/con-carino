@@ -507,6 +507,43 @@ async function completeDueShifts(now = new Date()) {
   }
 }
 
+const DUE_SHIFTS_TTL_MS = 30_000
+
+let dueShiftsInFlight: Promise<void> | null = null
+let dueShiftsCompletedAt = 0
+
+/**
+ * Share one completeDueShifts run across concurrent invoice-list / calendar loaders.
+ * Skips when a run finished within the TTL window.
+ */
+async function ensureDueShiftsCompleted() {
+  const now = Date.now()
+  if (now - dueShiftsCompletedAt < DUE_SHIFTS_TTL_MS) {
+    return
+  }
+
+  if (dueShiftsInFlight) {
+    await dueShiftsInFlight
+    if (Date.now() - dueShiftsCompletedAt < DUE_SHIFTS_TTL_MS) {
+      return
+    }
+  }
+
+  const run = (async () => {
+    await completeDueShifts()
+    dueShiftsCompletedAt = Date.now()
+  })()
+
+  dueShiftsInFlight = run
+  try {
+    await run
+  } finally {
+    if (dueShiftsInFlight === run) {
+      dueShiftsInFlight = null
+    }
+  }
+}
+
 async function occurrencesOverlap(
   personId: string,
   startsAt: Date,
@@ -1313,7 +1350,7 @@ async function ensureCalendarMaintenance(padStart: Date, padEnd: Date) {
     await ensureDefaultTypes()
     await syncRequiredCoverageSeries()
     await materializeSeriesInRange(padStart, padEnd)
-    await completeDueShifts()
+    await ensureDueShiftsCompleted()
     calendarMaintenanceCache = {
       padStartMs,
       padEndMs,
@@ -2275,7 +2312,7 @@ export const reviewSwapRequest = createServerFn({ method: 'POST' })
 export const listCareInvoices = createServerFn({ method: 'GET' }).handler(
   async (): Promise<CareInvoiceDto[]> => {
     await requireUserId()
-    await completeDueShifts()
+    await ensureDueShiftsCompleted()
     const rows = await prisma.careInvoice.findMany({
       include: {
         carePerson: { select: { name: true } },

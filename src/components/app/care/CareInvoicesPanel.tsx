@@ -7,7 +7,7 @@ import {
   type ColumnDef,
   type SortingState,
 } from '@tanstack/react-table'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   FORM_SELECT_CLASS,
   FormActions,
@@ -40,6 +40,7 @@ export function CareInvoicesPanel({
   highlightInvoiceId,
 }: CareInvoicesPanelProps) {
   const router = useRouter()
+  const settleDialogRef = useRef<HTMLDialogElement>(null)
   const [error, setError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [settleId, setSettleId] = useState<string | null>(null)
@@ -47,6 +48,7 @@ export function CareInvoicesPanel({
   const [sorting, setSorting] = useState<SortingState>([
     { id: 'endsAt', desc: true },
   ])
+  const settleBusy = Boolean(settleId && busyId === settleId)
 
   useEffect(() => {
     if (!highlightInvoiceId) return
@@ -54,8 +56,14 @@ export function CareInvoicesPanel({
     el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }, [highlightInvoiceId, invoices])
 
-  const open = invoices.filter((i) => i.status === 'OPEN')
-  const closed = invoices.filter((i) => i.status !== 'OPEN')
+  const open = useMemo(
+    () => invoices.filter((i) => i.status === 'OPEN'),
+    [invoices],
+  )
+  const closed = useMemo(
+    () => invoices.filter((i) => i.status !== 'OPEN'),
+    [invoices],
+  )
 
   const columns = useMemo<ColumnDef<CareInvoiceDto>[]>(
     () => [
@@ -116,6 +124,25 @@ export function CareInvoicesPanel({
     getRowId: (row) => row.id,
   })
 
+  function openSettle(invoiceId: string) {
+    setError(null)
+    setSettleId(invoiceId)
+    setAccountId(accounts[0]?.id ?? '')
+    const dialog = settleDialogRef.current
+    if (dialog && !dialog.open) {
+      dialog.showModal()
+    }
+  }
+
+  function closeSettle() {
+    if (settleBusy) return
+    settleDialogRef.current?.close()
+  }
+
+  function handleSettleDialogClose() {
+    setSettleId(null)
+  }
+
   async function settle() {
     if (!settleId || !accountId) return
     setBusyId(settleId)
@@ -124,8 +151,9 @@ export function CareInvoicesPanel({
       await settleCareInvoice({
         data: { id: settleId, financialAccountId: accountId },
       })
+      settleDialogRef.current?.close()
       setSettleId(null)
-      await router.invalidate()
+      void router.invalidate()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not settle.')
     } finally {
@@ -138,7 +166,7 @@ export function CareInvoicesPanel({
     setError(null)
     try {
       await voidCareInvoice({ data: { id } })
-      await router.invalidate()
+      void router.invalidate()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not void.')
     } finally {
@@ -193,10 +221,7 @@ export function CareInvoicesPanel({
                       type="button"
                       className="btn btn-primary btn-sm"
                       disabled={busyId === inv.id || accounts.length === 0}
-                      onClick={() => {
-                        setSettleId(inv.id)
-                        setAccountId(accounts[0]?.id ?? '')
-                      }}
+                      onClick={() => openSettle(inv.id)}
                     >
                       Settle
                     </button>
@@ -309,54 +334,61 @@ export function CareInvoicesPanel({
         )}
       </section>
 
-      {settleId ? (
-        <dialog className="modal modal-open">
-          <div className="modal-box">
-            <h3 className="text-lg font-semibold">Settle invoice</h3>
-            <p className="mt-2 text-sm text-base-content/70">
-              Creates an expense on the selected account.
-            </p>
-            <div className="app-form mt-4">
-              <FormField label="Account" htmlFor="settle-account">
-                <select
-                  id="settle-account"
-                  className={FORM_SELECT_CLASS}
-                  value={accountId}
-                  onChange={(e) => setAccountId(e.target.value)}
-                >
-                  {accounts.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name} ({a.currentBalance})
-                    </option>
-                  ))}
-                </select>
-              </FormField>
-              <FormActions>
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  onClick={() => setSettleId(null)}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  disabled={busyId === settleId}
-                  onClick={settle}
-                >
-                  {busyId === settleId ? 'Settling…' : 'Confirm payment'}
-                </button>
-              </FormActions>
-            </div>
+      <dialog
+        ref={settleDialogRef}
+        className="modal"
+        onClose={handleSettleDialogClose}
+        onCancel={(e) => {
+          if (settleBusy) e.preventDefault()
+        }}
+      >
+        <div className="modal-box">
+          <h3 className="text-lg font-semibold">Settle invoice</h3>
+          <p className="mt-2 text-sm text-base-content/70">
+            Creates an expense on the selected account.
+          </p>
+          <div className="app-form mt-4">
+            <FormField label="Account" htmlFor="settle-account">
+              <select
+                id="settle-account"
+                className={FORM_SELECT_CLASS}
+                value={accountId}
+                onChange={(e) => setAccountId(e.target.value)}
+                disabled={settleBusy}
+              >
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name} ({a.currentBalance})
+                  </option>
+                ))}
+              </select>
+            </FormField>
+            <FormActions>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={closeSettle}
+                disabled={settleBusy}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={settleBusy || !accountId}
+                onClick={settle}
+              >
+                {settleBusy ? 'Settling…' : 'Confirm payment'}
+              </button>
+            </FormActions>
           </div>
-          <form method="dialog" className="modal-backdrop">
-            <button type="button" onClick={() => setSettleId(null)}>
-              close
-            </button>
-          </form>
-        </dialog>
-      ) : null}
+        </div>
+        <form method="dialog" className="modal-backdrop">
+          <button type="submit" disabled={settleBusy}>
+            close
+          </button>
+        </form>
+      </dialog>
     </div>
   )
 }
