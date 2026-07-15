@@ -1,0 +1,29 @@
+enum ActivityAction {
+  CREATE
+  UPDATE
+  DELETE
+}
+
+model ActivityLog {
+  id                String         @id @default(uuid())
+  actorUserId       String?
+  action            ActivityAction
+  /// Stable registry key (account, transaction, invoice, …) — not a Prisma enum so future features can add types without migrations.
+  entityType        String
+  entityId          String?
+  summary           String
+  /// Field-level before/after: { field: { before, after } }
+  changes           Json?
+  /// Deep-link hints, e.g. { day, tab, isGlobal }
+  linkMeta          Json?
+  /// Financial scoping: owner user id; null = visible to all signed-in users (care events).
+  visibilityUserId  String?
+  createdAt         DateTime       @default(now())
+
+  actor User? @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([entityType, entityId])
+  @@index([visibilityUserId, createdAt])
+  @@map("activity_logs")
+}

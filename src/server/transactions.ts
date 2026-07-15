@@ -4,6 +4,10 @@ import { getSession } from 'start-authjs'
 import { TransactionType as TransactionTypeEnum } from '#/generated/prisma/enums'
 import type { TransactionType } from '#/generated/prisma/enums'
 import {
+  ACTIVITY_ENTITY_TYPES,
+  createChanges,
+} from '#/lib/activity'
+import {
   assertAllowedContentType,
   assertUploadSize,
   MAX_ATTACHMENTS_PER_TXN,
@@ -17,7 +21,19 @@ import {
   transactionTypeNeedsDirection,
   type TransactionDirection,
 } from '#/lib/transaction-amount'
+import { logActivity } from '#/server/activity'
 import { authConfig } from '#/utils/auth'
+
+const TRANSACTION_ACTIVITY_FIELDS = [
+  'financialAccountId',
+  'type',
+  'amount',
+  'description',
+  'date',
+  'payeeId',
+  'categoryId',
+  'transferGroupId',
+] as const
 
 const TRANSACTION_TYPES = Object.values(TransactionTypeEnum)
 
@@ -683,12 +699,40 @@ export const createTransaction = createServerFn({ method: 'POST' })
         payee: { select: { id: true, name: true } },
         category: { select: { id: true, name: true } },
         tags: { select: { id: true, name: true }, orderBy: { name: 'asc' } },
+        financialAccount: { select: { name: true, isGlobal: true, userId: true } },
       },
     })
 
     const attachments = await linkAttachments(userId, data.attachments, [
       created.id,
     ])
+
+    const amountLabel = Math.abs(Number(created.amount.toString())).toFixed(2)
+    await logActivity({
+      actorUserId: userId,
+      action: 'CREATE',
+      entityType: ACTIVITY_ENTITY_TYPES.transaction,
+      entityId: created.id,
+      summary: `Created ${created.type.toLowerCase().replaceAll('_', ' ')} of $${amountLabel} on ${created.financialAccount.name}`,
+      changes: createChanges(
+        {
+          financialAccountId: created.financialAccountId,
+          type: created.type,
+          amount: created.amount.toString(),
+          description: created.description,
+          date: created.date.toISOString(),
+          payeeId: created.payeeId,
+          categoryId: created.categoryId,
+          transferGroupId: created.transferGroupId,
+        },
+        TRANSACTION_ACTIVITY_FIELDS,
+      ),
+      linkMeta: {
+        isGlobal: created.financialAccount.isGlobal,
+        accountName: created.financialAccount.name,
+      },
+      visibilityUserId: created.financialAccount.userId,
+    })
 
     return {
       ...toTransactionListItem(created),
@@ -750,8 +794,8 @@ export const createTransfer = createServerFn({ method: 'POST' })
     const inAmount = toSignedTransactionAmount('TRANSFER', magnitude, 'in')
     const transferGroupId = crypto.randomUUID()
 
-    const [fromTxn, toTxn] = await prisma.$transaction([
-      prisma.transaction.create({
+    const [fromTxn, toTxn] = await prisma.$transaction(async (tx) => {
+      const from = await tx.transaction.create({
         data: {
           userId,
           financialAccountId: data.fromAccountId,
@@ -761,8 +805,8 @@ export const createTransfer = createServerFn({ method: 'POST' })
           description: data.description,
           transferGroupId,
         },
-      }),
-      prisma.transaction.create({
+      })
+      const to = await tx.transaction.create({
         data: {
           userId,
           financialAccountId: data.toAccountId,
@@ -772,8 +816,56 @@ export const createTransfer = createServerFn({ method: 'POST' })
           description: data.description,
           transferGroupId,
         },
-      }),
-    ])
+      })
+
+      const [fromAccount, toAccount] = await Promise.all([
+        tx.financialAccount.findUniqueOrThrow({
+          where: { id: data.fromAccountId },
+          select: { name: true, isGlobal: true, userId: true },
+        }),
+        tx.financialAccount.findUniqueOrThrow({
+          where: { id: data.toAccountId },
+          select: { name: true, isGlobal: true },
+        }),
+      ])
+
+      await logActivity(
+        {
+          actorUserId: userId,
+          action: 'CREATE',
+          entityType: ACTIVITY_ENTITY_TYPES.transaction,
+          entityId: from.id,
+          summary: `Transferred $${magnitude.toFixed(2)} from ${fromAccount.name} to ${toAccount.name}`,
+          changes: createChanges(
+            {
+              financialAccountId: from.financialAccountId,
+              type: from.type,
+              amount: from.amount.toString(),
+              description: from.description,
+              date: from.date.toISOString(),
+              payeeId: from.payeeId,
+              categoryId: from.categoryId,
+              transferGroupId: from.transferGroupId,
+              toTransactionId: to.id,
+              toAccountId: to.financialAccountId,
+            },
+            [
+              ...TRANSACTION_ACTIVITY_FIELDS,
+              'toTransactionId',
+              'toAccountId',
+            ],
+          ),
+          linkMeta: {
+            isGlobal: fromAccount.isGlobal || toAccount.isGlobal,
+            accountName: fromAccount.name,
+          },
+          visibilityUserId: fromAccount.userId,
+        },
+        tx,
+      )
+
+      return [from, to] as const
+    })
 
     const attachments = await linkAttachments(userId, data.attachments, [
       fromTxn.id,

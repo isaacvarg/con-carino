@@ -3,8 +3,22 @@ import { getRequest } from '@tanstack/react-start/server'
 import { getSession } from 'start-authjs'
 import { AccountType as AccountTypeEnum } from '#/generated/prisma/enums'
 import type { AccountType } from '#/generated/prisma/enums'
+import {
+  ACTIVITY_ENTITY_TYPES,
+  createChanges,
+  diffChanges,
+} from '#/lib/activity'
 import { prisma } from '#/lib/prisma'
+import { logActivity } from '#/server/activity'
 import { authConfig } from '#/utils/auth'
+
+const ACCOUNT_ACTIVITY_FIELDS = [
+  'name',
+  'type',
+  'initialBalance',
+  'isGlobal',
+  'accountGroupId',
+] as const
 
 const ACCOUNT_TYPES = Object.values(AccountTypeEnum)
 
@@ -359,7 +373,15 @@ export const updateAccount = createServerFn({ method: 'POST' })
     const userId = await requireUserId()
     const existing = await prisma.financialAccount.findUnique({
       where: { id: data.id },
-      select: { id: true, userId: true },
+      select: {
+        id: true,
+        userId: true,
+        name: true,
+        type: true,
+        initialBalance: true,
+        isGlobal: true,
+        accountGroupId: true,
+      },
     })
 
     if (!existing) {
@@ -395,6 +417,36 @@ export const updateAccount = createServerFn({ method: 'POST' })
         },
       },
     })
+
+    const changes = diffChanges(
+      {
+        name: existing.name,
+        type: existing.type,
+        initialBalance: existing.initialBalance.toString(),
+        isGlobal: existing.isGlobal,
+        accountGroupId: existing.accountGroupId,
+      },
+      {
+        name: updated.name,
+        type: updated.type,
+        initialBalance: updated.initialBalance.toString(),
+        isGlobal: updated.isGlobal,
+        accountGroupId: updated.accountGroupId,
+      },
+      ACCOUNT_ACTIVITY_FIELDS,
+    )
+    if (Object.keys(changes).length > 0) {
+      await logActivity({
+        actorUserId: userId,
+        action: 'UPDATE',
+        entityType: ACTIVITY_ENTITY_TYPES.account,
+        entityId: updated.id,
+        summary: `Updated account “${updated.name}”`,
+        changes,
+        linkMeta: { isGlobal: updated.isGlobal, accountName: updated.name },
+        visibilityUserId: updated.userId,
+      })
+    }
 
     return toAccountListItemWithBalance(updated, userId)
   })
@@ -444,7 +496,7 @@ export const createAccount = createServerFn({ method: 'POST' })
         accountGroupId = group.id
       }
 
-      return tx.financialAccount.create({
+      const created = await tx.financialAccount.create({
         data: {
           userId,
           name: data.name,
@@ -459,6 +511,31 @@ export const createAccount = createServerFn({ method: 'POST' })
           },
         },
       })
+
+      await logActivity(
+        {
+          actorUserId: userId,
+          action: 'CREATE',
+          entityType: ACTIVITY_ENTITY_TYPES.account,
+          entityId: created.id,
+          summary: `Created account “${created.name}”`,
+          changes: createChanges(
+            {
+              name: created.name,
+              type: created.type,
+              initialBalance: created.initialBalance.toString(),
+              isGlobal: created.isGlobal,
+              accountGroupId: created.accountGroupId,
+            },
+            ACCOUNT_ACTIVITY_FIELDS,
+          ),
+          linkMeta: { isGlobal: created.isGlobal, accountName: created.name },
+          visibilityUserId: created.userId,
+        },
+        tx,
+      )
+
+      return created
     })
 
     const initialBalanceText = account.initialBalance.toString()

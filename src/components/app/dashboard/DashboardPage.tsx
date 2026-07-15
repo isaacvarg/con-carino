@@ -1,3 +1,5 @@
+import { DashboardRecentActivity } from '#/components/app/activity/ActivityViews'
+import type { ActivityListItem } from '#/server/activity'
 import { CashflowChart } from './CashflowChart'
 import {
   BalanceCard,
@@ -7,9 +9,13 @@ import {
   SavingPlansCard,
 } from './LeftColumn'
 import { RecentTransactions } from './RecentTransactions'
-import { ExpenseStatistic, RecentActivity } from './RightColumn'
+import { ExpenseStatistic } from './RightColumn'
 
-export default function DashboardPage() {
+export default function DashboardPage({
+  recentActivity,
+}: {
+  recentActivity: ActivityListItem[]
+}) {
   return (
     <div className="grid gap-4 xl:grid-cols-[17.5rem_minmax(0,1fr)_18rem]">
       <div className="flex flex-col gap-4">
@@ -27,7 +33,7 @@ export default function DashboardPage() {
 
       <div className="flex flex-col gap-4">
         <ExpenseStatistic />
-        <RecentActivity />
+        <DashboardRecentActivity items={recentActivity} />
       </div>
     </div>
   )

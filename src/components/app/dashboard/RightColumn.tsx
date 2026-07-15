@@ -1,4 +1,4 @@
-import { MOCK_ACTIVITY, MOCK_EXPENSE_BREAKDOWN, formatCurrency } from './mock-data'
+import { MOCK_EXPENSE_BREAKDOWN, formatCurrency } from './mock-data'
 
 const DONUT_COLORS = [
   'stroke-secondary',
@@ -78,55 +78,12 @@ export function ExpenseStatistic() {
               />
               {item.label}
             </span>
-            <span className="text-base-content/70">
-              {formatCurrency(item.amount)} · {item.percent}%
+            <span className="font-medium text-base-content">
+              {formatCurrency(item.amount)}
             </span>
           </li>
         ))}
       </ul>
-    </div>
-  )
-}
-
-export function RecentActivity() {
-  return (
-    <div className="rounded-box bg-base-100 p-5 text-base-content shadow-sm">
-      <h2 className="mb-4 font-semibold text-base-content">Recent Activity</h2>
-      <div className="space-y-5">
-        {MOCK_ACTIVITY.map((group) => (
-          <div key={group.day}>
-            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-base-content/70">
-              {group.day}
-            </p>
-            <ul className="space-y-3">
-              {group.items.map((item) => (
-                <li key={`${item.name}-${item.time}`} className="flex gap-3">
-                  <div className="avatar avatar-placeholder">
-                    <div className="w-9 rounded-full bg-primary text-primary-content">
-                      <span className="text-xs font-semibold text-primary-content">
-                        {item.name
-                          .split(' ')
-                          .map((part) => part[0])
-                          .join('')
-                          .slice(0, 2)}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm text-base-content">
-                      <span className="font-semibold text-base-content">
-                        {item.name}
-                      </span>{' '}
-                      <span className="text-base-content/70">{item.action}</span>
-                    </p>
-                    <p className="text-xs text-base-content/60">{item.time}</p>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
-      </div>
     </div>
   )
 }

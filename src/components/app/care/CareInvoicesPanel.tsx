@@ -7,7 +7,7 @@ import {
   type ColumnDef,
   type SortingState,
 } from '@tanstack/react-table'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   FORM_SELECT_CLASS,
   FormActions,
@@ -21,6 +21,7 @@ import { formatTimeRange } from './care-utils'
 type CareInvoicesPanelProps = {
   invoices: CareInvoiceDto[]
   accounts: AccountListItem[]
+  highlightInvoiceId?: string
 }
 
 function settledTransactionLink(invoice: CareInvoiceDto) {
@@ -36,6 +37,7 @@ function settledTransactionLink(invoice: CareInvoiceDto) {
 export function CareInvoicesPanel({
   invoices,
   accounts,
+  highlightInvoiceId,
 }: CareInvoicesPanelProps) {
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
@@ -45,6 +47,12 @@ export function CareInvoicesPanel({
   const [sorting, setSorting] = useState<SortingState>([
     { id: 'endsAt', desc: true },
   ])
+
+  useEffect(() => {
+    if (!highlightInvoiceId) return
+    const el = document.getElementById(`invoice-${highlightInvoiceId}`)
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [highlightInvoiceId, invoices])
 
   const open = invoices.filter((i) => i.status === 'OPEN')
   const closed = invoices.filter((i) => i.status !== 'OPEN')
@@ -159,7 +167,12 @@ export function CareInvoicesPanel({
             {open.map((inv) => (
               <li
                 key={inv.id}
-                className="rounded-lg border border-base-300 p-4"
+                id={`invoice-${inv.id}`}
+                className={
+                  highlightInvoiceId === inv.id
+                    ? 'rounded-lg border border-primary bg-primary/5 p-4'
+                    : 'rounded-lg border border-base-300 p-4'
+                }
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
@@ -252,10 +265,18 @@ export function CareInvoicesPanel({
               <tbody>
                 {closedTable.getRowModel().rows.map((row) => {
                   const link = settledTransactionLink(row.original)
+                  const highlighted = highlightInvoiceId === row.original.id
                   return (
                     <tr
                       key={row.id}
-                      className={link ? 'hover:bg-base-200/70' : undefined}
+                      id={`invoice-${row.original.id}`}
+                      className={
+                        highlighted
+                          ? 'bg-primary/5'
+                          : link
+                            ? 'hover:bg-base-200/70'
+                            : undefined
+                      }
                     >
                       {row.getVisibleCells().map((cell) => (
                         <td key={cell.id} className={link ? '!p-0' : undefined}>

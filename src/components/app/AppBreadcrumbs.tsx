@@ -9,6 +9,7 @@ type BreadcrumbHref =
   | { to: '/' }
   | { to: '/accounts' }
   | { to: '/transactions'; search: typeof transactionsSearchDefaults }
+  | { to: '/activity' }
   | { to: '/schedule' }
   | { to: '/meds' }
   | { to: '/invoices' }
@@ -105,6 +106,14 @@ export function crumbsForPath(
         label: 'transactions',
         href: { to: '/transactions', search: transactionsSearchDefaults },
       },
+      { label: 'details' },
+    ]
+  }
+
+  const activityDetail = path.match(/^\/activity\/([^/]+)$/)
+  if (activityDetail) {
+    return [
+      { label: 'activity', href: { to: '/activity' } },
       { label: 'details' },
     ]
   }

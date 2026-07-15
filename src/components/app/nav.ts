@@ -2,6 +2,7 @@ import type { IconType } from 'react-icons'
 import {
   HiOutlineCalendar,
   HiOutlineClipboardList,
+  HiOutlineClock,
   HiOutlineCog,
   HiOutlineCreditCard,
   HiOutlineDocumentText,
@@ -15,6 +16,7 @@ export type AppNavPath =
   | '/'
   | '/accounts'
   | '/transactions'
+  | '/activity'
   | '/schedule'
   | '/meds'
   | '/invoices'
@@ -45,6 +47,13 @@ export const APP_NAV: AppNavEntry[] = [
     to: '/',
     icon: HiOutlineViewGrid,
     title: 'Dashboard',
+  },
+  {
+    kind: 'link',
+    label: 'Activity',
+    to: '/activity',
+    icon: HiOutlineClock,
+    title: 'Activity',
   },
   {
     kind: 'link',
@@ -137,6 +146,9 @@ export function titleForPath(pathname: string): string {
   }
   if (/^\/transactions\/[^/]+$/.test(path)) {
     return 'Transaction'
+  }
+  if (/^\/activity\/[^/]+$/.test(path)) {
+    return 'Activity details'
   }
   if (path === '/settings/loved-one') return 'Loved one'
   if (path === '/settings/people') return 'People'

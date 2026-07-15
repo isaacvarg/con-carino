@@ -28,8 +28,14 @@ import {
   hoursBetween,
   parseHhMm,
 } from '#/lib/care-recurrence'
+import {
+  ACTIVITY_ENTITY_TYPES,
+  createChanges,
+  diffChanges,
+} from '#/lib/activity'
 import { prisma } from '#/lib/prisma'
 import { toSignedTransactionAmount } from '#/lib/transaction-amount'
+import { logActivity } from '#/server/activity'
 import { authConfig } from '#/utils/auth'
 
 const FREQUENCIES = Object.values(CareCoverageFrequencyEnum)
@@ -104,6 +110,13 @@ function parseDaysOfWeek(value: unknown): number[] {
 
 function ownOrGlobal(userId: string) {
   return { OR: [{ userId }, { isGlobal: true }] }
+}
+
+function toDayKey(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
 }
 
 export type CareRequiredShiftDto = {
@@ -441,6 +454,16 @@ async function completeDueShifts(now = new Date()) {
       where: { id: occ.id },
       data: { status: 'COMPLETED' },
     })
+    await logActivity({
+      actorUserId: null,
+      action: 'UPDATE',
+      entityType: ACTIVITY_ENTITY_TYPES.coverage_occurrence,
+      entityId: occ.id,
+      summary: `System completed shift ${toDayKey(occ.startsAt)}`,
+      changes: diffChanges(occ, { ...occ, status: 'COMPLETED' }, ['status']),
+      linkMeta: { day: toDayKey(occ.startsAt), tab: 'calendar' },
+      visibilityUserId: null,
+    })
 
     if (occ.invoice || !occ.assignee) continue
 
@@ -454,7 +477,7 @@ async function completeDueShifts(now = new Date()) {
     const hours = hoursBetween(occ.startsAt, occ.endsAt)
     const computed = computeInvoiceAmount(rate, hours)
 
-    await prisma.careInvoice.create({
+    const invoice = await prisma.careInvoice.create({
       data: {
         occurrenceId: occ.id,
         carePersonId: occ.assignee.id,
@@ -463,6 +486,23 @@ async function completeDueShifts(now = new Date()) {
         hoursSnapshot: computed.hours,
         status: 'OPEN',
       },
+    })
+    await logActivity({
+      actorUserId: null,
+      action: 'CREATE',
+      entityType: ACTIVITY_ENTITY_TYPES.invoice,
+      entityId: invoice.id,
+      summary: `System created invoice for ${occ.assignee.name}`,
+      changes: createChanges(invoice, [
+        'occurrenceId',
+        'carePersonId',
+        'amount',
+        'hourlyRateSnapshot',
+        'hoursSnapshot',
+        'status',
+      ]),
+      linkMeta: { day: toDayKey(occ.startsAt), tab: 'calendar' },
+      visibilityUserId: null,
     })
   }
 }
@@ -765,8 +805,12 @@ export const upsertCareSettings = createServerFn({ method: 'POST' })
     }
   })
   .handler(async ({ data }): Promise<CareSettingsDto> => {
-    await requireUserId()
+    const userId = await requireUserId()
     await ensureDefaultTypes()
+    const before = await prisma.careSettings.findUnique({
+      where: { id: 'default' },
+      include: { shifts: { orderBy: { sortOrder: 'asc' } } },
+    })
 
     await prisma.$transaction(async (tx) => {
       await tx.careSettings.upsert({
@@ -796,6 +840,35 @@ export const upsertCareSettings = createServerFn({ method: 'POST' })
             sortOrder: shift.sortOrder,
           })),
         })
+      }
+      const after = await tx.careSettings.findUniqueOrThrow({
+        where: { id: 'default' },
+        include: { shifts: { orderBy: { sortOrder: 'asc' } } },
+      })
+      const changes = diffChanges(
+        before ? toSettingsDto(before) : null,
+        toSettingsDto(after),
+        [
+          'lovedOneName',
+          'coverageNeed',
+          'coverageWindowKind',
+          'partialDaysOfWeek',
+          'shifts',
+        ],
+      )
+      if (Object.keys(changes).length > 0) {
+        await logActivity(
+          {
+            actorUserId: userId,
+            action: 'UPDATE',
+            entityType: ACTIVITY_ENTITY_TYPES.care_settings,
+            entityId: 'default',
+            summary: 'Updated loved one settings',
+            changes,
+            visibilityUserId: null,
+          },
+          tx,
+        )
       }
     })
 
@@ -834,13 +907,22 @@ export const createCarePersonType = createServerFn({ method: 'POST' })
     }
   })
   .handler(async ({ data }): Promise<CarePersonTypeDto> => {
-    await requireUserId()
+    const userId = await requireUserId()
     const created = await prisma.carePersonType.create({
       data: {
         name: data.name,
         isPaid: data.isPaid,
         defaultHourlyRate: data.defaultHourlyRate,
       },
+    })
+    await logActivity({
+      actorUserId: userId,
+      action: 'CREATE',
+      entityType: ACTIVITY_ENTITY_TYPES.care_person_type,
+      entityId: created.id,
+      summary: `Created care person type ${created.name}`,
+      changes: createChanges(created, ['name', 'isPaid', 'defaultHourlyRate']),
+      visibilityUserId: null,
     })
     return {
       id: created.id,
@@ -866,7 +948,10 @@ export const updateCarePersonType = createServerFn({ method: 'POST' })
     }
   })
   .handler(async ({ data }): Promise<CarePersonTypeDto> => {
-    await requireUserId()
+    const userId = await requireUserId()
+    const before = await prisma.carePersonType.findUniqueOrThrow({
+      where: { id: data.id },
+    })
     const updated = await prisma.carePersonType.update({
       where: { id: data.id },
       data: {
@@ -875,6 +960,22 @@ export const updateCarePersonType = createServerFn({ method: 'POST' })
         defaultHourlyRate: data.defaultHourlyRate,
       },
     })
+    const changes = diffChanges(before, updated, [
+      'name',
+      'isPaid',
+      'defaultHourlyRate',
+    ])
+    if (Object.keys(changes).length > 0) {
+      await logActivity({
+        actorUserId: userId,
+        action: 'UPDATE',
+        entityType: ACTIVITY_ENTITY_TYPES.care_person_type,
+        entityId: updated.id,
+        summary: `Updated care person type ${updated.name}`,
+        changes,
+        visibilityUserId: null,
+      })
+    }
     return {
       id: updated.id,
       name: updated.name,
@@ -909,7 +1010,7 @@ export const createCareEventType = createServerFn({ method: 'POST' })
     }
   })
   .handler(async ({ data }): Promise<CareEventTypeDto> => {
-    await requireUserId()
+    const userId = await requireUserId()
     await ensureDefaultTypes()
     const existing = await prisma.careEventType.findUnique({
       where: { name: data.name },
@@ -925,6 +1026,20 @@ export const createCareEventType = createServerFn({ method: 'POST' })
         textColor: data.textColor,
         sortOrder: (max._max.sortOrder ?? -1) + 1,
       },
+    })
+    await logActivity({
+      actorUserId: userId,
+      action: 'CREATE',
+      entityType: ACTIVITY_ENTITY_TYPES.care_event_type,
+      entityId: created.id,
+      summary: `Created care event type ${created.name}`,
+      changes: createChanges(created, [
+        'name',
+        'bgColor',
+        'textColor',
+        'sortOrder',
+      ]),
+      visibilityUserId: null,
     })
     return toEventTypeDto(created)
   })
@@ -945,12 +1060,15 @@ export const updateCareEventType = createServerFn({ method: 'POST' })
     }
   })
   .handler(async ({ data }): Promise<CareEventTypeDto> => {
-    await requireUserId()
+    const userId = await requireUserId()
     const clash = await prisma.careEventType.findFirst({
       where: { name: data.name, id: { not: data.id } },
       select: { id: true },
     })
     if (clash) throw new Error('An event type with that name already exists.')
+    const before = await prisma.careEventType.findUniqueOrThrow({
+      where: { id: data.id },
+    })
     const updated = await prisma.careEventType.update({
       where: { id: data.id },
       data: {
@@ -959,6 +1077,18 @@ export const updateCareEventType = createServerFn({ method: 'POST' })
         textColor: data.textColor,
       },
     })
+    const changes = diffChanges(before, updated, ['name', 'bgColor', 'textColor'])
+    if (Object.keys(changes).length > 0) {
+      await logActivity({
+        actorUserId: userId,
+        action: 'UPDATE',
+        entityType: ACTIVITY_ENTITY_TYPES.care_event_type,
+        entityId: updated.id,
+        summary: `Updated care event type ${updated.name}`,
+        changes,
+        visibilityUserId: null,
+      })
+    }
     return toEventTypeDto(updated)
   })
 
@@ -1013,7 +1143,7 @@ export const createCarePerson = createServerFn({ method: 'POST' })
     }
   })
   .handler(async ({ data }): Promise<CarePersonDto> => {
-    await requireUserId()
+    const userId = await requireUserId()
     const type = await prisma.carePersonType.findUnique({
       where: { id: data.typeId },
     })
@@ -1036,6 +1166,23 @@ export const createCarePerson = createServerFn({ method: 'POST' })
         type: true,
         user: { select: { name: true, email: true } },
       },
+    })
+    await logActivity({
+      actorUserId: userId,
+      action: 'CREATE',
+      entityType: ACTIVITY_ENTITY_TYPES.care_person,
+      entityId: created.id,
+      summary: `Created care person ${created.name}`,
+      changes: createChanges(created, [
+        'name',
+        'typeId',
+        'userId',
+        'hourlyRate',
+        'isActive',
+        'bgColor',
+        'textColor',
+      ]),
+      visibilityUserId: null,
     })
     return toPersonDto(created)
   })
@@ -1066,7 +1213,10 @@ export const updateCarePerson = createServerFn({ method: 'POST' })
     }
   })
   .handler(async ({ data }): Promise<CarePersonDto> => {
-    await requireUserId()
+    const userId = await requireUserId()
+    const before = await prisma.carePerson.findUniqueOrThrow({
+      where: { id: data.id },
+    })
     const updated = await prisma.carePerson.update({
       where: { id: data.id },
       data: {
@@ -1083,6 +1233,26 @@ export const updateCarePerson = createServerFn({ method: 'POST' })
         user: { select: { name: true, email: true } },
       },
     })
+    const changes = diffChanges(before, updated, [
+      'name',
+      'typeId',
+      'userId',
+      'hourlyRate',
+      'isActive',
+      'bgColor',
+      'textColor',
+    ])
+    if (Object.keys(changes).length > 0) {
+      await logActivity({
+        actorUserId: userId,
+        action: 'UPDATE',
+        entityType: ACTIVITY_ENTITY_TYPES.care_person,
+        entityId: updated.id,
+        summary: `Updated care person ${updated.name}`,
+        changes,
+        visibilityUserId: null,
+      })
+    }
     return toPersonDto(updated)
   })
 
@@ -1199,7 +1369,7 @@ export const createCoverageSeries = createServerFn({ method: 'POST' })
     }
   })
   .handler(async ({ data }) => {
-    await requireUserId()
+    const userId = await requireUserId()
     if (data.assigneeId) {
       const person = await prisma.carePerson.findUnique({
         where: { id: data.assigneeId },
@@ -1219,6 +1389,25 @@ export const createCoverageSeries = createServerFn({ method: 'POST' })
         daysOfWeek: data.daysOfWeek,
         notes: data.notes,
       },
+    })
+    await logActivity({
+      actorUserId: userId,
+      action: 'CREATE',
+      entityType: ACTIVITY_ENTITY_TYPES.coverage_series,
+      entityId: created.id,
+      summary: 'Created coverage series',
+      changes: createChanges(created, [
+        'assigneeId',
+        'startsOn',
+        'endsOn',
+        'startTime',
+        'endTime',
+        'frequency',
+        'daysOfWeek',
+        'notes',
+      ]),
+      linkMeta: { day: toDayKey(created.startsOn), tab: 'calendar' },
+      visibilityUserId: null,
     })
 
     const now = new Date()
@@ -1251,7 +1440,7 @@ export const createCoverageOccurrence = createServerFn({ method: 'POST' })
     return { assigneeId, startsAt, endsAt, notes }
   })
   .handler(async ({ data }): Promise<CareCoverageOccurrenceDto> => {
-    await requireUserId()
+    const userId = await requireUserId()
     if (data.assigneeId) {
       const person = await prisma.carePerson.findUnique({
         where: { id: data.assigneeId },
@@ -1280,6 +1469,22 @@ export const createCoverageOccurrence = createServerFn({ method: 'POST' })
         invoice: { select: { id: true } },
       },
     })
+    await logActivity({
+      actorUserId: userId,
+      action: 'CREATE',
+      entityType: ACTIVITY_ENTITY_TYPES.coverage_occurrence,
+      entityId: created.id,
+      summary: `Created coverage on ${toDayKey(created.startsAt)}`,
+      changes: createChanges(created, [
+        'assigneeId',
+        'startsAt',
+        'endsAt',
+        'status',
+        'notes',
+      ]),
+      linkMeta: { day: toDayKey(created.startsAt), tab: 'calendar' },
+      visibilityUserId: null,
+    })
     return toOccurrenceDto(created)
   })
 
@@ -1307,7 +1512,7 @@ export const updateOccurrence = createServerFn({ method: 'POST' })
     return { id, assigneeId, status, notes }
   })
   .handler(async ({ data }): Promise<CareCoverageOccurrenceDto> => {
-    await requireUserId()
+    const userId = await requireUserId()
     const existing = await prisma.careCoverageOccurrence.findUnique({
       where: { id: data.id },
     })
@@ -1342,6 +1547,23 @@ export const updateOccurrence = createServerFn({ method: 'POST' })
         invoice: { select: { id: true } },
       },
     })
+    const changes = diffChanges(existing, updated, [
+      'assigneeId',
+      'status',
+      'notes',
+    ])
+    if (Object.keys(changes).length > 0) {
+      await logActivity({
+        actorUserId: userId,
+        action: 'UPDATE',
+        entityType: ACTIVITY_ENTITY_TYPES.coverage_occurrence,
+        entityId: updated.id,
+        summary: `Updated coverage on ${toDayKey(updated.startsAt)}`,
+        changes,
+        linkMeta: { day: toDayKey(updated.startsAt), tab: 'calendar' },
+        visibilityUserId: null,
+      })
+    }
     return toOccurrenceDto(updated)
   })
 
@@ -1368,7 +1590,7 @@ export const claimOccurrences = createServerFn({ method: 'POST' })
     return { assigneeId, occurrenceIds }
   })
   .handler(async ({ data }): Promise<CareCoverageOccurrenceDto[]> => {
-    await requireUserId()
+    const userId = await requireUserId()
     const person = await prisma.carePerson.findUnique({
       where: { id: data.assigneeId },
     })
@@ -1401,14 +1623,27 @@ export const claimOccurrences = createServerFn({ method: 'POST' })
       }
     }
 
-    await prisma.$transaction(
-      sorted.map((row) =>
-        prisma.careCoverageOccurrence.update({
+    await prisma.$transaction(async (tx) => {
+      for (const row of sorted) {
+        const updated = await tx.careCoverageOccurrence.update({
           where: { id: row.id },
           data: { assigneeId: data.assigneeId },
-        }),
-      ),
-    )
+        })
+        await logActivity(
+          {
+            actorUserId: userId,
+            action: 'UPDATE',
+            entityType: ACTIVITY_ENTITY_TYPES.coverage_occurrence,
+            entityId: updated.id,
+            summary: `Assigned coverage on ${toDayKey(updated.startsAt)}`,
+            changes: diffChanges(row, updated, ['assigneeId']),
+            linkMeta: { day: toDayKey(updated.startsAt), tab: 'calendar' },
+            visibilityUserId: null,
+          },
+          tx,
+        )
+      }
+    })
 
     const updated = await prisma.careCoverageOccurrence.findMany({
       where: { id: { in: data.occurrenceIds } },
@@ -1459,7 +1694,7 @@ export const deleteCoverageSeries = createServerFn({ method: 'POST' })
     return { id }
   })
   .handler(async ({ data }): Promise<{ id: string }> => {
-    await requireUserId()
+    const userId = await requireUserId()
     const series = await prisma.careCoverageSeries.findUnique({
       where: { id: data.id },
     })
@@ -1470,6 +1705,25 @@ export const deleteCoverageSeries = createServerFn({ method: 'POST' })
       )
     }
     await deleteManualCoverageSeries(series.id)
+    await logActivity({
+      actorUserId: userId,
+      action: 'DELETE',
+      entityType: ACTIVITY_ENTITY_TYPES.coverage_series,
+      entityId: series.id,
+      summary: 'Deleted coverage series',
+      changes: diffChanges(series, null, [
+        'assigneeId',
+        'startsOn',
+        'endsOn',
+        'startTime',
+        'endTime',
+        'frequency',
+        'daysOfWeek',
+        'notes',
+      ]),
+      linkMeta: { day: toDayKey(series.startsOn), tab: 'calendar' },
+      visibilityUserId: null,
+    })
     return { id: data.id }
   })
 
@@ -1499,7 +1753,7 @@ export const createCalendarEvent = createServerFn({ method: 'POST' })
     }
   })
   .handler(async ({ data }): Promise<CareCalendarEventDto> => {
-    await requireUserId()
+    const userId = await requireUserId()
     const type = await prisma.careEventType.findUnique({
       where: { id: data.typeId },
     })
@@ -1515,6 +1769,22 @@ export const createCalendarEvent = createServerFn({ method: 'POST' })
       include: {
         type: { select: { name: true, bgColor: true, textColor: true } },
       },
+    })
+    await logActivity({
+      actorUserId: userId,
+      action: 'CREATE',
+      entityType: ACTIVITY_ENTITY_TYPES.calendar_event,
+      entityId: created.id,
+      summary: `Created calendar event ${created.title}`,
+      changes: createChanges(created, [
+        'title',
+        'typeId',
+        'startsAt',
+        'endsAt',
+        'notes',
+      ]),
+      linkMeta: { day: toDayKey(created.startsAt), tab: 'calendar' },
+      visibilityUserId: null,
     })
     return toEventDto(created)
   })
@@ -1548,11 +1818,14 @@ export const updateCalendarEvent = createServerFn({ method: 'POST' })
     }
   })
   .handler(async ({ data }): Promise<CareCalendarEventDto> => {
-    await requireUserId()
+    const userId = await requireUserId()
     const type = await prisma.careEventType.findUnique({
       where: { id: data.typeId },
     })
     if (!type) throw new Error('Event type not found.')
+    const before = await prisma.careCalendarEvent.findUniqueOrThrow({
+      where: { id: data.id },
+    })
     const updated = await prisma.careCalendarEvent.update({
       where: { id: data.id },
       data: {
@@ -1566,6 +1839,25 @@ export const updateCalendarEvent = createServerFn({ method: 'POST' })
         type: { select: { name: true, bgColor: true, textColor: true } },
       },
     })
+    const changes = diffChanges(before, updated, [
+      'title',
+      'typeId',
+      'startsAt',
+      'endsAt',
+      'notes',
+    ])
+    if (Object.keys(changes).length > 0) {
+      await logActivity({
+        actorUserId: userId,
+        action: 'UPDATE',
+        entityType: ACTIVITY_ENTITY_TYPES.calendar_event,
+        entityId: updated.id,
+        summary: `Updated calendar event ${updated.title}`,
+        changes,
+        linkMeta: { day: toDayKey(updated.startsAt), tab: 'calendar' },
+        visibilityUserId: null,
+      })
+    }
     return toEventDto(updated)
   })
 
@@ -1702,6 +1994,25 @@ export const createSwapRequest = createServerFn({ method: 'POST' })
         reviewedByUser: { select: { name: true } },
       },
     })
+    await logActivity({
+      actorUserId: userId,
+      action: 'CREATE',
+      entityType: ACTIVITY_ENTITY_TYPES.swap,
+      entityId: created.id,
+      summary: `Requested swap for ${toDayKey(created.relinquishOccurrence.startsAt)}`,
+      changes: createChanges(created, [
+        'relinquishOccurrenceId',
+        'claimOccurrenceId',
+        'claimForPersonId',
+        'status',
+        'notes',
+      ]),
+      linkMeta: {
+        day: toDayKey(created.relinquishOccurrence.startsAt),
+        tab: 'swaps',
+      },
+      visibilityUserId: null,
+    })
 
     return {
       id: created.id,
@@ -1770,6 +2081,23 @@ export const reviewSwapRequest = createServerFn({ method: 'POST' })
           reviewedByUser: { select: { name: true } },
         },
       })
+      await logActivity({
+        actorUserId: userId,
+        action: 'UPDATE',
+        entityType: ACTIVITY_ENTITY_TYPES.swap,
+        entityId: updated.id,
+        summary: `${data.decision === 'REJECTED' ? 'Rejected' : 'Cancelled'} swap for ${toDayKey(updated.relinquishOccurrence.startsAt)}`,
+        changes: diffChanges(existing, updated, [
+          'status',
+          'reviewedByUserId',
+          'reviewedAt',
+        ]),
+        linkMeta: {
+          day: toDayKey(updated.relinquishOccurrence.startsAt),
+          tab: 'swaps',
+        },
+        visibilityUserId: null,
+      })
       return {
         id: updated.id,
         status: updated.status,
@@ -1806,24 +2134,44 @@ export const reviewSwapRequest = createServerFn({ method: 'POST' })
       throw new Error('Claim person has overlapping coverage.')
     }
 
-    await prisma.$transaction([
-      prisma.careCoverageOccurrence.update({
+    await prisma.$transaction(async (tx) => {
+      await tx.careCoverageOccurrence.update({
         where: { id: existing.relinquishOccurrenceId },
         data: { assigneeId: null },
-      }),
-      prisma.careCoverageOccurrence.update({
+      })
+      await tx.careCoverageOccurrence.update({
         where: { id: existing.claimOccurrenceId },
         data: { assigneeId: existing.claimForPersonId },
-      }),
-      prisma.careSwapRequest.update({
+      })
+      const updated = await tx.careSwapRequest.update({
         where: { id: data.id },
         data: {
           status: 'APPROVED',
           reviewedByUserId: userId,
           reviewedAt: new Date(),
         },
-      }),
-    ])
+      })
+      await logActivity(
+        {
+          actorUserId: userId,
+          action: 'UPDATE',
+          entityType: ACTIVITY_ENTITY_TYPES.swap,
+          entityId: updated.id,
+          summary: `Approved swap for ${toDayKey(existing.relinquishOccurrence.startsAt)}`,
+          changes: diffChanges(existing, updated, [
+            'status',
+            'reviewedByUserId',
+            'reviewedAt',
+          ]),
+          linkMeta: {
+            day: toDayKey(existing.relinquishOccurrence.startsAt),
+            tab: 'swaps',
+          },
+          visibilityUserId: null,
+        },
+        tx,
+      )
+    })
 
     const updated = await prisma.careSwapRequest.findUniqueOrThrow({
       where: { id: data.id },
@@ -1954,7 +2302,7 @@ export const settleCareInvoice = createServerFn({ method: 'POST' })
         },
       })
 
-      return tx.careInvoice.update({
+      const updated = await tx.careInvoice.update({
         where: { id: invoice.id },
         data: {
           status: 'PAID',
@@ -1966,6 +2314,27 @@ export const settleCareInvoice = createServerFn({ method: 'POST' })
           occurrence: { select: { startsAt: true, endsAt: true } },
         },
       })
+      await logActivity(
+        {
+          actorUserId: userId,
+          action: 'UPDATE',
+          entityType: ACTIVITY_ENTITY_TYPES.invoice,
+          entityId: updated.id,
+          summary: `Settled invoice for ${updated.carePerson.name}`,
+          changes: diffChanges(invoice, updated, [
+            'status',
+            'financialAccountId',
+            'settledTransactionId',
+          ]),
+          linkMeta: {
+            day: toDayKey(updated.occurrence.startsAt),
+            tab: 'calendar',
+          },
+          visibilityUserId: null,
+        },
+        tx,
+      )
+      return updated
     })
 
     return {
@@ -1994,9 +2363,13 @@ export const voidCareInvoice = createServerFn({ method: 'POST' })
     return { id }
   })
   .handler(async ({ data }): Promise<CareInvoiceDto> => {
-    await requireUserId()
+    const userId = await requireUserId()
     const invoice = await prisma.careInvoice.findUnique({
       where: { id: data.id },
+      include: {
+        carePerson: { select: { name: true } },
+        occurrence: { select: { startsAt: true, endsAt: true } },
+      },
     })
     if (!invoice) throw new Error('Invoice not found.')
     if (invoice.status !== 'OPEN') {
@@ -2009,6 +2382,16 @@ export const voidCareInvoice = createServerFn({ method: 'POST' })
         carePerson: { select: { name: true } },
         occurrence: { select: { startsAt: true, endsAt: true } },
       },
+    })
+    await logActivity({
+      actorUserId: userId,
+      action: 'UPDATE',
+      entityType: ACTIVITY_ENTITY_TYPES.invoice,
+      entityId: result.id,
+      summary: `Voided invoice for ${result.carePerson.name}`,
+      changes: diffChanges(invoice, result, ['status']),
+      linkMeta: { day: toDayKey(result.occurrence.startsAt), tab: 'calendar' },
+      visibilityUserId: null,
     })
     return {
       id: result.id,
