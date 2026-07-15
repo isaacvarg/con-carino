@@ -7,21 +7,18 @@ type AccountDetailHeaderProps = {
 }
 
 export function AccountDetailHeader({ account }: AccountDetailHeaderProps) {
+  if (!account.isOwned) return null
+
   return (
     <div className="flex flex-wrap items-center justify-end gap-2">
-      <Link to="/accounts" className="btn btn-ghost">
-        All accounts
+      <Link
+        to="/accounts/$accountId/settings"
+        params={{ accountId: account.id }}
+        className="btn btn-outline gap-2"
+      >
+        <HiOutlineCog className="size-4" aria-hidden />
+        Settings
       </Link>
-      {account.isOwned ? (
-        <Link
-          to="/accounts/$accountId/settings"
-          params={{ accountId: account.id }}
-          className="btn btn-outline gap-2"
-        >
-          <HiOutlineCog className="size-4" aria-hidden />
-          Settings
-        </Link>
-      ) : null}
     </div>
   )
 }

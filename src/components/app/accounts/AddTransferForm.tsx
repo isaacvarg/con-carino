@@ -83,13 +83,7 @@ export function AddTransferForm({
 
   return (
     <div className="mx-auto w-full max-w-xl">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-semibold text-base-content">Transfer</h2>
-          <p className="mt-1 text-sm text-base-content/60">
-            Move money between accounts. From is a withdrawal; To is a deposit.
-          </p>
-        </div>
+      <div className="mb-4 flex items-center justify-end gap-3">
         <Link
           to="/accounts/$accountId"
           params={{ accountId: returnAccountId }}

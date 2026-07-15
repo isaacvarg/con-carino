@@ -1,12 +1,13 @@
 import { Link } from '@tanstack/react-router'
 import {
   HiChevronRight,
+  HiOutlineCalendar,
   HiOutlineHeart,
   HiOutlineUserGroup,
 } from 'react-icons/hi'
 
 type SettingsCard = {
-  to: '/settings/loved-one' | '/settings/people'
+  to: '/settings/loved-one' | '/settings/people' | '/settings/schedule'
   title: string
   description: string
   icon: typeof HiOutlineUserGroup
@@ -25,18 +26,17 @@ const SETTINGS_CARDS: SettingsCard[] = [
     description: 'Manage users, family members, and employees.',
     icon: HiOutlineUserGroup,
   },
+  {
+    to: '/settings/schedule',
+    title: 'Schedule',
+    description: 'Event types and how appointments appear on the calendar.',
+    icon: HiOutlineCalendar,
+  },
 ]
 
 export function SettingsHub() {
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <h2 className="text-xl font-semibold text-base-content">Settings</h2>
-        <p className="mt-1 text-sm text-base-content/60">
-          Configure people and other application preferences.
-        </p>
-      </div>
-
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {SETTINGS_CARDS.map((card) => {
           const Icon = card.icon

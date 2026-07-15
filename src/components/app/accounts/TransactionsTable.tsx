@@ -22,14 +22,9 @@ import {
   transactionTypeLabel,
 } from './account-utils'
 import { AccountSpeedDial } from './AccountSpeedDial'
+import type { AccountTransactionsSearch } from './account-detail-search'
 
-export type TransactionsTableSearch = {
-  page: number
-  pageSize: number
-  sort: string
-  q: string
-  cols: string
-}
+export type TransactionsTableSearch = AccountTransactionsSearch
 
 type TransactionsTableProps = {
   accountId: string
@@ -450,9 +445,26 @@ export function TransactionsTable({
               </tr>
             ) : (
               table.getRowModel().rows.map((row) => (
-                <tr key={row.id} data-selected={row.getIsSelected()}>
+                <tr
+                  key={row.id}
+                  data-selected={row.getIsSelected()}
+                  className="cursor-pointer hover:bg-base-200/70"
+                  onClick={() => {
+                    void navigate({
+                      to: '/transactions/$transactionId',
+                      params: { transactionId: row.original.id },
+                    })
+                  }}
+                >
                   {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id}>
+                    <td
+                      key={cell.id}
+                      onClick={
+                        cell.column.id === 'select'
+                          ? (event) => event.stopPropagation()
+                          : undefined
+                      }
+                    >
                       {flexRender(
                         cell.column.columnDef.cell,
                         cell.getContext(),

@@ -1,5 +1,6 @@
 import { useRouter } from '@tanstack/react-router'
 import { useState, type FormEvent } from 'react'
+import { ColorField } from '#/components/app/accounts/taxonomy-form-fields'
 import {
   FORM_INPUT_CLASS,
   FORM_SELECT_CLASS,
@@ -17,8 +18,13 @@ import {
   createCarePerson,
   createCarePersonType,
   updateCarePerson,
+  updateCarePersonType,
 } from '#/server/care'
-import { PERSON_COLOR_OPTIONS } from './care-utils'
+import {
+  DEFAULT_PERSON_BG_COLOR,
+  DEFAULT_PERSON_TEXT_COLOR,
+  personChipStyle,
+} from './care-utils'
 
 type CarePeoplePanelProps = {
   types: CarePersonTypeDto[]
@@ -34,7 +40,7 @@ export function CarePeoplePanel({
   const router = useRouter()
 
   const [showPersonForm, setShowPersonForm] = useState(false)
-  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editingPersonId, setEditingPersonId] = useState<string | null>(null)
   const [personError, setPersonError] = useState<string | null>(null)
   const [personSaving, setPersonSaving] = useState(false)
 
@@ -42,36 +48,70 @@ export function CarePeoplePanel({
   const [typeId, setTypeId] = useState(types[0]?.id ?? '')
   const [userId, setUserId] = useState('')
   const [hourlyRate, setHourlyRate] = useState('')
-  const [color, setColor] = useState(PERSON_COLOR_OPTIONS[0]!)
+  const [bgColor, setBgColor] = useState(DEFAULT_PERSON_BG_COLOR)
+  const [textColor, setTextColor] = useState(DEFAULT_PERSON_TEXT_COLOR)
   const [isActive, setIsActive] = useState(true)
 
+  const [showTypeForm, setShowTypeForm] = useState(false)
+  const [editingTypeId, setEditingTypeId] = useState<string | null>(null)
   const [typeName, setTypeName] = useState('')
   const [typeIsPaid, setTypeIsPaid] = useState(false)
   const [typeRate, setTypeRate] = useState('25')
   const [typeError, setTypeError] = useState<string | null>(null)
+  const [typeSaving, setTypeSaving] = useState(false)
 
   function resetPersonForm() {
-    setEditingId(null)
+    setEditingPersonId(null)
     setName('')
     setTypeId(types[0]?.id ?? '')
     setUserId('')
     setHourlyRate('')
-    setColor(PERSON_COLOR_OPTIONS[0]!)
+    setBgColor(DEFAULT_PERSON_BG_COLOR)
+    setTextColor(DEFAULT_PERSON_TEXT_COLOR)
     setIsActive(true)
     setPersonError(null)
     setShowPersonForm(false)
   }
 
-  function startEdit(person: CarePersonDto) {
-    setEditingId(person.id)
+  function startAddPerson() {
+    resetPersonForm()
+    setShowPersonForm(true)
+  }
+
+  function startEditPerson(person: CarePersonDto) {
+    setEditingPersonId(person.id)
     setName(person.name)
     setTypeId(person.typeId)
     setUserId(person.userId ?? '')
     setHourlyRate(person.hourlyRate ?? '')
-    setColor(person.color ?? PERSON_COLOR_OPTIONS[0]!)
+    setBgColor(person.bgColor ?? DEFAULT_PERSON_BG_COLOR)
+    setTextColor(person.textColor ?? DEFAULT_PERSON_TEXT_COLOR)
     setIsActive(person.isActive)
     setShowPersonForm(true)
     setPersonError(null)
+  }
+
+  function resetTypeForm() {
+    setEditingTypeId(null)
+    setTypeName('')
+    setTypeIsPaid(false)
+    setTypeRate('25')
+    setTypeError(null)
+    setShowTypeForm(false)
+  }
+
+  function startAddType() {
+    resetTypeForm()
+    setShowTypeForm(true)
+  }
+
+  function startEditType(type: CarePersonTypeDto) {
+    setEditingTypeId(type.id)
+    setTypeName(type.name)
+    setTypeIsPaid(type.isPaid)
+    setTypeRate(type.defaultHourlyRate ?? '25')
+    setShowTypeForm(true)
+    setTypeError(null)
   }
 
   async function savePerson(e: FormEvent) {
@@ -84,11 +124,12 @@ export function CarePeoplePanel({
         typeId,
         userId: userId || null,
         hourlyRate: hourlyRate || null,
-        color,
+        bgColor,
+        textColor,
         isActive,
       }
-      if (editingId) {
-        await updateCarePerson({ data: { id: editingId, ...payload } })
+      if (editingPersonId) {
+        await updateCarePerson({ data: { id: editingPersonId, ...payload } })
       } else {
         await createCarePerson({ data: payload })
       }
@@ -105,23 +146,27 @@ export function CarePeoplePanel({
 
   async function saveType(e: FormEvent) {
     e.preventDefault()
+    setTypeSaving(true)
     setTypeError(null)
     try {
-      await createCarePersonType({
-        data: {
-          name: typeName,
-          isPaid: typeIsPaid,
-          defaultHourlyRate: typeIsPaid ? typeRate : null,
-        },
-      })
-      setTypeName('')
-      setTypeIsPaid(false)
-      setTypeRate('25')
+      const payload = {
+        name: typeName,
+        isPaid: typeIsPaid,
+        defaultHourlyRate: typeIsPaid ? typeRate : null,
+      }
+      if (editingTypeId) {
+        await updateCarePersonType({ data: { id: editingTypeId, ...payload } })
+      } else {
+        await createCarePersonType({ data: payload })
+      }
+      resetTypeForm()
       await router.invalidate()
     } catch (err) {
       setTypeError(
-        err instanceof Error ? err.message : 'Could not create type.',
+        err instanceof Error ? err.message : 'Could not save type.',
       )
+    } finally {
+      setTypeSaving(false)
     }
   }
 
@@ -130,21 +175,22 @@ export function CarePeoplePanel({
       <div className="rounded-box bg-base-100 p-4 shadow-sm sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h3 className="font-semibold text-base-content">People</h3>
+            <h3 className="text-xl font-bold tracking-tight text-base-content">
+              People
+            </h3>
             <p className="mt-1 text-sm text-base-content/60">
               App users and offline family or employees who can be scheduled.
             </p>
           </div>
-          <button
-            type="button"
-            className="btn btn-primary btn-sm"
-            onClick={() => {
-              resetPersonForm()
-              setShowPersonForm(true)
-            }}
-          >
-            Add person
-          </button>
+          {!showPersonForm ? (
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={startAddPerson}
+            >
+              Add person
+            </button>
+          ) : null}
         </div>
 
         {showPersonForm ? (
@@ -213,33 +259,31 @@ export function CarePeoplePanel({
                 />
               </FormField>
             </FormRow>
-            <FormField label="Calendar color">
-              <div className="flex flex-wrap gap-2">
-                {PERSON_COLOR_OPTIONS.map((c) => (
-                  <button
-                    key={c}
-                    type="button"
-                    aria-label={`Color ${c}`}
-                    className={`size-8 rounded-full border-2 ${
-                      color === c ? 'border-base-content' : 'border-transparent'
-                    }`}
-                    style={{ backgroundColor: c }}
-                    onClick={() => setColor(c)}
-                  />
-                ))}
-              </div>
-            </FormField>
-            <label className="flex cursor-pointer items-center gap-2">
+            <FormRow>
+              <ColorField
+                id="person-bg-color"
+                label="Background color"
+                value={bgColor}
+                onBlur={() => {}}
+                onChange={setBgColor}
+              />
+              <ColorField
+                id="person-text-color"
+                label="Text color"
+                value={textColor}
+                onBlur={() => {}}
+                onChange={setTextColor}
+              />
+            </FormRow>
+            <FormField label="Active" htmlFor="person-active">
               <input
+                id="person-active"
                 type="checkbox"
-                className="checkbox"
+                className="toggle toggle-primary"
                 checked={isActive}
                 onChange={(e) => setIsActive(e.target.checked)}
               />
-              <span className="text-sm font-medium text-base-content">
-                Active
-              </span>
-            </label>
+            </FormField>
             {personError ? (
               <p className="text-sm text-error" role="alert">
                 {personError}
@@ -260,80 +304,90 @@ export function CarePeoplePanel({
               >
                 {personSaving
                   ? 'Saving…'
-                  : editingId
+                  : editingPersonId
                     ? 'Update person'
                     : 'Create person'}
               </button>
             </FormActions>
           </FormShell>
-        ) : null}
-
-        <ul className="mt-4 divide-y divide-base-300">
-          {people.length === 0 ? (
-            <li className="py-4 text-sm text-base-content/60">
-              No people yet. Add family or employees to schedule coverage.
-            </li>
-          ) : (
-            people.map((person) => (
+        ) : people.length === 0 ? (
+          <p className="mt-4 text-sm text-base-content/60">
+            No people yet. Add family or employees to schedule coverage.
+          </p>
+        ) : (
+          <ul className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {people.map((person) => (
               <li
                 key={person.id}
-                className="flex flex-wrap items-center justify-between gap-3 py-3"
+                className="flex flex-col gap-3 rounded-box border border-base-300 bg-base-100 p-4"
               >
-                <div className="flex items-center gap-3">
+                <div className="flex items-start justify-between gap-2">
                   <span
-                    className="inline-block size-3 rounded-full"
-                    style={{
-                      backgroundColor: person.color ?? '#94a3b8',
-                    }}
-                  />
-                  <div>
-                    <p className="font-medium text-base-content">
-                      {person.name}
-                      {!person.isActive ? (
-                        <span className="ml-2 badge badge-ghost badge-sm">
-                          Inactive
-                        </span>
-                      ) : null}
-                    </p>
-                    <p className="text-sm text-base-content/60">
-                      {person.typeName}
-                      {person.isPaid
-                        ? ` · $${person.effectiveHourlyRate ?? '—'}/hr`
-                        : ''}
-                      {person.userEmail
-                        ? ` · ${person.userName || person.userEmail}`
-                        : ' · Offline'}
-                    </p>
-                  </div>
+                    className="inline-flex items-center rounded-md px-2 py-1 text-xs font-medium"
+                    style={
+                      person.bgColor
+                        ? personChipStyle(person.bgColor, person.textColor)
+                        : { backgroundColor: '#94a3b8', color: '#fff' }
+                    }
+                  >
+                    {person.name}
+                  </span>
+                  {!person.isActive ? (
+                    <span className="badge badge-ghost badge-sm">Inactive</span>
+                  ) : null}
                 </div>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm"
-                  onClick={() => startEdit(person)}
-                >
-                  Edit
-                </button>
+                <p className="text-sm text-base-content/60">
+                  {person.typeName}
+                  {person.isPaid
+                    ? ` · $${person.effectiveHourlyRate ?? '—'}/hr`
+                    : ''}
+                  {person.userEmail
+                    ? ` · ${person.userName || person.userEmail}`
+                    : ' · Offline'}
+                </p>
+                <div className="mt-auto flex justify-end">
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => startEditPerson(person)}
+                  >
+                    Edit
+                  </button>
+                </div>
               </li>
-            ))
-          )}
-        </ul>
+            ))}
+          </ul>
+        )}
       </div>
 
       <div className="rounded-box bg-base-100 p-4 shadow-sm sm:p-6">
-        <h3 className="font-semibold text-base-content">Person types</h3>
-        <ul className="mt-3 flex flex-wrap gap-2">
-          {types.map((t) => (
-            <li key={t.id} className="badge badge-outline gap-1 py-3">
-              {t.name}
-              {t.isPaid
-                ? ` · paid $${t.defaultHourlyRate ?? '—'}/hr`
-                : ' · unpaid'}
-            </li>
-          ))}
-        </ul>
-        <FormShell card={false} onSubmit={saveType} className="mt-4">
-          <FormRow>
-            <FormField label="New type name" htmlFor="type-name">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-xl font-bold tracking-tight text-base-content">
+              Person types
+            </h3>
+            <p className="mt-1 text-sm text-base-content/60">
+              Roles used when scheduling people (family, employee, and custom).
+            </p>
+          </div>
+          {!showTypeForm ? (
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={startAddType}
+            >
+              Add type
+            </button>
+          ) : null}
+        </div>
+
+        {showTypeForm ? (
+          <FormShell
+            card={false}
+            onSubmit={saveType}
+            className="mt-4 rounded-box border border-base-300 p-4"
+          >
+            <FormField label="Name" htmlFor="type-name">
               <input
                 id="type-name"
                 className={FORM_INPUT_CLASS}
@@ -342,39 +396,83 @@ export function CarePeoplePanel({
                 required
               />
             </FormField>
-            <FormField label="Default hourly rate" htmlFor="type-rate">
+            <FormField label="Must be paid" htmlFor="type-is-paid">
               <input
-                id="type-rate"
-                className={FORM_INPUT_CLASS}
-                value={typeRate}
-                onChange={(e) => setTypeRate(e.target.value)}
-                disabled={!typeIsPaid}
-                inputMode="decimal"
+                id="type-is-paid"
+                type="checkbox"
+                className="toggle toggle-primary"
+                checked={typeIsPaid}
+                onChange={(e) => setTypeIsPaid(e.target.checked)}
               />
             </FormField>
-          </FormRow>
-          <label className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              className="checkbox"
-              checked={typeIsPaid}
-              onChange={(e) => setTypeIsPaid(e.target.checked)}
-            />
-            <span className="text-sm font-medium text-base-content">
-              Must be paid
-            </span>
-          </label>
-          {typeError ? (
-            <p className="text-sm text-error" role="alert">
-              {typeError}
-            </p>
-          ) : null}
-          <FormActions>
-            <button type="submit" className="btn btn-secondary">
-              Add type
-            </button>
-          </FormActions>
-        </FormShell>
+            {typeIsPaid ? (
+              <FormField label="Default hourly rate" htmlFor="type-rate">
+                <input
+                  id="type-rate"
+                  className={FORM_INPUT_CLASS}
+                  value={typeRate}
+                  onChange={(e) => setTypeRate(e.target.value)}
+                  inputMode="decimal"
+                  required
+                />
+              </FormField>
+            ) : null}
+            {typeError ? (
+              <p className="text-sm text-error" role="alert">
+                {typeError}
+              </p>
+            ) : null}
+            <FormActions>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={resetTypeForm}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={typeSaving}
+              >
+                {typeSaving
+                  ? 'Saving…'
+                  : editingTypeId
+                    ? 'Update type'
+                    : 'Create type'}
+              </button>
+            </FormActions>
+          </FormShell>
+        ) : types.length === 0 ? (
+          <p className="mt-4 text-sm text-base-content/60">
+            No person types yet.
+          </p>
+        ) : (
+          <ul className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {types.map((t) => (
+              <li
+                key={t.id}
+                className="flex flex-col gap-3 rounded-box border border-base-300 bg-base-100 p-4"
+              >
+                <p className="font-medium text-base-content">{t.name}</p>
+                <p className="text-sm text-base-content/60">
+                  {t.isPaid
+                    ? `Paid · $${t.defaultHourlyRate ?? '—'}/hr`
+                    : 'Unpaid'}
+                </p>
+                <div className="mt-auto flex justify-end">
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => startEditType(t)}
+                  >
+                    Edit
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   )

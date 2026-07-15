@@ -3,6 +3,7 @@ import { CareSwapsPanel } from './CareSwapsPanel'
 import type {
   CareCalendarEventDto,
   CareCoverageOccurrenceDto,
+  CareEventTypeDto,
   CarePersonDto,
   CareSettingsDto,
   CareSwapRequestDto,
@@ -15,6 +16,7 @@ export type CarePageData = {
   people: CarePersonDto[]
   occurrences: CareCoverageOccurrenceDto[]
   events: CareCalendarEventDto[]
+  eventTypes: CareEventTypeDto[]
   swaps: CareSwapRequestDto[]
   pendingSwapCount: number
   year: number
@@ -44,15 +46,6 @@ export function CarePage({
 }: CarePageProps) {
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <h2 className="text-xl font-semibold text-base-content">Care</h2>
-        <p className="mt-1 text-sm text-base-content/60">
-          {data.settings.lovedOneName
-            ? `Schedule and coverage for ${data.settings.lovedOneName}.`
-            : 'Schedule coverage, events, and coverage swaps.'}
-        </p>
-      </div>
-
       <div role="tablist" className="tabs tabs-box w-fit flex-wrap">
         {TABS.map((t) => (
           <button
@@ -80,6 +73,7 @@ export function CarePage({
           selectedDay={data.selectedDay}
           occurrences={data.occurrences}
           events={data.events}
+          eventTypes={data.eventTypes}
           people={data.people}
           onMonthChange={onMonthChange}
           onSelectDay={onSelectDay}

@@ -1,5 +1,6 @@
 import { useRouter } from '@tanstack/react-router'
 import { useMemo, useState, type FormEvent } from 'react'
+import { ConfirmDialog } from '#/components/app/ui/confirm-dialog'
 import {
   FORM_INPUT_CLASS,
   FORM_SELECT_CLASS,
@@ -13,6 +14,7 @@ import type {
   CareCalendarEventDto,
   CareCoverageOccurrenceDto,
   CareCoverageSeriesDto,
+  CareEventTypeDto,
   CarePersonDto,
 } from '#/server/care'
 import {
@@ -43,6 +45,7 @@ type CareCalendarPanelProps = {
   selectedDay: string
   occurrences: CareCoverageOccurrenceDto[]
   events: CareCalendarEventDto[]
+  eventTypes: CareEventTypeDto[]
   people: CarePersonDto[]
   onMonthChange: (year: number, month: number) => void
   onSelectDay: (dayKey: string) => void
@@ -64,6 +67,7 @@ export function CareCalendarPanel({
   selectedDay,
   occurrences,
   events,
+  eventTypes,
   people,
   onMonthChange,
   onSelectDay,
@@ -94,6 +98,8 @@ export function CareCalendarPanel({
   const [bulkAssigneeId, setBulkAssigneeId] = useState('')
   const [seriesList, setSeriesList] = useState<CareCoverageSeriesDto[]>([])
   const [manageError, setManageError] = useState<string | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   const [assigneeId, setAssigneeId] = useState('')
   const [startDate, setStartDate] = useState(selectedDay)
@@ -104,9 +110,7 @@ export function CareCalendarPanel({
   const [daysOfWeek, setDaysOfWeek] = useState<number[]>([selectedDate.getDay()])
   const [notes, setNotes] = useState('')
   const [title, setTitle] = useState('')
-  const [eventKind, setEventKind] = useState<'APPOINTMENT' | 'FAMILY' | 'OTHER'>(
-    'APPOINTMENT',
-  )
+  const [eventTypeId, setEventTypeId] = useState(eventTypes[0]?.id ?? '')
   const [claimId, setClaimId] = useState('')
   const [claimForPersonId, setClaimForPersonId] = useState(
     people.find((p) => p.isActive)?.id ?? '',
@@ -131,7 +135,7 @@ export function CareCalendarPanel({
     setDaysOfWeek([selectedDate.getDay()])
     setNotes('')
     setTitle('')
-    setEventKind('APPOINTMENT')
+    setEventTypeId(eventTypes[0]?.id ?? '')
     setAssigneeId(activePeople[0]?.id ?? '')
     setClaimId('')
     setClaimForPersonId(activePeople[0]?.id ?? '')
@@ -206,14 +210,19 @@ export function CareCalendarPanel({
 
   async function deleteSeries(id: string) {
     setManageError(null)
+    setDeleting(true)
     try {
       await deleteCoverageSeries({ data: { id } })
       setSeriesList((prev) => prev.filter((s) => s.id !== id))
+      setConfirmDeleteId(null)
       await router.invalidate()
     } catch (err) {
       setManageError(
         err instanceof Error ? err.message : 'Could not delete series.',
       )
+      setConfirmDeleteId(null)
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -248,7 +257,7 @@ export function CareCalendarPanel({
         await createCalendarEvent({
           data: {
             title,
-            kind: eventKind,
+            typeId: eventTypeId,
             startsAt: toLocalIsoFromParts(startDate, startTime),
             endsAt: toLocalIsoFromParts(startDate, endTime),
             notes: notes || null,
@@ -362,27 +371,32 @@ export function CareCalendarPanel({
                 key={key}
                 type="button"
                 onClick={() => onSelectDay(key)}
-                className={`aspect-square min-h-24 rounded-xl border p-2 text-left transition ${
+                className={`flex aspect-square min-h-24 flex-col items-start rounded-xl border p-2 text-left transition ${
                   selected
                     ? 'border-primary bg-primary/10'
                     : 'border-base-300 hover:bg-base-200'
                 } ${inMonth ? '' : 'opacity-40'}`}
               >
-                <div className="flex flex-col items-start leading-tight">
-                  <span className="text-[11px] font-medium text-base-content/55">
+                <div className="flex flex-col items-start leading-none">
+                  <span className="text-[11px] font-medium text-base-content/50">
                     {DAY_NAMES[cell.getDay()]}
                   </span>
-                  <span className="text-sm font-semibold">{cell.getDate()}</span>
+                  <span className="mt-0.5 text-base font-semibold">
+                    {cell.getDate()}
+                  </span>
                 </div>
-                <div className="mt-1.5 flex flex-col gap-1">
+                <div className="mt-1.5 flex w-full flex-col gap-1">
                   {dayOccs.slice(0, 2).map((o) => (
                     <span
                       key={o.id}
-                      className="truncate rounded-md px-1.5 py-0.5 text-xs font-medium leading-snug text-white"
+                      className="truncate rounded-md px-1.5 py-0.5 text-xs font-medium leading-snug"
                       style={
-                        o.assigneeColor
-                          ? personChipStyle(o.assigneeColor)
-                          : { backgroundColor: '#94a3b8' }
+                        o.assigneeBgColor
+                          ? personChipStyle(
+                              o.assigneeBgColor,
+                              o.assigneeTextColor,
+                            )
+                          : { backgroundColor: '#94a3b8', color: '#fff' }
                       }
                     >
                       {o.assigneeName ?? 'Open'}
@@ -391,7 +405,8 @@ export function CareCalendarPanel({
                   {dayEvts.slice(0, 1).map((ev) => (
                     <span
                       key={ev.id}
-                      className="truncate rounded-md bg-warning/80 px-1.5 py-0.5 text-xs font-medium leading-snug"
+                      className="truncate rounded-md px-1.5 py-0.5 text-xs font-medium leading-snug"
+                      style={personChipStyle(ev.bgColor, ev.textColor)}
                     >
                       {ev.title}
                     </span>
@@ -452,34 +467,51 @@ export function CareCalendarPanel({
             <ul className="mt-2 space-y-2">
               {dayOccurrences.map((o) => {
                 const isOpen = !o.assigneeId && o.status === 'SCHEDULED'
+                const selectable = selectMode && isOpen
+                const isSelected = selectedOpenIds.includes(o.id)
                 return (
                   <li
                     key={o.id}
-                    className="rounded-lg border border-base-300 p-3"
+                    onClick={
+                      selectable
+                        ? () => toggleOpenSelection(o.id)
+                        : undefined
+                    }
+                    className={`rounded-lg border p-3 transition ${
+                      selectable
+                        ? `cursor-pointer ${
+                            isSelected
+                              ? 'border-primary bg-primary/10'
+                              : 'border-base-300 hover:bg-base-200'
+                          }`
+                        : 'border-base-300'
+                    }`}
                   >
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="flex min-w-0 items-start gap-2">
-                        {selectMode && isOpen ? (
+                        {selectable ? (
                           <input
                             type="checkbox"
-                            className="checkbox checkbox-sm mt-1"
-                            checked={selectedOpenIds.includes(o.id)}
-                            onChange={() => toggleOpenSelection(o.id)}
-                            aria-label="Select open slot"
+                            className="checkbox checkbox-sm mt-1 pointer-events-none"
+                            checked={isSelected}
+                            readOnly
+                            tabIndex={-1}
+                            aria-hidden="true"
                           />
                         ) : null}
                         <div>
-                          <p className="font-medium">
+                          <p className="text-base font-semibold text-base-content">
+                            {formatTimeRange(o.startsAt, o.endsAt)}
+                          </p>
+                          <p className="text-sm text-base-content/60">
                             <span
                               className="mr-2 inline-block size-2 rounded-full align-middle"
                               style={{
-                                backgroundColor: o.assigneeColor ?? '#94a3b8',
+                                backgroundColor:
+                                  o.assigneeBgColor ?? '#94a3b8',
                               }}
                             />
                             {o.assigneeName ?? 'Open slot'}
-                          </p>
-                          <p className="text-sm text-base-content/60">
-                            {formatTimeRange(o.startsAt, o.endsAt)}
                           </p>
                           <p className="text-xs text-base-content/50">
                             {o.status}
@@ -527,11 +559,19 @@ export function CareCalendarPanel({
               {dayEvents.map((ev) => (
                 <li
                   key={ev.id}
-                  className="rounded-lg border border-warning/40 bg-warning/5 p-3"
+                  className="rounded-lg border border-base-300 p-3"
                 >
-                  <p className="font-medium">{ev.title}</p>
-                  <p className="text-sm text-base-content/60">
-                    {ev.kind} · {formatTimeRange(ev.startsAt, ev.endsAt)}
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium"
+                      style={personChipStyle(ev.bgColor, ev.textColor)}
+                    >
+                      {ev.typeName}
+                    </span>
+                    <p className="font-medium">{ev.title}</p>
+                  </div>
+                  <p className="mt-1 text-sm text-base-content/60">
+                    {formatTimeRange(ev.startsAt, ev.endsAt)}
                   </p>
                 </li>
               ))}
@@ -645,15 +685,7 @@ export function CareCalendarPanel({
                         <button
                           type="button"
                           className="btn btn-error btn-outline btn-xs"
-                          onClick={() => {
-                            if (
-                              window.confirm(
-                                'Delete this recurring coverage and its open future slots?',
-                              )
-                            ) {
-                              void deleteSeries(series.id)
-                            }
-                          }}
+                          onClick={() => setConfirmDeleteId(series.id)}
                         >
                           Delete
                         </button>
@@ -680,6 +712,19 @@ export function CareCalendarPanel({
           </form>
         </dialog>
       ) : null}
+
+      <ConfirmDialog
+        open={confirmDeleteId !== null}
+        tone="danger"
+        title="Delete recurring coverage"
+        message="This removes the recurring schedule and its upcoming, not-yet-completed slots. Past and completed slots are kept."
+        confirmLabel="Delete"
+        busy={deleting}
+        onConfirm={() => {
+          if (confirmDeleteId) void deleteSeries(confirmDeleteId)
+        }}
+        onCancel={() => setConfirmDeleteId(null)}
+      />
 
       {modal && modal !== 'manage' ? (
         <dialog className="modal modal-open">
@@ -762,21 +807,26 @@ export function CareCalendarPanel({
                       required
                     />
                   </FormField>
-                  <FormField label="Kind" htmlFor="event-kind">
-                    <select
-                      id="event-kind"
-                      className={FORM_SELECT_CLASS}
-                      value={eventKind}
-                      onChange={(e) =>
-                        setEventKind(
-                          e.target.value as 'APPOINTMENT' | 'FAMILY' | 'OTHER',
-                        )
-                      }
-                    >
-                      <option value="APPOINTMENT">Appointment</option>
-                      <option value="FAMILY">Family</option>
-                      <option value="OTHER">Other</option>
-                    </select>
+                  <FormField label="Type" htmlFor="event-type">
+                    {eventTypes.length === 0 ? (
+                      <p className="text-sm text-base-content/60">
+                        No event types yet. Add one in Settings → Schedule.
+                      </p>
+                    ) : (
+                      <select
+                        id="event-type"
+                        className={FORM_SELECT_CLASS}
+                        value={eventTypeId}
+                        onChange={(e) => setEventTypeId(e.target.value)}
+                        required
+                      >
+                        {eventTypes.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </FormField>
                 </>
               ) : null}

@@ -78,22 +78,24 @@ export function dayKey(date: Date): string {
   return toDateInputValue(date)
 }
 
-export function personChipStyle(color: string | null | undefined): {
+export function personChipStyle(
+  bgColor: string | null | undefined,
+  textColor?: string | null,
+): {
   backgroundColor?: string
   color?: string
 } {
-  if (!color) return {}
-  return { backgroundColor: color, color: '#fff' }
+  if (!bgColor) return {}
+  return {
+    backgroundColor: bgColor,
+    color: textColor || '#fff',
+  }
 }
 
 export { DAY_NAMES }
 
-export const PERSON_COLOR_OPTIONS = [
-  '#0d9488',
-  '#2563eb',
-  '#db2777',
-  '#ca8a04',
-  '#7c3aed',
-  '#ea580c',
-  '#475569',
-]
+export const DEFAULT_PERSON_BG_COLOR = '#0d9488'
+export const DEFAULT_PERSON_TEXT_COLOR = '#ffffff'
+
+export const DEFAULT_EVENT_BG_COLOR = '#f59e0b'
+export const DEFAULT_EVENT_TEXT_COLOR = '#ffffff'

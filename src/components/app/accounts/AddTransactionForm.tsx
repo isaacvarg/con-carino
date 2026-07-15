@@ -114,15 +114,7 @@ export function AddTransactionForm({
 
   return (
     <div className="mx-auto w-full max-w-xl">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-semibold text-base-content">
-            Add transaction
-          </h2>
-          <p className="mt-1 text-sm text-base-content/60">
-            Recording against <span className="font-medium">{account.name}</span>
-          </p>
-        </div>
+      <div className="mb-4 flex items-center justify-end gap-3">
         <Link
           to="/accounts/$accountId"
           params={{ accountId: account.id }}

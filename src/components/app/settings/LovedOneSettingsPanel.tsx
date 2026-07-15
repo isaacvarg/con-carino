@@ -1,8 +1,10 @@
 import { useRouter } from '@tanstack/react-router'
 import { useMemo, useState, type FormEvent } from 'react'
+import { HiOutlineTrash } from 'react-icons/hi'
 import { DAY_NAMES } from '#/components/app/care/care-utils'
 import {
   FORM_INPUT_CLASS,
+  FORM_TIME_INPUT_CLASS,
   FormActions,
   FormField,
   FormShell,
@@ -260,7 +262,7 @@ export function LovedOneSettingsPanel({ settings }: LovedOneSettingsPanelProps) 
                   <input
                     id={`shift-start-${shift.key}`}
                     type="time"
-                    className={FORM_INPUT_CLASS}
+                    className={FORM_TIME_INPUT_CLASS}
                     value={shift.startTime}
                     onChange={(e) =>
                       updateShift(shift.key, { startTime: e.target.value })
@@ -272,7 +274,7 @@ export function LovedOneSettingsPanel({ settings }: LovedOneSettingsPanelProps) 
                   <input
                     id={`shift-end-${shift.key}`}
                     type="time"
-                    className={FORM_INPUT_CLASS}
+                    className={FORM_TIME_INPUT_CLASS}
                     value={shift.endTime}
                     onChange={(e) =>
                       updateShift(shift.key, { endTime: e.target.value })
@@ -280,14 +282,18 @@ export function LovedOneSettingsPanel({ settings }: LovedOneSettingsPanelProps) 
                     required
                   />
                 </FormField>
-                <div className="flex items-end">
+                <div className="flex flex-col gap-2">
+                  <span className="app-form-label invisible" aria-hidden>
+                    Remove
+                  </span>
                   <button
                     type="button"
-                    className="btn btn-ghost btn-sm"
+                    className="btn btn-ghost btn-square btn-sm min-h-12"
                     onClick={() => removeShift(shift.key)}
                     disabled={shifts.length <= 1}
+                    aria-label="Remove shift"
                   >
-                    Remove
+                    <HiOutlineTrash className="size-4" aria-hidden />
                   </button>
                 </div>
               </li>

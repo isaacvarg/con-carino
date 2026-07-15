@@ -44,15 +44,7 @@ export function AccountSettingsForm({ account }: AccountSettingsFormProps) {
 
   return (
     <div className="mx-auto w-full max-w-xl">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-semibold text-base-content">
-            Account settings
-          </h2>
-          <p className="mt-1 text-sm text-base-content/60">
-            Rename this account or change whether it is shared with all users.
-          </p>
-        </div>
+      <div className="mb-4 flex items-center justify-end gap-3">
         <Link
           to="/accounts/$accountId"
           params={{ accountId: account.id }}

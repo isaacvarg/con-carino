@@ -10,13 +10,7 @@ type AccountsPageProps = {
 export function AccountsPage({ accounts }: AccountsPageProps) {
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-semibold text-base-content">Accounts</h2>
-          <p className="mt-1 text-sm text-base-content/60">
-            Your accounts and any shared globally with the household.
-          </p>
-        </div>
+      <div className="flex flex-wrap items-center justify-end gap-3">
         <Link to="/accounts/new" className="btn btn-primary gap-2">
           <HiPlus className="size-4" aria-hidden />
           Add account
