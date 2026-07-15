@@ -60,6 +60,9 @@ export function CarePeoplePanel({
   const [typeError, setTypeError] = useState<string | null>(null)
   const [typeSaving, setTypeSaving] = useState(false)
 
+  const selectedType = types.find((t) => t.id === typeId)
+  const selectedTypeIsPaid = selectedType?.isPaid ?? false
+
   function resetPersonForm() {
     setEditingPersonId(null)
     setName('')
@@ -123,7 +126,7 @@ export function CarePeoplePanel({
         name,
         typeId,
         userId: userId || null,
-        hourlyRate: hourlyRate || null,
+        hourlyRate: selectedTypeIsPaid ? hourlyRate || null : null,
         bgColor,
         textColor,
         isActive,
@@ -214,7 +217,12 @@ export function CarePeoplePanel({
                   id="person-type"
                   className={FORM_SELECT_CLASS}
                   value={typeId}
-                  onChange={(e) => setTypeId(e.target.value)}
+                  onChange={(e) => {
+                    const nextTypeId = e.target.value
+                    setTypeId(nextTypeId)
+                    const nextType = types.find((t) => t.id === nextTypeId)
+                    if (!nextType?.isPaid) setHourlyRate('')
+                  }}
                   required
                 >
                   {types.map((t) => (
@@ -245,19 +253,21 @@ export function CarePeoplePanel({
                   ))}
                 </select>
               </FormField>
-              <FormField
-                label="Hourly rate override"
-                htmlFor="person-rate"
-              >
-                <input
-                  id="person-rate"
-                  className={FORM_INPUT_CLASS}
-                  value={hourlyRate}
-                  onChange={(e) => setHourlyRate(e.target.value)}
-                  placeholder="Use type default"
-                  inputMode="decimal"
-                />
-              </FormField>
+              {selectedTypeIsPaid ? (
+                <FormField
+                  label="Hourly rate override"
+                  htmlFor="person-rate"
+                >
+                  <input
+                    id="person-rate"
+                    className={FORM_INPUT_CLASS}
+                    value={hourlyRate}
+                    onChange={(e) => setHourlyRate(e.target.value)}
+                    placeholder="Use type default"
+                    inputMode="decimal"
+                  />
+                </FormField>
+              ) : null}
             </FormRow>
             <FormRow>
               <ColorField
