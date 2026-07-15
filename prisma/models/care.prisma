@@ -32,6 +32,19 @@ enum CareInvoiceStatus {
   VOID
 }
 
+enum CarePayInterval {
+  PER_SHIFT
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+}
+
+enum CareBillingStatus {
+  NOT_BILLABLE
+  ACCRUED
+  INVOICED
+}
+
 /// Singleton settings for the one loved one on this app instance.
 model CareSettings {
   id                   String                 @id @default("default")
@@ -80,16 +93,24 @@ model CarePersonType {
 }
 
 model CarePerson {
-  id         String   @id @default(uuid())
-  name       String
-  userId     String?  @unique
-  typeId     String
-  hourlyRate Decimal? @db.Decimal(19, 4)
-  isActive   Boolean  @default(true)
-  bgColor    String?
-  textColor  String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id            String          @id @default(uuid())
+  name          String
+  userId        String?         @unique
+  typeId        String
+  hourlyRate    Decimal?        @db.Decimal(19, 4)
+  /// When to create period invoices; only applies when type.isPaid
+  payInterval   CarePayInterval @default(PER_SHIFT)
+  /// 0=Sun … 6=Sat; used for WEEKLY / BIWEEKLY
+  payWeekday    Int?
+  /// Known payday date; anchors BIWEEKLY alignment
+  payAnchorDate DateTime?       @db.Date
+  /// 1–28; used for MONTHLY
+  payMonthDay   Int?
+  isActive      Boolean         @default(true)
+  bgColor       String?
+  textColor     String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
 
   user          User?                     @relation(fields: [userId], references: [id], onDelete: SetNull)
   type          CarePersonType            @relation(fields: [typeId], references: [id], onDelete: Restrict)
@@ -131,19 +152,20 @@ model CareCoverageSeries {
 }
 
 model CareCoverageOccurrence {
-  id         String                @id @default(uuid())
-  seriesId   String?
-  assigneeId String?
-  startsAt   DateTime
-  endsAt     DateTime
-  status     CareOccurrenceStatus  @default(SCHEDULED)
-  notes      String?
-  createdAt  DateTime              @default(now())
-  updatedAt  DateTime              @updatedAt
+  id            String                @id @default(uuid())
+  seriesId      String?
+  assigneeId    String?
+  startsAt      DateTime
+  endsAt        DateTime
+  status        CareOccurrenceStatus  @default(SCHEDULED)
+  billingStatus CareBillingStatus     @default(NOT_BILLABLE)
+  notes         String?
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
 
   series           CareCoverageSeries? @relation(fields: [seriesId], references: [id], onDelete: Cascade)
   assignee         CarePerson?         @relation(fields: [assigneeId], references: [id], onDelete: SetNull)
-  invoice          CareInvoice?
+  invoiceLine      CareInvoiceLine?
   swapRelinquish   CareSwapRequest[]   @relation("SwapRelinquish")
   swapClaim        CareSwapRequest[]   @relation("SwapClaim")
 
@@ -151,6 +173,7 @@ model CareCoverageOccurrence {
   @@index([startsAt, endsAt])
   @@index([assigneeId])
   @@index([status])
+  @@index([billingStatus])
   @@map("care_coverage_occurrences")
 }
 
@@ -212,24 +235,40 @@ model CareSwapRequest {
 }
 
 model CareInvoice {
-  id                   String             @id @default(uuid())
-  occurrenceId         String             @unique
+  id                   String            @id @default(uuid())
   carePersonId         String
-  amount               Decimal            @db.Decimal(19, 4)
-  hourlyRateSnapshot   Decimal            @db.Decimal(19, 4)
-  hoursSnapshot        Decimal            @db.Decimal(19, 4)
-  status               CareInvoiceStatus  @default(OPEN)
+  amount               Decimal           @db.Decimal(19, 4)
+  status               CareInvoiceStatus @default(OPEN)
+  periodStart          DateTime?
+  periodEnd            DateTime?
   financialAccountId   String?
-  settledTransactionId String?            @unique
-  createdAt            DateTime           @default(now())
-  updatedAt            DateTime           @updatedAt
+  settledTransactionId String?           @unique
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
 
-  occurrence         CareCoverageOccurrence @relation(fields: [occurrenceId], references: [id], onDelete: Cascade)
-  carePerson         CarePerson             @relation(fields: [carePersonId], references: [id], onDelete: Restrict)
-  financialAccount   FinancialAccount?      @relation(fields: [financialAccountId], references: [id], onDelete: SetNull)
-  settledTransaction Transaction?           @relation(fields: [settledTransactionId], references: [id], onDelete: SetNull)
+  carePerson         CarePerson        @relation(fields: [carePersonId], references: [id], onDelete: Restrict)
+  financialAccount   FinancialAccount? @relation(fields: [financialAccountId], references: [id], onDelete: SetNull)
+  settledTransaction Transaction?      @relation(fields: [settledTransactionId], references: [id], onDelete: SetNull)
+  lines              CareInvoiceLine[]
 
   @@index([status])
   @@index([carePersonId])
   @@map("care_invoices")
+}
+
+model CareInvoiceLine {
+  id                 String   @id @default(uuid())
+  invoiceId          String
+  occurrenceId       String   @unique
+  amount             Decimal  @db.Decimal(19, 4)
+  hourlyRateSnapshot Decimal  @db.Decimal(19, 4)
+  hoursSnapshot      Decimal  @db.Decimal(19, 4)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  invoice    CareInvoice            @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  occurrence CareCoverageOccurrence @relation(fields: [occurrenceId], references: [id], onDelete: Restrict)
+
+  @@index([invoiceId])
+  @@map("care_invoice_lines")
 }

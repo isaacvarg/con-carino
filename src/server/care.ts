@@ -2,11 +2,13 @@ import { createServerFn } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
 import { getSession } from 'start-authjs'
 import type {
+  CareBillingStatus,
   CareCoverageFrequency,
   CareCoverageNeed,
   CareCoverageWindowKind,
   CareInvoiceStatus,
   CareOccurrenceStatus,
+  CarePayInterval,
   CareSwapStatus,
 } from '#/generated/prisma/enums'
 import {
@@ -14,10 +16,13 @@ import {
   CareCoverageNeed as CareCoverageNeedEnum,
   CareCoverageWindowKind as CareCoverageWindowKindEnum,
   CareOccurrenceStatus as CareOccurrenceStatusEnum,
+  CarePayInterval as CarePayIntervalEnum,
 } from '#/generated/prisma/enums'
 import {
   computeInvoiceAmount,
   effectiveHourlyRate,
+  lastClosedPayPeriodEnd,
+  payPeriodStart,
 } from '#/lib/care-invoice'
 import {
   buildRequiredCoverageWindows,
@@ -65,6 +70,99 @@ function parseOptionalRate(value: unknown): string | null {
     throw new Error('Hourly rate must be a non-negative number.')
   }
   return n.toFixed(4)
+}
+
+function parsePaySchedule(
+  input: Record<string, unknown>,
+  typeIsPaid: boolean,
+): {
+  payInterval: CarePayInterval
+  payWeekday: number | null
+  payAnchorDate: Date | null
+  payMonthDay: number | null
+} {
+  if (!typeIsPaid) {
+    return {
+      payInterval: 'PER_SHIFT',
+      payWeekday: null,
+      payAnchorDate: null,
+      payMonthDay: null,
+    }
+  }
+
+  const rawInterval =
+    typeof input.payInterval === 'string' ? input.payInterval : 'PER_SHIFT'
+  if (
+    !Object.values(CarePayIntervalEnum).includes(
+      rawInterval as CarePayInterval,
+    )
+  ) {
+    throw new Error('Pay interval is invalid.')
+  }
+  const payInterval = rawInterval as CarePayInterval
+
+  let payWeekday: number | null = null
+  if (
+    input.payWeekday !== null &&
+    input.payWeekday !== undefined &&
+    input.payWeekday !== ''
+  ) {
+    const n =
+      typeof input.payWeekday === 'number'
+        ? input.payWeekday
+        : Number(input.payWeekday)
+    if (!Number.isInteger(n) || n < 0 || n > 6) {
+      throw new Error('Pay weekday must be an integer 0–6.')
+    }
+    payWeekday = n
+  }
+
+  let payAnchorDate: Date | null = null
+  if (
+    typeof input.payAnchorDate === 'string' &&
+    input.payAnchorDate.trim()
+  ) {
+    payAnchorDate = parseDateOnly(input.payAnchorDate, 'Pay anchor date')
+  }
+
+  let payMonthDay: number | null = null
+  if (
+    input.payMonthDay !== null &&
+    input.payMonthDay !== undefined &&
+    input.payMonthDay !== ''
+  ) {
+    const n =
+      typeof input.payMonthDay === 'number'
+        ? input.payMonthDay
+        : Number(input.payMonthDay)
+    if (!Number.isInteger(n) || n < 1 || n > 28) {
+      throw new Error('Pay month day must be an integer 1–28.')
+    }
+    payMonthDay = n
+  }
+
+  if (payInterval === 'WEEKLY' && payWeekday === null) {
+    throw new Error('Pay weekday is required for weekly pay.')
+  }
+  if (payInterval === 'BIWEEKLY') {
+    if (payWeekday === null) {
+      throw new Error('Pay weekday is required for biweekly pay.')
+    }
+    if (!payAnchorDate) {
+      throw new Error('Pay anchor date is required for biweekly pay.')
+    }
+  }
+  if (payInterval === 'MONTHLY' && payMonthDay === null) {
+    throw new Error('Pay month day is required for monthly pay.')
+  }
+
+  return {
+    payInterval,
+    payWeekday:
+      payInterval === 'WEEKLY' || payInterval === 'BIWEEKLY' ? payWeekday : null,
+    payAnchorDate: payInterval === 'BIWEEKLY' ? payAnchorDate : null,
+    payMonthDay: payInterval === 'MONTHLY' ? payMonthDay : null,
+  }
 }
 
 function parseRequiredDate(value: unknown, label: string): Date {
@@ -167,6 +265,10 @@ export type CarePersonDto = {
   isPaid: boolean
   hourlyRate: string | null
   effectiveHourlyRate: string | null
+  payInterval: CarePayInterval
+  payWeekday: number | null
+  payAnchorDate: string | null
+  payMonthDay: number | null
   isActive: boolean
   bgColor: string | null
   textColor: string | null
@@ -184,6 +286,7 @@ export type CareCoverageOccurrenceDto = {
   startsAt: string
   endsAt: string
   status: CareOccurrenceStatus
+  billingStatus: CareBillingStatus
   notes: string | null
   hasInvoice: boolean
 }
@@ -228,20 +331,28 @@ export type CareSwapRequestDto = {
   reviewedByName: string | null
 }
 
-export type CareInvoiceDto = {
+export type CareInvoiceLineDto = {
   id: string
   occurrenceId: string
-  carePersonId: string
-  carePersonName: string
   amount: string
   hourlyRateSnapshot: string
   hoursSnapshot: string
-  status: CareInvoiceStatus
-  financialAccountId: string | null
-  settledTransactionId: string | null
   startsAt: string
   endsAt: string
+}
+
+export type CareInvoiceDto = {
+  id: string
+  carePersonId: string
+  carePersonName: string
+  amount: string
+  status: CareInvoiceStatus
+  periodStart: string | null
+  periodEnd: string | null
+  financialAccountId: string | null
+  settledTransactionId: string | null
   createdAt: string
+  lines: CareInvoiceLineDto[]
 }
 
 export type AppUserOption = {
@@ -256,6 +367,10 @@ function toPersonDto(person: {
   userId: string | null
   typeId: string
   hourlyRate: { toString(): string } | null
+  payInterval: CarePayInterval
+  payWeekday: number | null
+  payAnchorDate: Date | null
+  payMonthDay: number | null
   isActive: boolean
   bgColor: string | null
   textColor: string | null
@@ -280,6 +395,12 @@ function toPersonDto(person: {
     isPaid: person.type.isPaid,
     hourlyRate: decimalToString(person.hourlyRate),
     effectiveHourlyRate: rate !== null ? rate.toFixed(4) : null,
+    payInterval: person.payInterval,
+    payWeekday: person.payWeekday,
+    payAnchorDate: person.payAnchorDate
+      ? person.payAnchorDate.toISOString().slice(0, 10)
+      : null,
+    payMonthDay: person.payMonthDay,
     isActive: person.isActive,
     bgColor: person.bgColor,
     textColor: person.textColor,
@@ -295,13 +416,14 @@ function toOccurrenceDto(row: {
   startsAt: Date
   endsAt: Date
   status: CareOccurrenceStatus
+  billingStatus: CareBillingStatus
   notes: string | null
   assignee: {
     name: string
     bgColor: string | null
     textColor: string | null
   } | null
-  invoice: { id: string } | null
+  invoiceLine: { id: string } | null
 }): CareCoverageOccurrenceDto {
   return {
     id: row.id,
@@ -313,10 +435,71 @@ function toOccurrenceDto(row: {
     startsAt: row.startsAt.toISOString(),
     endsAt: row.endsAt.toISOString(),
     status: row.status,
+    billingStatus: row.billingStatus,
     notes: row.notes,
-    hasInvoice: Boolean(row.invoice),
+    hasInvoice: Boolean(row.invoiceLine) || row.billingStatus === 'INVOICED',
   }
 }
+
+function toInvoiceDto(row: {
+  id: string
+  carePersonId: string
+  amount: { toString(): string }
+  status: CareInvoiceStatus
+  periodStart: Date | null
+  periodEnd: Date | null
+  financialAccountId: string | null
+  settledTransactionId: string | null
+  createdAt: Date
+  carePerson: { name: string }
+  lines: Array<{
+    id: string
+    occurrenceId: string
+    amount: { toString(): string }
+    hourlyRateSnapshot: { toString(): string }
+    hoursSnapshot: { toString(): string }
+    occurrence: { startsAt: Date; endsAt: Date }
+  }>
+}): CareInvoiceDto {
+  return {
+    id: row.id,
+    carePersonId: row.carePersonId,
+    carePersonName: row.carePerson.name,
+    amount: row.amount.toString(),
+    status: row.status,
+    periodStart: row.periodStart?.toISOString() ?? null,
+    periodEnd: row.periodEnd?.toISOString() ?? null,
+    financialAccountId: row.financialAccountId,
+    settledTransactionId: row.settledTransactionId,
+    createdAt: row.createdAt.toISOString(),
+    lines: row.lines.map((line) => ({
+      id: line.id,
+      occurrenceId: line.occurrenceId,
+      amount: line.amount.toString(),
+      hourlyRateSnapshot: line.hourlyRateSnapshot.toString(),
+      hoursSnapshot: line.hoursSnapshot.toString(),
+      startsAt: line.occurrence.startsAt.toISOString(),
+      endsAt: line.occurrence.endsAt.toISOString(),
+    })),
+  }
+}
+
+const invoiceInclude = {
+  carePerson: { select: { name: true } },
+  lines: {
+    include: {
+      occurrence: { select: { startsAt: true, endsAt: true } },
+    },
+    orderBy: { occurrence: { startsAt: 'asc' as const } },
+  },
+} as const
+
+const occurrenceInclude = {
+  assignee: {
+    select: { name: true, bgColor: true, textColor: true },
+  },
+  invoiceLine: { select: { id: true } },
+} as const
 
 function optionalColor(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null
@@ -402,6 +585,102 @@ function optionalColorRequired(value: unknown, label: string): string {
   return value.trim().toLowerCase()
 }
 
+async function billingStatusForAssigneeId(
+  assigneeId: string | null,
+): Promise<CareBillingStatus> {
+  if (!assigneeId) return 'NOT_BILLABLE'
+  const person = await prisma.carePerson.findUnique({
+    where: { id: assigneeId },
+    include: { type: true },
+  })
+  if (!person) return 'NOT_BILLABLE'
+  const rate = effectiveHourlyRate({
+    personHourlyRate: decimalToString(person.hourlyRate),
+    typeDefaultHourlyRate: decimalToString(person.type.defaultHourlyRate),
+    typeIsPaid: person.type.isPaid,
+  })
+  return rate !== null ? 'ACCRUED' : 'NOT_BILLABLE'
+}
+
+type DbClient = typeof prisma
+
+async function removeOccurrenceFromOpenInvoice(
+  occurrenceId: string,
+  db: DbClient = prisma,
+) {
+  const line = await db.careInvoiceLine.findUnique({
+    where: { occurrenceId },
+    include: { invoice: true },
+  })
+  if (!line) return
+  if (line.invoice.status === 'PAID') {
+    throw new Error(
+      'This coverage is on a paid invoice and cannot be reassigned. Void the invoice first.',
+    )
+  }
+  if (line.invoice.status === 'VOID') {
+    await db.careInvoiceLine.delete({ where: { id: line.id } })
+    return
+  }
+
+  await db.careInvoiceLine.delete({ where: { id: line.id } })
+  const remaining = await db.careInvoiceLine.findMany({
+    where: { invoiceId: line.invoiceId },
+  })
+  if (remaining.length === 0) {
+    await db.careInvoice.update({
+      where: { id: line.invoiceId },
+      data: { status: 'VOID', amount: 0 },
+    })
+  } else {
+    const amount = remaining.reduce(
+      (sum, row) => sum + Number(row.amount.toString()),
+      0,
+    )
+    await db.careInvoice.update({
+      where: { id: line.invoiceId },
+      data: { amount },
+    })
+  }
+}
+
+/**
+ * Sync billing status after assigneeId was already written.
+ * Removes the occurrence from an OPEN invoice when reassigned/cleared.
+ * Blocks changes when the occurrence is on a PAID invoice.
+ */
+async function syncBillingForAssignee(
+  occurrenceId: string,
+  nextAssigneeId: string | null,
+) {
+  const existing = await prisma.careCoverageOccurrence.findUniqueOrThrow({
+    where: { id: occurrenceId },
+    include: { invoiceLine: { include: { invoice: true } } },
+  })
+
+  if (existing.invoiceLine) {
+    const status = existing.invoiceLine.invoice.status
+    if (status === 'PAID') {
+      throw new Error(
+        'This coverage is on a paid invoice and cannot be reassigned. Void the invoice first.',
+      )
+    }
+    if (status === 'OPEN') {
+      await removeOccurrenceFromOpenInvoice(occurrenceId)
+    } else {
+      await prisma.careInvoiceLine.delete({
+        where: { id: existing.invoiceLine.id },
+      })
+    }
+  }
+
+  const billingStatus = await billingStatusForAssigneeId(nextAssigneeId)
+  await prisma.careCoverageOccurrence.update({
+    where: { id: occurrenceId },
+    data: { billingStatus },
+  })
+}
+
 async function materializeSeriesInRange(rangeStart: Date, rangeEnd: Date) {
   const seriesList = await prisma.careCoverageSeries.findMany()
   for (const series of seriesList) {
@@ -418,6 +697,7 @@ async function materializeSeriesInRange(rangeStart: Date, rangeEnd: Date) {
       rangeEnd,
     )
     if (slots.length === 0) continue
+    const billingStatus = await billingStatusForAssigneeId(series.assigneeId)
     await prisma.careCoverageOccurrence.createMany({
       data: slots.map((slot) => ({
         seriesId: series.id,
@@ -425,6 +705,7 @@ async function materializeSeriesInRange(rangeStart: Date, rangeEnd: Date) {
         startsAt: slot.startsAt,
         endsAt: slot.endsAt,
         status: 'SCHEDULED' as const,
+        billingStatus,
         notes: series.notes,
       })),
       skipDuplicates: true,
@@ -438,14 +719,6 @@ async function completeDueShifts(now = new Date()) {
       status: 'SCHEDULED',
       endsAt: { lte: now },
       assigneeId: { not: null },
-    },
-    include: {
-      assignee: {
-        include: {
-          type: true,
-        },
-      },
-      invoice: true,
     },
   })
 
@@ -464,45 +737,176 @@ async function completeDueShifts(now = new Date()) {
       linkMeta: { day: toDayKey(occ.startsAt), tab: 'calendar' },
       visibilityUserId: null,
     })
+  }
+}
 
-    if (occ.invoice || !occ.assignee) continue
+async function createInvoiceForOccurrences(input: {
+  carePersonId: string
+  carePersonName: string
+  occurrences: Array<{
+    id: string
+    startsAt: Date
+    endsAt: Date
+    hourlyRate: number
+  }>
+  periodStart: Date | null
+  periodEnd: Date | null
+}) {
+  if (input.occurrences.length === 0) return
 
+  const lines = input.occurrences.map((occ) => {
+    const hours = hoursBetween(occ.startsAt, occ.endsAt)
+    const computed = computeInvoiceAmount(occ.hourlyRate, hours)
+    return {
+      occurrenceId: occ.id,
+      amount: computed.amount,
+      hourlyRateSnapshot: computed.hourlyRate,
+      hoursSnapshot: computed.hours,
+    }
+  })
+  const amount = lines.reduce((sum, line) => sum + line.amount, 0)
+
+  const invoice = await prisma.careInvoice.create({
+    data: {
+      carePersonId: input.carePersonId,
+      amount,
+      status: 'OPEN',
+      periodStart: input.periodStart,
+      periodEnd: input.periodEnd,
+      lines: {
+        create: lines,
+      },
+    },
+  })
+
+  await prisma.careCoverageOccurrence.updateMany({
+    where: { id: { in: input.occurrences.map((o) => o.id) } },
+    data: { billingStatus: 'INVOICED' },
+  })
+
+  await logActivity({
+    actorUserId: null,
+    action: 'CREATE',
+    entityType: ACTIVITY_ENTITY_TYPES.invoice,
+    entityId: invoice.id,
+    summary: `System created invoice for ${input.carePersonName}`,
+    changes: createChanges(invoice, [
+      'carePersonId',
+      'amount',
+      'status',
+      'periodStart',
+      'periodEnd',
+    ]),
+    linkMeta: {
+      day: toDayKey(input.periodEnd ?? input.occurrences[0]!.startsAt),
+      tab: 'calendar',
+    },
+    visibilityUserId: null,
+  })
+}
+
+async function createPayPeriodInvoices(now = new Date()) {
+  // Repair: assigned paid shifts left as NOT_BILLABLE (e.g. pre-migration rows)
+  const stranded = await prisma.careCoverageOccurrence.findMany({
+    where: {
+      assigneeId: { not: null },
+      billingStatus: 'NOT_BILLABLE',
+      invoiceLine: null,
+    },
+    include: {
+      assignee: { include: { type: true } },
+    },
+  })
+  for (const occ of stranded) {
+    if (!occ.assignee) continue
     const rate = effectiveHourlyRate({
       personHourlyRate: decimalToString(occ.assignee.hourlyRate),
-      typeDefaultHourlyRate: decimalToString(occ.assignee.type.defaultHourlyRate),
+      typeDefaultHourlyRate: decimalToString(
+        occ.assignee.type.defaultHourlyRate,
+      ),
       typeIsPaid: occ.assignee.type.isPaid,
     })
     if (rate === null) continue
-
-    const hours = hoursBetween(occ.startsAt, occ.endsAt)
-    const computed = computeInvoiceAmount(rate, hours)
-
-    const invoice = await prisma.careInvoice.create({
-      data: {
-        occurrenceId: occ.id,
-        carePersonId: occ.assignee.id,
-        amount: computed.amount,
-        hourlyRateSnapshot: computed.hourlyRate,
-        hoursSnapshot: computed.hours,
-        status: 'OPEN',
-      },
+    await prisma.careCoverageOccurrence.update({
+      where: { id: occ.id },
+      data: { billingStatus: 'ACCRUED' },
     })
-    await logActivity({
-      actorUserId: null,
-      action: 'CREATE',
-      entityType: ACTIVITY_ENTITY_TYPES.invoice,
-      entityId: invoice.id,
-      summary: `System created invoice for ${occ.assignee.name}`,
-      changes: createChanges(invoice, [
-        'occurrenceId',
-        'carePersonId',
-        'amount',
-        'hourlyRateSnapshot',
-        'hoursSnapshot',
-        'status',
-      ]),
-      linkMeta: { day: toDayKey(occ.startsAt), tab: 'calendar' },
-      visibilityUserId: null,
+  }
+
+  const people = await prisma.carePerson.findMany({
+    include: { type: true },
+  })
+
+  for (const person of people) {
+    const rate = effectiveHourlyRate({
+      personHourlyRate: decimalToString(person.hourlyRate),
+      typeDefaultHourlyRate: decimalToString(person.type.defaultHourlyRate),
+      typeIsPaid: person.type.isPaid,
+    })
+    if (rate === null) continue
+
+    const cutoff = lastClosedPayPeriodEnd(
+      {
+        payInterval: person.payInterval,
+        payWeekday: person.payWeekday,
+        payAnchorDate: person.payAnchorDate,
+        payMonthDay: person.payMonthDay,
+      },
+      now,
+    )
+    if (!cutoff) continue
+
+    const accrued = await prisma.careCoverageOccurrence.findMany({
+      where: {
+        assigneeId: person.id,
+        billingStatus: 'ACCRUED',
+        endsAt: { lte: cutoff },
+      },
+      orderBy: { startsAt: 'asc' },
+    })
+    if (accrued.length === 0) continue
+
+    if (person.payInterval === 'PER_SHIFT') {
+      for (const occ of accrued) {
+        await createInvoiceForOccurrences({
+          carePersonId: person.id,
+          carePersonName: person.name,
+          occurrences: [
+            {
+              id: occ.id,
+              startsAt: occ.startsAt,
+              endsAt: occ.endsAt,
+              hourlyRate: rate,
+            },
+          ],
+          periodStart: occ.startsAt,
+          periodEnd: occ.endsAt,
+        })
+      }
+      continue
+    }
+
+    const periodStart = payPeriodStart(
+      {
+        payInterval: person.payInterval,
+        payWeekday: person.payWeekday,
+        payAnchorDate: person.payAnchorDate,
+        payMonthDay: person.payMonthDay,
+      },
+      cutoff,
+    )
+
+    await createInvoiceForOccurrences({
+      carePersonId: person.id,
+      carePersonName: person.name,
+      occurrences: accrued.map((occ) => ({
+        id: occ.id,
+        startsAt: occ.startsAt,
+        endsAt: occ.endsAt,
+        hourlyRate: rate,
+      })),
+      periodStart,
+      periodEnd: cutoff,
     })
   }
 }
@@ -513,7 +917,7 @@ let dueShiftsInFlight: Promise<void> | null = null
 let dueShiftsCompletedAt = 0
 
 /**
- * Share one completeDueShifts run across concurrent invoice-list / calendar loaders.
+ * Share one completeDueShifts + pay-period run across concurrent loaders.
  * Skips when a run finished within the TTL window.
  */
 async function ensureDueShiftsCompleted() {
@@ -531,6 +935,7 @@ async function ensureDueShiftsCompleted() {
 
   const run = (async () => {
     await completeDueShifts()
+    await createPayPeriodInvoices()
     dueShiftsCompletedAt = Date.now()
   })()
 
@@ -613,7 +1018,7 @@ async function detachProtectedOccurrences(seriesId: string) {
       OR: [
         { assigneeId: { not: null } },
         { status: { not: 'SCHEDULED' } },
-        { invoice: { isNot: null } },
+        { invoiceLine: { isNot: null } },
         { swapRelinquish: { some: { status: 'PENDING' } } },
         { swapClaim: { some: { status: 'PENDING' } } },
         { startsAt: { lt: startOfLocalToday() } },
@@ -652,7 +1057,7 @@ async function deleteOpenFutureForSeries(seriesId: string) {
       assigneeId: null,
       status: 'SCHEDULED',
       startsAt: { gte: startOfLocalToday() },
-      invoice: null,
+      invoiceLine: null,
       swapRelinquish: { none: { status: 'PENDING' } },
       swapClaim: { none: { status: 'PENDING' } },
     },
@@ -671,7 +1076,7 @@ async function deleteManualCoverageSeries(seriesId: string) {
       seriesId,
       status: 'SCHEDULED',
       startsAt: { gte: startOfLocalToday() },
-      invoice: null,
+      invoiceLine: null,
       swapRelinquish: { none: { status: 'PENDING' } },
       swapClaim: { none: { status: 'PENDING' } },
     },
@@ -1177,6 +1582,7 @@ export const createCarePerson = createServerFn({ method: 'POST' })
       bgColor: optionalColor(input.bgColor),
       textColor: optionalColor(input.textColor),
       isActive: input.isActive === undefined ? true : Boolean(input.isActive),
+      payRaw: input,
     }
   })
   .handler(async ({ data }): Promise<CarePersonDto> => {
@@ -1189,12 +1595,17 @@ export const createCarePerson = createServerFn({ method: 'POST' })
       const user = await prisma.user.findUnique({ where: { id: data.userId } })
       if (!user) throw new Error('Linked user not found.')
     }
+    const pay = parsePaySchedule(data.payRaw, type.isPaid)
     const created = await prisma.carePerson.create({
       data: {
         name: data.name,
         typeId: data.typeId,
         userId: data.userId,
-        hourlyRate: data.hourlyRate,
+        hourlyRate: type.isPaid ? data.hourlyRate : null,
+        payInterval: pay.payInterval,
+        payWeekday: pay.payWeekday,
+        payAnchorDate: pay.payAnchorDate,
+        payMonthDay: pay.payMonthDay,
         bgColor: data.bgColor,
         textColor: data.textColor,
         isActive: data.isActive,
@@ -1215,6 +1626,10 @@ export const createCarePerson = createServerFn({ method: 'POST' })
         'typeId',
         'userId',
         'hourlyRate',
+        'payInterval',
+        'payWeekday',
+        'payAnchorDate',
+        'payMonthDay',
         'isActive',
         'bgColor',
         'textColor',
@@ -1247,10 +1662,16 @@ export const updateCarePerson = createServerFn({ method: 'POST' })
       bgColor: optionalColor(input.bgColor),
       textColor: optionalColor(input.textColor),
       isActive: Boolean(input.isActive),
+      payRaw: input,
     }
   })
   .handler(async ({ data }): Promise<CarePersonDto> => {
     const userId = await requireUserId()
+    const type = await prisma.carePersonType.findUnique({
+      where: { id: data.typeId },
+    })
+    if (!type) throw new Error('Person type not found.')
+    const pay = parsePaySchedule(data.payRaw, type.isPaid)
     const before = await prisma.carePerson.findUniqueOrThrow({
       where: { id: data.id },
     })
@@ -1260,7 +1681,11 @@ export const updateCarePerson = createServerFn({ method: 'POST' })
         name: data.name,
         typeId: data.typeId,
         userId: data.userId,
-        hourlyRate: data.hourlyRate,
+        hourlyRate: type.isPaid ? data.hourlyRate : null,
+        payInterval: pay.payInterval,
+        payWeekday: pay.payWeekday,
+        payAnchorDate: pay.payAnchorDate,
+        payMonthDay: pay.payMonthDay,
         bgColor: data.bgColor,
         textColor: data.textColor,
         isActive: data.isActive,
@@ -1275,6 +1700,10 @@ export const updateCarePerson = createServerFn({ method: 'POST' })
       'typeId',
       'userId',
       'hourlyRate',
+      'payInterval',
+      'payWeekday',
+      'payAnchorDate',
+      'payMonthDay',
       'isActive',
       'bgColor',
       'textColor',
@@ -1401,7 +1830,7 @@ export const listCareCalendar = createServerFn({ method: 'GET' })
             assignee: {
               select: { name: true, bgColor: true, textColor: true },
             },
-            invoice: { select: { id: true } },
+            invoiceLine: { select: { id: true } },
           },
           orderBy: { startsAt: 'asc' },
         }),
@@ -1552,6 +1981,7 @@ export const createCoverageOccurrence = createServerFn({ method: 'POST' })
         throw new Error('Assignee already has overlapping coverage.')
       }
     }
+    const billingStatus = await billingStatusForAssigneeId(data.assigneeId)
     const created = await prisma.careCoverageOccurrence.create({
       data: {
         assigneeId: data.assigneeId,
@@ -1559,13 +1989,9 @@ export const createCoverageOccurrence = createServerFn({ method: 'POST' })
         endsAt: data.endsAt,
         notes: data.notes,
         status: 'SCHEDULED',
+        billingStatus,
       },
-      include: {
-        assignee: {
-              select: { name: true, bgColor: true, textColor: true },
-            },
-        invoice: { select: { id: true } },
-      },
+      include: occurrenceInclude,
     })
     await logActivity({
       actorUserId: userId,
@@ -1579,6 +2005,7 @@ export const createCoverageOccurrence = createServerFn({ method: 'POST' })
         'endsAt',
         'status',
         'notes',
+        'billingStatus',
       ]),
       linkMeta: { day: toDayKey(created.startsAt), tab: 'calendar' },
       visibilityUserId: null,
@@ -1613,11 +2040,22 @@ export const updateOccurrence = createServerFn({ method: 'POST' })
     const userId = await requireUserId()
     const existing = await prisma.careCoverageOccurrence.findUnique({
       where: { id: data.id },
+      include: { invoiceLine: { include: { invoice: true } } },
     })
     if (!existing) throw new Error('Occurrence not found.')
 
     const nextAssignee =
       data.assigneeId === undefined ? existing.assigneeId : data.assigneeId
+    if (
+      data.assigneeId !== undefined &&
+      data.assigneeId !== existing.assigneeId
+    ) {
+      if (existing.invoiceLine?.invoice.status === 'PAID') {
+        throw new Error(
+          'This coverage is on a paid invoice and cannot be reassigned. Void the invoice first.',
+        )
+      }
+    }
     if (nextAssignee) {
       if (
         await occurrencesOverlap(
@@ -1631,38 +2069,43 @@ export const updateOccurrence = createServerFn({ method: 'POST' })
       }
     }
 
-    const updated = await prisma.careCoverageOccurrence.update({
+    await prisma.careCoverageOccurrence.update({
       where: { id: data.id },
       data: {
         ...(data.assigneeId !== undefined ? { assigneeId: data.assigneeId } : {}),
         ...(data.status !== undefined ? { status: data.status } : {}),
         ...(data.notes !== undefined ? { notes: data.notes } : {}),
       },
-      include: {
-        assignee: {
-              select: { name: true, bgColor: true, textColor: true },
-            },
-        invoice: { select: { id: true } },
-      },
     })
-    const changes = diffChanges(existing, updated, [
+    if (
+      data.assigneeId !== undefined &&
+      data.assigneeId !== existing.assigneeId
+    ) {
+      await syncBillingForAssignee(data.id, data.assigneeId)
+    }
+    const refreshed = await prisma.careCoverageOccurrence.findUniqueOrThrow({
+      where: { id: data.id },
+      include: occurrenceInclude,
+    })
+    const changes = diffChanges(existing, refreshed, [
       'assigneeId',
       'status',
       'notes',
+      'billingStatus',
     ])
     if (Object.keys(changes).length > 0) {
       await logActivity({
         actorUserId: userId,
         action: 'UPDATE',
         entityType: ACTIVITY_ENTITY_TYPES.coverage_occurrence,
-        entityId: updated.id,
-        summary: `Updated coverage on ${toDayKey(updated.startsAt)}`,
+        entityId: refreshed.id,
+        summary: `Updated coverage on ${toDayKey(refreshed.startsAt)}`,
         changes,
-        linkMeta: { day: toDayKey(updated.startsAt), tab: 'calendar' },
+        linkMeta: { day: toDayKey(refreshed.startsAt), tab: 'calendar' },
         visibilityUserId: null,
       })
     }
-    return toOccurrenceDto(updated)
+    return toOccurrenceDto(refreshed)
   })
 
 export const claimOccurrences = createServerFn({ method: 'POST' })
@@ -1743,14 +2186,13 @@ export const claimOccurrences = createServerFn({ method: 'POST' })
       }
     })
 
+    for (const row of sorted) {
+      await syncBillingForAssignee(row.id, data.assigneeId)
+    }
+
     const updated = await prisma.careCoverageOccurrence.findMany({
       where: { id: { in: data.occurrenceIds } },
-      include: {
-        assignee: {
-              select: { name: true, bgColor: true, textColor: true },
-            },
-        invoice: { select: { id: true } },
-      },
+      include: occurrenceInclude,
       orderBy: { startsAt: 'asc' },
     })
     return updated.map(toOccurrenceDto)
@@ -2271,6 +2713,12 @@ export const reviewSwapRequest = createServerFn({ method: 'POST' })
       )
     })
 
+    await syncBillingForAssignee(existing.relinquishOccurrenceId, null)
+    await syncBillingForAssignee(
+      existing.claimOccurrenceId,
+      existing.claimForPersonId,
+    )
+
     const updated = await prisma.careSwapRequest.findUniqueOrThrow({
       where: { id: data.id },
       include: {
@@ -2314,27 +2762,10 @@ export const listCareInvoices = createServerFn({ method: 'GET' }).handler(
     await requireUserId()
     await ensureDueShiftsCompleted()
     const rows = await prisma.careInvoice.findMany({
-      include: {
-        carePerson: { select: { name: true } },
-        occurrence: { select: { startsAt: true, endsAt: true } },
-      },
+      include: invoiceInclude,
       orderBy: { createdAt: 'desc' },
     })
-    return rows.map((row) => ({
-      id: row.id,
-      occurrenceId: row.occurrenceId,
-      carePersonId: row.carePersonId,
-      carePersonName: row.carePerson.name,
-      amount: row.amount.toString(),
-      hourlyRateSnapshot: row.hourlyRateSnapshot.toString(),
-      hoursSnapshot: row.hoursSnapshot.toString(),
-      status: row.status,
-      financialAccountId: row.financialAccountId,
-      settledTransactionId: row.settledTransactionId,
-      startsAt: row.occurrence.startsAt.toISOString(),
-      endsAt: row.occurrence.endsAt.toISOString(),
-      createdAt: row.createdAt.toISOString(),
-    }))
+    return rows.map(toInvoiceDto)
   },
 )
 
@@ -2358,12 +2789,20 @@ export const settleCareInvoice = createServerFn({ method: 'POST' })
       where: { id: data.id },
       include: {
         carePerson: true,
-        occurrence: true,
+        lines: {
+          include: {
+            occurrence: { select: { startsAt: true, endsAt: true } },
+          },
+          orderBy: { occurrence: { startsAt: 'asc' } },
+        },
       },
     })
     if (!invoice) throw new Error('Invoice not found.')
     if (invoice.status !== 'OPEN') {
       throw new Error('Only open invoices can be settled.')
+    }
+    if (invoice.lines.length === 0) {
+      throw new Error('Invoice has no coverage lines.')
     }
 
     const account = await prisma.financialAccount.findFirst({
@@ -2386,6 +2825,9 @@ export const settleCareInvoice = createServerFn({ method: 'POST' })
 
     const amount = Number(invoice.amount.toString())
     const signedAmount = toSignedTransactionAmount('EXPENSE', amount)
+    const settleDate =
+      invoice.periodEnd ??
+      invoice.lines[invoice.lines.length - 1]!.occurrence.endsAt
 
     const result = await prisma.$transaction(async (tx) => {
       const createdTxn = await tx.transaction.create({
@@ -2394,7 +2836,7 @@ export const settleCareInvoice = createServerFn({ method: 'POST' })
           financialAccountId: data.financialAccountId,
           type: 'EXPENSE',
           amount: signedAmount,
-          date: invoice.occurrence.endsAt,
+          date: settleDate,
           description: `Care coverage payment — ${invoice.carePerson.name}`,
           payeeId: payee!.id,
         },
@@ -2407,10 +2849,7 @@ export const settleCareInvoice = createServerFn({ method: 'POST' })
           financialAccountId: data.financialAccountId,
           settledTransactionId: createdTxn.id,
         },
-        include: {
-          carePerson: { select: { name: true } },
-          occurrence: { select: { startsAt: true, endsAt: true } },
-        },
+        include: invoiceInclude,
       })
       await logActivity(
         {
@@ -2425,7 +2864,11 @@ export const settleCareInvoice = createServerFn({ method: 'POST' })
             'settledTransactionId',
           ]),
           linkMeta: {
-            day: toDayKey(updated.occurrence.startsAt),
+            day: toDayKey(
+              updated.periodEnd ??
+                updated.lines[0]?.occurrence.startsAt ??
+                new Date(),
+            ),
             tab: 'calendar',
           },
           visibilityUserId: null,
@@ -2435,21 +2878,7 @@ export const settleCareInvoice = createServerFn({ method: 'POST' })
       return updated
     })
 
-    return {
-      id: result.id,
-      occurrenceId: result.occurrenceId,
-      carePersonId: result.carePersonId,
-      carePersonName: result.carePerson.name,
-      amount: result.amount.toString(),
-      hourlyRateSnapshot: result.hourlyRateSnapshot.toString(),
-      hoursSnapshot: result.hoursSnapshot.toString(),
-      status: result.status,
-      financialAccountId: result.financialAccountId,
-      settledTransactionId: result.settledTransactionId,
-      startsAt: result.occurrence.startsAt.toISOString(),
-      endsAt: result.occurrence.endsAt.toISOString(),
-      createdAt: result.createdAt.toISOString(),
-    }
+    return toInvoiceDto(result)
   })
 
 export const voidCareInvoice = createServerFn({ method: 'POST' })
@@ -2466,44 +2895,48 @@ export const voidCareInvoice = createServerFn({ method: 'POST' })
       where: { id: data.id },
       include: {
         carePerson: { select: { name: true } },
-        occurrence: { select: { startsAt: true, endsAt: true } },
+        lines: true,
       },
     })
     if (!invoice) throw new Error('Invoice not found.')
     if (invoice.status !== 'OPEN') {
       throw new Error('Only open invoices can be voided.')
     }
-    const result = await prisma.careInvoice.update({
-      where: { id: data.id },
-      data: { status: 'VOID' },
-      include: {
-        carePerson: { select: { name: true } },
-        occurrence: { select: { startsAt: true, endsAt: true } },
-      },
+
+    const result = await prisma.$transaction(async (tx) => {
+      const occurrenceIds = invoice.lines.map((l) => l.occurrenceId)
+      await tx.careInvoiceLine.deleteMany({
+        where: { invoiceId: invoice.id },
+      })
+      if (occurrenceIds.length > 0) {
+        await tx.careCoverageOccurrence.updateMany({
+          where: { id: { in: occurrenceIds } },
+          data: { billingStatus: 'ACCRUED' },
+        })
+      }
+      const updated = await tx.careInvoice.update({
+        where: { id: data.id },
+        data: { status: 'VOID', amount: 0 },
+        include: invoiceInclude,
+      })
+      await logActivity(
+        {
+          actorUserId: userId,
+          action: 'UPDATE',
+          entityType: ACTIVITY_ENTITY_TYPES.invoice,
+          entityId: updated.id,
+          summary: `Voided invoice for ${invoice.carePerson.name}`,
+          changes: diffChanges(invoice, updated, ['status', 'amount']),
+          linkMeta: {
+            day: toDayKey(updated.periodEnd ?? updated.createdAt),
+            tab: 'calendar',
+          },
+          visibilityUserId: null,
+        },
+        tx,
+      )
+      return updated
     })
-    await logActivity({
-      actorUserId: userId,
-      action: 'UPDATE',
-      entityType: ACTIVITY_ENTITY_TYPES.invoice,
-      entityId: result.id,
-      summary: `Voided invoice for ${result.carePerson.name}`,
-      changes: diffChanges(invoice, result, ['status']),
-      linkMeta: { day: toDayKey(result.occurrence.startsAt), tab: 'calendar' },
-      visibilityUserId: null,
-    })
-    return {
-      id: result.id,
-      occurrenceId: result.occurrenceId,
-      carePersonId: result.carePersonId,
-      carePersonName: result.carePerson.name,
-      amount: result.amount.toString(),
-      hourlyRateSnapshot: result.hourlyRateSnapshot.toString(),
-      hoursSnapshot: result.hoursSnapshot.toString(),
-      status: result.status,
-      financialAccountId: result.financialAccountId,
-      settledTransactionId: result.settledTransactionId,
-      startsAt: result.occurrence.startsAt.toISOString(),
-      endsAt: result.occurrence.endsAt.toISOString(),
-      createdAt: result.createdAt.toISOString(),
-    }
+
+    return toInvoiceDto(result)
   })

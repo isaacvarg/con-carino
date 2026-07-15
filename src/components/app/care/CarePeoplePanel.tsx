@@ -20,11 +20,33 @@ import {
   updateCarePerson,
   updateCarePersonType,
 } from '#/server/care'
+import type { CarePayInterval } from '#/generated/prisma/enums'
 import {
   DEFAULT_PERSON_BG_COLOR,
   DEFAULT_PERSON_TEXT_COLOR,
   personChipStyle,
 } from './care-utils'
+
+const WEEKDAYS = [
+  { value: 0, label: 'Sunday' },
+  { value: 1, label: 'Monday' },
+  { value: 2, label: 'Tuesday' },
+  { value: 3, label: 'Wednesday' },
+  { value: 4, label: 'Thursday' },
+  { value: 5, label: 'Friday' },
+  { value: 6, label: 'Saturday' },
+] as const
+
+const PAY_INTERVALS: Array<{ value: CarePayInterval; label: string }> = [
+  { value: 'PER_SHIFT', label: 'Per shift (after shift ends)' },
+  { value: 'WEEKLY', label: 'Weekly' },
+  { value: 'BIWEEKLY', label: 'Biweekly' },
+  { value: 'MONTHLY', label: 'Monthly' },
+]
+
+function payIntervalLabel(interval: CarePayInterval): string {
+  return PAY_INTERVALS.find((p) => p.value === interval)?.label ?? interval
+}
 
 type CarePeoplePanelProps = {
   types: CarePersonTypeDto[]
@@ -48,6 +70,10 @@ export function CarePeoplePanel({
   const [typeId, setTypeId] = useState(types[0]?.id ?? '')
   const [userId, setUserId] = useState('')
   const [hourlyRate, setHourlyRate] = useState('')
+  const [payInterval, setPayInterval] = useState<CarePayInterval>('PER_SHIFT')
+  const [payWeekday, setPayWeekday] = useState('5')
+  const [payAnchorDate, setPayAnchorDate] = useState('')
+  const [payMonthDay, setPayMonthDay] = useState('1')
   const [bgColor, setBgColor] = useState(DEFAULT_PERSON_BG_COLOR)
   const [textColor, setTextColor] = useState(DEFAULT_PERSON_TEXT_COLOR)
   const [isActive, setIsActive] = useState(true)
@@ -69,6 +95,10 @@ export function CarePeoplePanel({
     setTypeId(types[0]?.id ?? '')
     setUserId('')
     setHourlyRate('')
+    setPayInterval('PER_SHIFT')
+    setPayWeekday('5')
+    setPayAnchorDate('')
+    setPayMonthDay('1')
     setBgColor(DEFAULT_PERSON_BG_COLOR)
     setTextColor(DEFAULT_PERSON_TEXT_COLOR)
     setIsActive(true)
@@ -87,6 +117,14 @@ export function CarePeoplePanel({
     setTypeId(person.typeId)
     setUserId(person.userId ?? '')
     setHourlyRate(person.hourlyRate ?? '')
+    setPayInterval(person.payInterval)
+    setPayWeekday(
+      person.payWeekday !== null ? String(person.payWeekday) : '5',
+    )
+    setPayAnchorDate(person.payAnchorDate ?? '')
+    setPayMonthDay(
+      person.payMonthDay !== null ? String(person.payMonthDay) : '1',
+    )
     setBgColor(person.bgColor ?? DEFAULT_PERSON_BG_COLOR)
     setTextColor(person.textColor ?? DEFAULT_PERSON_TEXT_COLOR)
     setIsActive(person.isActive)
@@ -127,6 +165,20 @@ export function CarePeoplePanel({
         typeId,
         userId: userId || null,
         hourlyRate: selectedTypeIsPaid ? hourlyRate || null : null,
+        payInterval: selectedTypeIsPaid ? payInterval : 'PER_SHIFT',
+        payWeekday:
+          selectedTypeIsPaid &&
+          (payInterval === 'WEEKLY' || payInterval === 'BIWEEKLY')
+            ? Number(payWeekday)
+            : null,
+        payAnchorDate:
+          selectedTypeIsPaid && payInterval === 'BIWEEKLY'
+            ? payAnchorDate || null
+            : null,
+        payMonthDay:
+          selectedTypeIsPaid && payInterval === 'MONTHLY'
+            ? Number(payMonthDay)
+            : null,
         bgColor,
         textColor,
         isActive,
@@ -269,6 +321,76 @@ export function CarePeoplePanel({
                 </FormField>
               ) : null}
             </FormRow>
+            {selectedTypeIsPaid ? (
+              <>
+                <FormRow>
+                  <FormField label="Pay interval" htmlFor="person-pay-interval">
+                    <select
+                      id="person-pay-interval"
+                      className={FORM_SELECT_CLASS}
+                      value={payInterval}
+                      onChange={(e) =>
+                        setPayInterval(e.target.value as CarePayInterval)
+                      }
+                    >
+                      {PAY_INTERVALS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </FormField>
+                  {payInterval === 'WEEKLY' || payInterval === 'BIWEEKLY' ? (
+                    <FormField label="Pay day" htmlFor="person-pay-weekday">
+                      <select
+                        id="person-pay-weekday"
+                        className={FORM_SELECT_CLASS}
+                        value={payWeekday}
+                        onChange={(e) => setPayWeekday(e.target.value)}
+                      >
+                        {WEEKDAYS.map((d) => (
+                          <option key={d.value} value={d.value}>
+                            {d.label}
+                          </option>
+                        ))}
+                      </select>
+                    </FormField>
+                  ) : null}
+                  {payInterval === 'MONTHLY' ? (
+                    <FormField
+                      label="Pay day of month"
+                      htmlFor="person-pay-month-day"
+                    >
+                      <input
+                        id="person-pay-month-day"
+                        className={FORM_INPUT_CLASS}
+                        type="number"
+                        min={1}
+                        max={28}
+                        value={payMonthDay}
+                        onChange={(e) => setPayMonthDay(e.target.value)}
+                        required
+                      />
+                    </FormField>
+                  ) : null}
+                </FormRow>
+                {payInterval === 'BIWEEKLY' ? (
+                  <FormField
+                    label="Pay anchor date (a known payday)"
+                    htmlFor="person-pay-anchor"
+                  >
+                    <input
+                      id="person-pay-anchor"
+                      className={FORM_INPUT_CLASS}
+                      type="date"
+                      value={payAnchorDate}
+                      onChange={(e) => setPayAnchorDate(e.target.value)}
+                      required
+                    />
+                  </FormField>
+                ) : null}
+              </>
+            ) : null}
             <FormRow>
               <ColorField
                 id="person-bg-color"
@@ -349,7 +471,7 @@ export function CarePeoplePanel({
                 <p className="text-sm text-base-content/60">
                   {person.typeName}
                   {person.isPaid
-                    ? ` · $${person.effectiveHourlyRate ?? '—'}/hr`
+                    ? ` · $${person.effectiveHourlyRate ?? '—'}/hr · ${payIntervalLabel(person.payInterval)}`
                     : ''}
                   {person.userEmail
                     ? ` · ${person.userName || person.userEmail}`

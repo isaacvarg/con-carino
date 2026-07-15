@@ -7,7 +7,7 @@ import {
   type ColumnDef,
   type SortingState,
 } from '@tanstack/react-table'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import {
   FORM_SELECT_CLASS,
   FormActions,
@@ -34,6 +34,46 @@ function settledTransactionLink(invoice: CareInvoiceDto) {
   }
 }
 
+function periodLabel(invoice: CareInvoiceDto): string {
+  if (invoice.periodStart && invoice.periodEnd) {
+    return formatTimeRange(invoice.periodStart, invoice.periodEnd)
+  }
+  if (invoice.lines.length === 1) {
+    return formatTimeRange(invoice.lines[0]!.startsAt, invoice.lines[0]!.endsAt)
+  }
+  if (invoice.lines.length > 1) {
+    return `${invoice.lines.length} shifts`
+  }
+  return '—'
+}
+
+function InvoiceLines({ invoice }: { invoice: CareInvoiceDto }) {
+  if (invoice.lines.length === 0) {
+    return (
+      <p className="mt-2 text-xs text-base-content/50">No coverage lines.</p>
+    )
+  }
+  return (
+    <ul className="mt-3 space-y-1.5 border-t border-base-300 pt-3">
+      {invoice.lines.map((line) => (
+        <li
+          key={line.id}
+          className="flex flex-wrap items-baseline justify-between gap-2 text-sm"
+        >
+          <span className="text-base-content/70">
+            {formatTimeRange(line.startsAt, line.endsAt)}
+          </span>
+          <span className="tabular-nums text-base-content/60">
+            {Number(line.hoursSnapshot).toFixed(2)} hrs × $
+            {Number(line.hourlyRateSnapshot).toFixed(2)} = $
+            {Number(line.amount).toFixed(2)}
+          </span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 export function CareInvoicesPanel({
   invoices,
   accounts,
@@ -45,8 +85,9 @@ export function CareInvoicesPanel({
   const [busyId, setBusyId] = useState<string | null>(null)
   const [settleId, setSettleId] = useState<string | null>(null)
   const [accountId, setAccountId] = useState(accounts[0]?.id ?? '')
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set())
   const [sorting, setSorting] = useState<SortingState>([
-    { id: 'endsAt', desc: true },
+    { id: 'createdAt', desc: true },
   ])
   const settleBusy = Boolean(settleId && busyId === settleId)
 
@@ -54,6 +95,7 @@ export function CareInvoicesPanel({
     if (!highlightInvoiceId) return
     const el = document.getElementById(`invoice-${highlightInvoiceId}`)
     el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    setExpandedIds((prev) => new Set(prev).add(highlightInvoiceId))
   }, [highlightInvoiceId, invoices])
 
   const open = useMemo(
@@ -89,17 +131,21 @@ export function CareInvoicesPanel({
         },
       },
       {
-        id: 'endsAt',
-        accessorFn: (row) => row.endsAt,
-        header: 'Coverage',
+        id: 'period',
+        accessorFn: (row) => row.periodEnd ?? row.createdAt,
+        header: 'Period',
         cell: ({ row }) => (
           <span className="text-base-content/70">
-            {formatTimeRange(row.original.startsAt, row.original.endsAt)}
+            {periodLabel(row.original)}
           </span>
         ),
         sortingFn: (rowA, rowB) => {
-          const a = new Date(rowA.original.endsAt).getTime()
-          const b = new Date(rowB.original.endsAt).getTime()
+          const a = new Date(
+            rowA.original.periodEnd ?? rowA.original.createdAt,
+          ).getTime()
+          const b = new Date(
+            rowB.original.periodEnd ?? rowB.original.createdAt,
+          ).getTime()
           return a === b ? 0 : a > b ? 1 : -1
         },
       },
@@ -108,6 +154,16 @@ export function CareInvoicesPanel({
         header: 'Status',
         cell: ({ getValue }) => (
           <span className="badge badge-outline">{String(getValue())}</span>
+        ),
+      },
+      {
+        id: 'createdAt',
+        accessorFn: (row) => row.createdAt,
+        header: 'Created',
+        cell: ({ getValue }) => (
+          <span className="text-base-content/60">
+            {new Date(String(getValue())).toLocaleDateString()}
+          </span>
         ),
       },
     ],
@@ -123,6 +179,15 @@ export function CareInvoicesPanel({
     getSortedRowModel: getSortedRowModel(),
     getRowId: (row) => row.id,
   })
+
+  function toggleExpanded(id: string) {
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   function openSettle(invoiceId: string) {
     setError(null)
@@ -185,58 +250,68 @@ export function CareInvoicesPanel({
       <section className="rounded-box bg-base-100 p-4 shadow-sm">
         <h3 className="font-semibold">Open invoices</h3>
         <p className="mt-1 text-sm text-base-content/60">
-          Created after paid coverage shifts end. Settle into a household
-          account as an expense.
+          Created on each paid person&apos;s pay schedule from accrued coverage.
+          Settle into a household account as an expense.
         </p>
         {open.length === 0 ? (
           <p className="mt-4 text-sm text-base-content/50">No open invoices.</p>
         ) : (
           <ul className="mt-4 space-y-3">
-            {open.map((inv) => (
-              <li
-                key={inv.id}
-                id={`invoice-${inv.id}`}
-                className={
-                  highlightInvoiceId === inv.id
-                    ? 'rounded-lg border border-primary bg-primary/5 p-4'
-                    : 'rounded-lg border border-base-300 p-4'
-                }
-              >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="font-medium">
-                      {inv.carePersonName} · $
-                      {Number(inv.amount).toFixed(2)}
-                    </p>
-                    <p className="text-sm text-base-content/60">
-                      {formatTimeRange(inv.startsAt, inv.endsAt)}
-                    </p>
-                    <p className="text-xs text-base-content/50">
-                      {Number(inv.hoursSnapshot).toFixed(2)} hrs × $
-                      {Number(inv.hourlyRateSnapshot).toFixed(2)}/hr
-                    </p>
+            {open.map((inv) => {
+              const expanded = expandedIds.has(inv.id)
+              return (
+                <li
+                  key={inv.id}
+                  id={`invoice-${inv.id}`}
+                  className={
+                    highlightInvoiceId === inv.id
+                      ? 'rounded-lg border border-primary bg-primary/5 p-4'
+                      : 'rounded-lg border border-base-300 p-4'
+                  }
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="font-medium">
+                        {inv.carePersonName} · $
+                        {Number(inv.amount).toFixed(2)}
+                      </p>
+                      <p className="text-sm text-base-content/60">
+                        {periodLabel(inv)}
+                        {inv.lines.length > 1
+                          ? ` · ${inv.lines.length} shifts`
+                          : ''}
+                      </p>
+                      <button
+                        type="button"
+                        className="mt-1 text-xs text-primary underline-offset-2 hover:underline"
+                        onClick={() => toggleExpanded(inv.id)}
+                      >
+                        {expanded ? 'Hide coverage' : 'Show coverage'}
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        disabled={busyId === inv.id || accounts.length === 0}
+                        onClick={() => openSettle(inv.id)}
+                      >
+                        Settle
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        disabled={busyId === inv.id}
+                        onClick={() => voidInvoice(inv.id)}
+                      >
+                        Void
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      className="btn btn-primary btn-sm"
-                      disabled={busyId === inv.id || accounts.length === 0}
-                      onClick={() => openSettle(inv.id)}
-                    >
-                      Settle
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-sm"
-                      disabled={busyId === inv.id}
-                      onClick={() => voidInvoice(inv.id)}
-                    >
-                      Void
-                    </button>
-                  </div>
-                </div>
-              </li>
-            ))}
+                  {expanded ? <InvoiceLines invoice={inv} /> : null}
+                </li>
+              )
+            })}
           </ul>
         )}
         {accounts.length === 0 ? (
@@ -291,41 +366,59 @@ export function CareInvoicesPanel({
                 {closedTable.getRowModel().rows.map((row) => {
                   const link = settledTransactionLink(row.original)
                   const highlighted = highlightInvoiceId === row.original.id
+                  const expanded = expandedIds.has(row.original.id)
                   return (
-                    <tr
-                      key={row.id}
-                      id={`invoice-${row.original.id}`}
-                      className={
-                        highlighted
-                          ? 'bg-primary/5'
-                          : link
-                            ? 'hover:bg-base-200/70'
-                            : undefined
-                      }
-                    >
-                      {row.getVisibleCells().map((cell) => (
-                        <td key={cell.id} className={link ? '!p-0' : undefined}>
-                          {link ? (
-                            <Link
-                              to={link.to}
-                              params={link.params}
-                              className="block h-full w-full cursor-pointer px-4 py-3 text-inherit no-underline"
-                              aria-label={`Open settlement transaction for ${row.original.carePersonName}`}
-                            >
-                              {flexRender(
+                    <Fragment key={row.id}>
+                      <tr
+                        id={`invoice-${row.original.id}`}
+                        className={
+                          highlighted
+                            ? 'bg-primary/5'
+                            : link
+                              ? 'hover:bg-base-200/70'
+                              : undefined
+                        }
+                      >
+                        {row.getVisibleCells().map((cell) => (
+                          <td key={cell.id} className={link ? '!p-0' : undefined}>
+                            {link ? (
+                              <Link
+                                to={link.to}
+                                params={link.params}
+                                className="block h-full w-full cursor-pointer px-4 py-3 text-inherit no-underline"
+                                aria-label={`Open settlement transaction for ${row.original.carePersonName}`}
+                              >
+                                {flexRender(
+                                  cell.column.columnDef.cell,
+                                  cell.getContext(),
+                                )}
+                              </Link>
+                            ) : (
+                              flexRender(
                                 cell.column.columnDef.cell,
                                 cell.getContext(),
-                              )}
-                            </Link>
-                          ) : (
-                            flexRender(
-                              cell.column.columnDef.cell,
-                              cell.getContext(),
-                            )
-                          )}
+                              )
+                            )}
+                          </td>
+                        ))}
+                      </tr>
+                      <tr>
+                        <td colSpan={columns.length} className="!py-0">
+                          <button
+                            type="button"
+                            className="mb-2 text-xs text-primary underline-offset-2 hover:underline"
+                            onClick={() => toggleExpanded(row.original.id)}
+                          >
+                            {expanded ? 'Hide coverage' : 'Show coverage'}
+                          </button>
+                          {expanded ? (
+                            <div className="pb-3">
+                              <InvoiceLines invoice={row.original} />
+                            </div>
+                          ) : null}
                         </td>
-                      ))}
-                    </tr>
+                      </tr>
+                    </Fragment>
                   )
                 })}
               </tbody>
