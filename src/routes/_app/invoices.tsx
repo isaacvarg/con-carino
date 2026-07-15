@@ -27,12 +27,6 @@ function InvoicesPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <h2 className="text-xl font-semibold text-base-content">Invoices</h2>
-        <p className="mt-1 text-sm text-base-content/60">
-          Open and settled caregiver invoices from paid coverage shifts.
-        </p>
-      </div>
       <CareInvoicesPanel invoices={invoices} accounts={accounts} />
     </div>
   )

@@ -4,7 +4,9 @@ import type { ComponentPropsWithoutRef, ReactNode } from 'react'
 export const FORM_INPUT_CLASS =
   'input input-bordered min-h-12 w-full px-4'
 export const FORM_SELECT_CLASS =
-  'select select-bordered min-h-12 w-full px-4'
+  'select select-bordered min-h-12 w-full border-base-300 bg-base-100 px-4 text-base-content'
+export const FORM_TIME_INPUT_CLASS =
+  'input input-bordered min-h-12 w-full pe-10 ps-4'
 export const FORM_TEXTAREA_CLASS =
   'textarea textarea-bordered w-full px-4 py-3'
 

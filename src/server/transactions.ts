@@ -161,6 +161,22 @@ export type VisibleTransactionListItem = TransactionListItem & {
   }
 }
 
+export type TransactionDetailDto = VisibleTransactionListItem & {
+  transferGroupId: string | null
+  createdAt: string
+  updatedAt: string
+  transferCounterpart: {
+    id: string
+    financialAccountId: string
+    accountName: string
+    amount: string
+  } | null
+  careInvoice: {
+    id: string
+    status: string
+  } | null
+}
+
 type AttachmentRef = AttachmentListItem
 
 type TransactionWithTaxonomies = {
@@ -449,6 +465,90 @@ export const listVisibleTransactions = createServerFn({ method: 'GET' }).handler
     return transactions.map(toVisibleTransactionListItem)
   },
 )
+
+export const getTransaction = createServerFn({ method: 'GET' })
+  .validator((data: unknown) => {
+    if (!data || typeof data !== 'object') {
+      throw new Error('Invalid payload.')
+    }
+    const id =
+      typeof (data as { id?: unknown }).id === 'string'
+        ? (data as { id: string }).id.trim()
+        : ''
+    if (!id) {
+      throw new Error('Transaction id is required.')
+    }
+    return { id }
+  })
+  .handler(async ({ data }): Promise<TransactionDetailDto> => {
+    const userId = await requireUserId()
+
+    const txn = await prisma.transaction.findFirst({
+      where: {
+        id: data.id,
+        financialAccount: ownOrGlobal(userId),
+      },
+      include: {
+        financialAccount: {
+          select: { id: true, name: true, isGlobal: true },
+        },
+        payee: { select: { id: true, name: true } },
+        category: { select: { id: true, name: true } },
+        tags: { select: { id: true, name: true }, orderBy: { name: 'asc' } },
+        attachments: {
+          select: {
+            id: true,
+            fileName: true,
+            contentType: true,
+            byteSize: true,
+            storageKey: true,
+          },
+          orderBy: { createdAt: 'asc' },
+        },
+        careInvoice: { select: { id: true, status: true } },
+      },
+    })
+
+    if (!txn) {
+      throw new Error('Transaction not found.')
+    }
+
+    let transferCounterpart: TransactionDetailDto['transferCounterpart'] = null
+    if (txn.transferGroupId) {
+      const other = await prisma.transaction.findFirst({
+        where: {
+          transferGroupId: txn.transferGroupId,
+          id: { not: txn.id },
+          financialAccount: ownOrGlobal(userId),
+        },
+        select: {
+          id: true,
+          financialAccountId: true,
+          amount: true,
+          financialAccount: { select: { name: true } },
+        },
+      })
+      if (other) {
+        transferCounterpart = {
+          id: other.id,
+          financialAccountId: other.financialAccountId,
+          accountName: other.financialAccount.name,
+          amount: other.amount.toString(),
+        }
+      }
+    }
+
+    return {
+      ...toVisibleTransactionListItem(txn),
+      transferGroupId: txn.transferGroupId,
+      createdAt: txn.createdAt.toISOString(),
+      updatedAt: txn.updatedAt.toISOString(),
+      transferCounterpart,
+      careInvoice: txn.careInvoice
+        ? { id: txn.careInvoice.id, status: txn.careInvoice.status }
+        : null,
+    }
+  })
 
 export const getAccountCurrentBalance = createServerFn({ method: 'GET' })
   .validator((data: unknown) => {

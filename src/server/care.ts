@@ -2,7 +2,6 @@ import { createServerFn } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
 import { getSession } from 'start-authjs'
 import type {
-  CareCalendarEventKind,
   CareCoverageFrequency,
   CareCoverageNeed,
   CareCoverageWindowKind,
@@ -11,7 +10,6 @@ import type {
   CareSwapStatus,
 } from '#/generated/prisma/enums'
 import {
-  CareCalendarEventKind as CareCalendarEventKindEnum,
   CareCoverageFrequency as CareCoverageFrequencyEnum,
   CareCoverageNeed as CareCoverageNeedEnum,
   CareCoverageWindowKind as CareCoverageWindowKindEnum,
@@ -35,7 +33,6 @@ import { toSignedTransactionAmount } from '#/lib/transaction-amount'
 import { authConfig } from '#/utils/auth'
 
 const FREQUENCIES = Object.values(CareCoverageFrequencyEnum)
-const EVENT_KINDS = Object.values(CareCalendarEventKindEnum)
 const COVERAGE_NEEDS = Object.values(CareCoverageNeedEnum)
 const COVERAGE_WINDOW_KINDS = Object.values(CareCoverageWindowKindEnum)
 
@@ -158,7 +155,8 @@ export type CarePersonDto = {
   hourlyRate: string | null
   effectiveHourlyRate: string | null
   isActive: boolean
-  color: string | null
+  bgColor: string | null
+  textColor: string | null
   userEmail: string | null
   userName: string | null
 }
@@ -168,7 +166,8 @@ export type CareCoverageOccurrenceDto = {
   seriesId: string | null
   assigneeId: string | null
   assigneeName: string | null
-  assigneeColor: string | null
+  assigneeBgColor: string | null
+  assigneeTextColor: string | null
   startsAt: string
   endsAt: string
   status: CareOccurrenceStatus
@@ -176,9 +175,20 @@ export type CareCoverageOccurrenceDto = {
   hasInvoice: boolean
 }
 
+export type CareEventTypeDto = {
+  id: string
+  name: string
+  bgColor: string
+  textColor: string
+  sortOrder: number
+}
+
 export type CareCalendarEventDto = {
   id: string
-  kind: CareCalendarEventKind
+  typeId: string
+  typeName: string
+  bgColor: string
+  textColor: string
   title: string
   startsAt: string
   endsAt: string
@@ -234,7 +244,8 @@ function toPersonDto(person: {
   typeId: string
   hourlyRate: { toString(): string } | null
   isActive: boolean
-  color: string | null
+  bgColor: string | null
+  textColor: string | null
   type: {
     name: string
     isPaid: boolean
@@ -257,7 +268,8 @@ function toPersonDto(person: {
     hourlyRate: decimalToString(person.hourlyRate),
     effectiveHourlyRate: rate !== null ? rate.toFixed(4) : null,
     isActive: person.isActive,
-    color: person.color,
+    bgColor: person.bgColor,
+    textColor: person.textColor,
     userEmail: person.user?.email ?? null,
     userName: person.user?.name ?? null,
   }
@@ -271,7 +283,11 @@ function toOccurrenceDto(row: {
   endsAt: Date
   status: CareOccurrenceStatus
   notes: string | null
-  assignee: { name: string; color: string | null } | null
+  assignee: {
+    name: string
+    bgColor: string | null
+    textColor: string | null
+  } | null
   invoice: { id: string } | null
 }): CareCoverageOccurrenceDto {
   return {
@@ -279,7 +295,8 @@ function toOccurrenceDto(row: {
     seriesId: row.seriesId,
     assigneeId: row.assigneeId,
     assigneeName: row.assignee?.name ?? null,
-    assigneeColor: row.assignee?.color ?? null,
+    assigneeBgColor: row.assignee?.bgColor ?? null,
+    assigneeTextColor: row.assignee?.textColor ?? null,
     startsAt: row.startsAt.toISOString(),
     endsAt: row.endsAt.toISOString(),
     status: row.status,
@@ -287,6 +304,16 @@ function toOccurrenceDto(row: {
     hasInvoice: Boolean(row.invoice),
   }
 }
+
+function optionalColor(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+const DEFAULT_EVENT_TYPES = [
+  { name: 'Appointment', bgColor: '#f59e0b', textColor: '#ffffff', sortOrder: 0 },
+  { name: 'Family', bgColor: '#8b5cf6', textColor: '#ffffff', sortOrder: 1 },
+  { name: 'Other', bgColor: '#64748b', textColor: '#ffffff', sortOrder: 2 },
+] as const
 
 async function ensureDefaultTypes() {
   await prisma.carePersonType.upsert({
@@ -303,11 +330,63 @@ async function ensureDefaultTypes() {
     },
     update: {},
   })
+  for (const type of DEFAULT_EVENT_TYPES) {
+    await prisma.careEventType.upsert({
+      where: { name: type.name },
+      create: type,
+      update: {},
+    })
+  }
   await prisma.careSettings.upsert({
     where: { id: 'default' },
     create: { id: 'default', lovedOneName: '' },
     update: {},
   })
+}
+
+function toEventTypeDto(row: {
+  id: string
+  name: string
+  bgColor: string
+  textColor: string
+  sortOrder: number
+}): CareEventTypeDto {
+  return {
+    id: row.id,
+    name: row.name,
+    bgColor: row.bgColor,
+    textColor: row.textColor,
+    sortOrder: row.sortOrder,
+  }
+}
+
+function toEventDto(row: {
+  id: string
+  typeId: string
+  title: string
+  startsAt: Date
+  endsAt: Date
+  notes: string | null
+  type: { name: string; bgColor: string; textColor: string }
+}): CareCalendarEventDto {
+  return {
+    id: row.id,
+    typeId: row.typeId,
+    typeName: row.type.name,
+    bgColor: row.type.bgColor,
+    textColor: row.type.textColor,
+    title: row.title,
+    startsAt: row.startsAt.toISOString(),
+    endsAt: row.endsAt.toISOString(),
+    notes: row.notes,
+  }
+}
+
+function optionalColorRequired(value: unknown, label: string): string {
+  if (typeof value !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(value.trim())) {
+    throw new Error(`${label} must be a hex color like #1d4ed8.`)
+  }
+  return value.trim().toLowerCase()
 }
 
 async function materializeSeriesInRange(rangeStart: Date, rangeEnd: Date) {
@@ -501,6 +580,30 @@ async function deleteOpenFutureForSeries(seriesId: string) {
       swapClaim: { none: { status: 'PENDING' } },
     },
   })
+}
+
+/**
+ * Delete a user-created recurring series, removing only its future,
+ * not-yet-completed occurrences (open or assigned). Past occurrences and any
+ * completed/cancelled/invoiced/pending-swap ones are preserved as standalone
+ * occurrences (seriesId detached) since we cannot rewrite history.
+ */
+async function deleteManualCoverageSeries(seriesId: string) {
+  await prisma.careCoverageOccurrence.deleteMany({
+    where: {
+      seriesId,
+      status: 'SCHEDULED',
+      startsAt: { gte: startOfLocalToday() },
+      invoice: null,
+      swapRelinquish: { none: { status: 'PENDING' } },
+      swapClaim: { none: { status: 'PENDING' } },
+    },
+  })
+  await prisma.careCoverageOccurrence.updateMany({
+    where: { seriesId },
+    data: { seriesId: null },
+  })
+  await prisma.careCoverageSeries.delete({ where: { id: seriesId } })
 }
 
 async function syncRequiredCoverageSeries() {
@@ -747,6 +850,120 @@ export const createCarePersonType = createServerFn({ method: 'POST' })
     }
   })
 
+export const updateCarePersonType = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    if (!data || typeof data !== 'object') throw new Error('Invalid payload.')
+    const input = data as Record<string, unknown>
+    const id = typeof input.id === 'string' ? input.id : ''
+    if (!id) throw new Error('Type id is required.')
+    const name = typeof input.name === 'string' ? input.name.trim() : ''
+    if (!name) throw new Error('Name is required.')
+    return {
+      id,
+      name,
+      isPaid: Boolean(input.isPaid),
+      defaultHourlyRate: parseOptionalRate(input.defaultHourlyRate),
+    }
+  })
+  .handler(async ({ data }): Promise<CarePersonTypeDto> => {
+    await requireUserId()
+    const updated = await prisma.carePersonType.update({
+      where: { id: data.id },
+      data: {
+        name: data.name,
+        isPaid: data.isPaid,
+        defaultHourlyRate: data.defaultHourlyRate,
+      },
+    })
+    return {
+      id: updated.id,
+      name: updated.name,
+      isPaid: updated.isPaid,
+      defaultHourlyRate: decimalToString(updated.defaultHourlyRate),
+    }
+  })
+
+// --- Event types ---
+
+export const listCareEventTypes = createServerFn({ method: 'GET' }).handler(
+  async (): Promise<CareEventTypeDto[]> => {
+    await requireUserId()
+    await ensureDefaultTypes()
+    const rows = await prisma.careEventType.findMany({
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+    })
+    return rows.map(toEventTypeDto)
+  },
+)
+
+export const createCareEventType = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    if (!data || typeof data !== 'object') throw new Error('Invalid payload.')
+    const input = data as Record<string, unknown>
+    const name = typeof input.name === 'string' ? input.name.trim() : ''
+    if (!name) throw new Error('Name is required.')
+    return {
+      name,
+      bgColor: optionalColorRequired(input.bgColor, 'Background color'),
+      textColor: optionalColorRequired(input.textColor, 'Text color'),
+    }
+  })
+  .handler(async ({ data }): Promise<CareEventTypeDto> => {
+    await requireUserId()
+    await ensureDefaultTypes()
+    const existing = await prisma.careEventType.findUnique({
+      where: { name: data.name },
+    })
+    if (existing) throw new Error('An event type with that name already exists.')
+    const max = await prisma.careEventType.aggregate({
+      _max: { sortOrder: true },
+    })
+    const created = await prisma.careEventType.create({
+      data: {
+        name: data.name,
+        bgColor: data.bgColor,
+        textColor: data.textColor,
+        sortOrder: (max._max.sortOrder ?? -1) + 1,
+      },
+    })
+    return toEventTypeDto(created)
+  })
+
+export const updateCareEventType = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    if (!data || typeof data !== 'object') throw new Error('Invalid payload.')
+    const input = data as Record<string, unknown>
+    const id = typeof input.id === 'string' ? input.id : ''
+    if (!id) throw new Error('Event type id is required.')
+    const name = typeof input.name === 'string' ? input.name.trim() : ''
+    if (!name) throw new Error('Name is required.')
+    return {
+      id,
+      name,
+      bgColor: optionalColorRequired(input.bgColor, 'Background color'),
+      textColor: optionalColorRequired(input.textColor, 'Text color'),
+    }
+  })
+  .handler(async ({ data }): Promise<CareEventTypeDto> => {
+    await requireUserId()
+    const clash = await prisma.careEventType.findFirst({
+      where: { name: data.name, id: { not: data.id } },
+      select: { id: true },
+    })
+    if (clash) throw new Error('An event type with that name already exists.')
+    const updated = await prisma.careEventType.update({
+      where: { id: data.id },
+      data: {
+        name: data.name,
+        bgColor: data.bgColor,
+        textColor: data.textColor,
+      },
+    })
+    return toEventTypeDto(updated)
+  })
+
+// --- People ---
+
 export const listCarePeople = createServerFn({ method: 'GET' }).handler(
   async (): Promise<CarePersonDto[]> => {
     await requireUserId()
@@ -785,16 +1002,13 @@ export const createCarePerson = createServerFn({ method: 'POST' })
       typeof input.userId === 'string' && input.userId.trim()
         ? input.userId.trim()
         : null
-    const color =
-      typeof input.color === 'string' && input.color.trim()
-        ? input.color.trim()
-        : null
     return {
       name,
       typeId,
       userId,
       hourlyRate: parseOptionalRate(input.hourlyRate),
-      color,
+      bgColor: optionalColor(input.bgColor),
+      textColor: optionalColor(input.textColor),
       isActive: input.isActive === undefined ? true : Boolean(input.isActive),
     }
   })
@@ -814,7 +1028,8 @@ export const createCarePerson = createServerFn({ method: 'POST' })
         typeId: data.typeId,
         userId: data.userId,
         hourlyRate: data.hourlyRate,
-        color: data.color,
+        bgColor: data.bgColor,
+        textColor: data.textColor,
         isActive: data.isActive,
       },
       include: {
@@ -839,17 +1054,14 @@ export const updateCarePerson = createServerFn({ method: 'POST' })
       typeof input.userId === 'string' && input.userId.trim()
         ? input.userId.trim()
         : null
-    const color =
-      typeof input.color === 'string' && input.color.trim()
-        ? input.color.trim()
-        : null
     return {
       id,
       name,
       typeId,
       userId,
       hourlyRate: parseOptionalRate(input.hourlyRate),
-      color,
+      bgColor: optionalColor(input.bgColor),
+      textColor: optionalColor(input.textColor),
       isActive: Boolean(input.isActive),
     }
   })
@@ -862,7 +1074,8 @@ export const updateCarePerson = createServerFn({ method: 'POST' })
         typeId: data.typeId,
         userId: data.userId,
         hourlyRate: data.hourlyRate,
-        color: data.color,
+        bgColor: data.bgColor,
+        textColor: data.textColor,
         isActive: data.isActive,
       },
       include: {
@@ -879,6 +1092,7 @@ export type CareCalendarPayload = {
   settings: CareSettingsDto
   occurrences: CareCoverageOccurrenceDto[]
   events: CareCalendarEventDto[]
+  eventTypes: CareEventTypeDto[]
   pendingSwapCount: number
   openInvoiceCount: number
 }
@@ -907,7 +1121,7 @@ export const listCareCalendar = createServerFn({ method: 'GET' })
 
     const settings = await loadCareSettingsDto()
 
-    const [occurrences, events, pendingSwapCount, openInvoiceCount] =
+    const [occurrences, events, eventTypes, pendingSwapCount, openInvoiceCount] =
       await Promise.all([
         prisma.careCoverageOccurrence.findMany({
           where: {
@@ -916,7 +1130,9 @@ export const listCareCalendar = createServerFn({ method: 'GET' })
             status: { not: 'CANCELLED' },
           },
           include: {
-            assignee: { select: { name: true, color: true } },
+            assignee: {
+              select: { name: true, bgColor: true, textColor: true },
+            },
             invoice: { select: { id: true } },
           },
           orderBy: { startsAt: 'asc' },
@@ -926,7 +1142,13 @@ export const listCareCalendar = createServerFn({ method: 'GET' })
             startsAt: { lte: data.rangeEnd },
             endsAt: { gte: data.rangeStart },
           },
+          include: {
+            type: { select: { name: true, bgColor: true, textColor: true } },
+          },
           orderBy: { startsAt: 'asc' },
+        }),
+        prisma.careEventType.findMany({
+          orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
         }),
         prisma.careSwapRequest.count({ where: { status: 'PENDING' } }),
         prisma.careInvoice.count({ where: { status: 'OPEN' } }),
@@ -935,14 +1157,8 @@ export const listCareCalendar = createServerFn({ method: 'GET' })
     return {
       settings,
       occurrences: occurrences.map(toOccurrenceDto),
-      events: events.map((e) => ({
-        id: e.id,
-        kind: e.kind,
-        title: e.title,
-        startsAt: e.startsAt.toISOString(),
-        endsAt: e.endsAt.toISOString(),
-        notes: e.notes,
-      })),
+      events: events.map(toEventDto),
+      eventTypes: eventTypes.map(toEventTypeDto),
       pendingSwapCount,
       openInvoiceCount,
     }
@@ -1058,7 +1274,9 @@ export const createCoverageOccurrence = createServerFn({ method: 'POST' })
         status: 'SCHEDULED',
       },
       include: {
-        assignee: { select: { name: true, color: true } },
+        assignee: {
+              select: { name: true, bgColor: true, textColor: true },
+            },
         invoice: { select: { id: true } },
       },
     })
@@ -1118,7 +1336,9 @@ export const updateOccurrence = createServerFn({ method: 'POST' })
         ...(data.notes !== undefined ? { notes: data.notes } : {}),
       },
       include: {
-        assignee: { select: { name: true, color: true } },
+        assignee: {
+              select: { name: true, bgColor: true, textColor: true },
+            },
         invoice: { select: { id: true } },
       },
     })
@@ -1171,15 +1391,6 @@ export const claimOccurrences = createServerFn({ method: 'POST' })
     const sorted = [...rows].sort(
       (a, b) => a.startsAt.getTime() - b.startsAt.getTime(),
     )
-    for (let i = 0; i < sorted.length; i++) {
-      for (let j = i + 1; j < sorted.length; j++) {
-        const a = sorted[i]!
-        const b = sorted[j]!
-        if (a.startsAt < b.endsAt && a.endsAt > b.startsAt) {
-          throw new Error('Selected slots overlap each other.')
-        }
-      }
-    }
     for (const row of sorted) {
       if (
         await occurrencesOverlap(data.assigneeId, row.startsAt, row.endsAt)
@@ -1202,7 +1413,9 @@ export const claimOccurrences = createServerFn({ method: 'POST' })
     const updated = await prisma.careCoverageOccurrence.findMany({
       where: { id: { in: data.occurrenceIds } },
       include: {
-        assignee: { select: { name: true, color: true } },
+        assignee: {
+              select: { name: true, bgColor: true, textColor: true },
+            },
         invoice: { select: { id: true } },
       },
       orderBy: { startsAt: 'asc' },
@@ -1256,7 +1469,7 @@ export const deleteCoverageSeries = createServerFn({ method: 'POST' })
         'Required coverage is managed in Loved one settings. Change the schedule there instead.',
       )
     }
-    await deleteRequiredSeries(series.id)
+    await deleteManualCoverageSeries(series.id)
     return { id: data.id }
   })
 
@@ -1266,13 +1479,8 @@ export const createCalendarEvent = createServerFn({ method: 'POST' })
     const input = data as Record<string, unknown>
     const title = typeof input.title === 'string' ? input.title.trim() : ''
     if (!title) throw new Error('Title is required.')
-    const kind = input.kind
-    if (
-      typeof kind !== 'string' ||
-      !EVENT_KINDS.includes(kind as CareCalendarEventKind)
-    ) {
-      throw new Error('Event kind is invalid.')
-    }
+    const typeId = typeof input.typeId === 'string' ? input.typeId.trim() : ''
+    if (!typeId) throw new Error('Event type is required.')
     const startsAt = parseRequiredDate(input.startsAt, 'startsAt')
     const endsAt = parseRequiredDate(input.endsAt, 'endsAt')
     if (endsAt.getTime() <= startsAt.getTime()) {
@@ -1284,7 +1492,7 @@ export const createCalendarEvent = createServerFn({ method: 'POST' })
         : null
     return {
       title,
-      kind: kind as CareCalendarEventKind,
+      typeId,
       startsAt,
       endsAt,
       notes,
@@ -1292,23 +1500,23 @@ export const createCalendarEvent = createServerFn({ method: 'POST' })
   })
   .handler(async ({ data }): Promise<CareCalendarEventDto> => {
     await requireUserId()
+    const type = await prisma.careEventType.findUnique({
+      where: { id: data.typeId },
+    })
+    if (!type) throw new Error('Event type not found.')
     const created = await prisma.careCalendarEvent.create({
       data: {
         title: data.title,
-        kind: data.kind,
+        typeId: data.typeId,
         startsAt: data.startsAt,
         endsAt: data.endsAt,
         notes: data.notes,
       },
+      include: {
+        type: { select: { name: true, bgColor: true, textColor: true } },
+      },
     })
-    return {
-      id: created.id,
-      kind: created.kind,
-      title: created.title,
-      startsAt: created.startsAt.toISOString(),
-      endsAt: created.endsAt.toISOString(),
-      notes: created.notes,
-    }
+    return toEventDto(created)
   })
 
 export const updateCalendarEvent = createServerFn({ method: 'POST' })
@@ -1319,13 +1527,8 @@ export const updateCalendarEvent = createServerFn({ method: 'POST' })
     if (!id) throw new Error('Event id is required.')
     const title = typeof input.title === 'string' ? input.title.trim() : ''
     if (!title) throw new Error('Title is required.')
-    const kind = input.kind
-    if (
-      typeof kind !== 'string' ||
-      !EVENT_KINDS.includes(kind as CareCalendarEventKind)
-    ) {
-      throw new Error('Event kind is invalid.')
-    }
+    const typeId = typeof input.typeId === 'string' ? input.typeId.trim() : ''
+    if (!typeId) throw new Error('Event type is required.')
     const startsAt = parseRequiredDate(input.startsAt, 'startsAt')
     const endsAt = parseRequiredDate(input.endsAt, 'endsAt')
     if (endsAt.getTime() <= startsAt.getTime()) {
@@ -1338,7 +1541,7 @@ export const updateCalendarEvent = createServerFn({ method: 'POST' })
     return {
       id,
       title,
-      kind: kind as CareCalendarEventKind,
+      typeId,
       startsAt,
       endsAt,
       notes,
@@ -1346,24 +1549,24 @@ export const updateCalendarEvent = createServerFn({ method: 'POST' })
   })
   .handler(async ({ data }): Promise<CareCalendarEventDto> => {
     await requireUserId()
+    const type = await prisma.careEventType.findUnique({
+      where: { id: data.typeId },
+    })
+    if (!type) throw new Error('Event type not found.')
     const updated = await prisma.careCalendarEvent.update({
       where: { id: data.id },
       data: {
         title: data.title,
-        kind: data.kind,
+        typeId: data.typeId,
         startsAt: data.startsAt,
         endsAt: data.endsAt,
         notes: data.notes,
       },
+      include: {
+        type: { select: { name: true, bgColor: true, textColor: true } },
+      },
     })
-    return {
-      id: updated.id,
-      kind: updated.kind,
-      title: updated.title,
-      startsAt: updated.startsAt.toISOString(),
-      endsAt: updated.endsAt.toISOString(),
-      notes: updated.notes,
-    }
+    return toEventDto(updated)
   })
 
 // --- Swaps ---

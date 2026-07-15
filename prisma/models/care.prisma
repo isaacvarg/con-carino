@@ -19,12 +19,6 @@ enum CareOccurrenceStatus {
   CANCELLED
 }
 
-enum CareCalendarEventKind {
-  APPOINTMENT
-  FAMILY
-  OTHER
-}
-
 enum CareSwapStatus {
   PENDING
   APPROVED
@@ -92,7 +86,8 @@ model CarePerson {
   typeId     String
   hourlyRate Decimal? @db.Decimal(19, 4)
   isActive   Boolean  @default(true)
-  color      String?
+  bgColor    String?
+  textColor  String?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
@@ -159,16 +154,35 @@ model CareCoverageOccurrence {
   @@map("care_coverage_occurrences")
 }
 
+/// User-managed category for calendar events, controlling how the event
+/// appears on the calendar (background and text color).
+model CareEventType {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  bgColor   String
+  textColor String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  events CareCalendarEvent[]
+
+  @@map("care_event_types")
+}
+
 model CareCalendarEvent {
-  id        String                 @id @default(uuid())
-  kind      CareCalendarEventKind  @default(OTHER)
+  id        String   @id @default(uuid())
+  typeId    String
   title     String
   startsAt  DateTime
   endsAt    DateTime
   notes     String?
-  createdAt DateTime               @default(now())
-  updatedAt DateTime               @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
+  type CareEventType @relation(fields: [typeId], references: [id], onDelete: Restrict)
+
+  @@index([typeId])
   @@index([startsAt, endsAt])
   @@map("care_calendar_events")
 }

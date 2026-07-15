@@ -15,14 +15,19 @@ import { Route as AppRouteImport } from './routes/_app'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppTransactionsRouteImport } from './routes/_app/transactions'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
+import { Route as AppScheduleRouteImport } from './routes/_app/schedule'
+import { Route as AppMedsRouteImport } from './routes/_app/meds'
 import { Route as AppInvoicesRouteImport } from './routes/_app/invoices'
 import { Route as AppInsightsRouteImport } from './routes/_app/insights'
 import { Route as AppDocumentsRouteImport } from './routes/_app/documents'
 import { Route as AppCareRouteImport } from './routes/_app/care'
 import { Route as AppAccountsRouteImport } from './routes/_app/accounts'
+import { Route as AppTransactionsIndexRouteImport } from './routes/_app/transactions/index'
 import { Route as AppSettingsIndexRouteImport } from './routes/_app/settings/index'
 import { Route as AppAccountsIndexRouteImport } from './routes/_app/accounts/index'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as AppTransactionsTransactionIdRouteImport } from './routes/_app/transactions/$transactionId'
+import { Route as AppSettingsScheduleRouteImport } from './routes/_app/settings/schedule'
 import { Route as AppSettingsPeopleRouteImport } from './routes/_app/settings/people'
 import { Route as AppSettingsLovedOneRouteImport } from './routes/_app/settings/loved-one'
 import { Route as AppAccountsNewRouteImport } from './routes/_app/accounts/new'
@@ -61,6 +66,16 @@ const AppSettingsRoute = AppSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => AppRoute,
 } as any)
+const AppScheduleRoute = AppScheduleRouteImport.update({
+  id: '/schedule',
+  path: '/schedule',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppMedsRoute = AppMedsRouteImport.update({
+  id: '/meds',
+  path: '/meds',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppInvoicesRoute = AppInvoicesRouteImport.update({
   id: '/invoices',
   path: '/invoices',
@@ -86,6 +101,11 @@ const AppAccountsRoute = AppAccountsRouteImport.update({
   path: '/accounts',
   getParentRoute: () => AppRoute,
 } as any)
+const AppTransactionsIndexRoute = AppTransactionsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppTransactionsRoute,
+} as any)
 const AppSettingsIndexRoute = AppSettingsIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -100,6 +120,17 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AppTransactionsTransactionIdRoute =
+  AppTransactionsTransactionIdRouteImport.update({
+    id: '/$transactionId',
+    path: '/$transactionId',
+    getParentRoute: () => AppTransactionsRoute,
+  } as any)
+const AppSettingsScheduleRoute = AppSettingsScheduleRouteImport.update({
+  id: '/schedule',
+  path: '/schedule',
+  getParentRoute: () => AppSettingsRoute,
 } as any)
 const AppSettingsPeopleRoute = AppSettingsPeopleRouteImport.update({
   id: '/people',
@@ -155,15 +186,20 @@ export interface FileRoutesByFullPath {
   '/documents': typeof AppDocumentsRoute
   '/insights': typeof AppInsightsRoute
   '/invoices': typeof AppInvoicesRoute
+  '/meds': typeof AppMedsRoute
+  '/schedule': typeof AppScheduleRoute
   '/settings': typeof AppSettingsRouteWithChildren
-  '/transactions': typeof AppTransactionsRoute
+  '/transactions': typeof AppTransactionsRouteWithChildren
   '/accounts/$accountId': typeof AppAccountsAccountIdRouteWithChildren
   '/accounts/new': typeof AppAccountsNewRoute
   '/settings/loved-one': typeof AppSettingsLovedOneRoute
   '/settings/people': typeof AppSettingsPeopleRoute
+  '/settings/schedule': typeof AppSettingsScheduleRoute
+  '/transactions/$transactionId': typeof AppTransactionsTransactionIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/accounts/': typeof AppAccountsIndexRoute
   '/settings/': typeof AppSettingsIndexRoute
+  '/transactions/': typeof AppTransactionsIndexRoute
   '/accounts/$accountId/settings': typeof AppAccountsAccountIdSettingsRoute
   '/accounts/$accountId/': typeof AppAccountsAccountIdIndexRoute
   '/accounts/$accountId/transactions/new': typeof AppAccountsAccountIdTransactionsNewRoute
@@ -176,14 +212,18 @@ export interface FileRoutesByTo {
   '/documents': typeof AppDocumentsRoute
   '/insights': typeof AppInsightsRoute
   '/invoices': typeof AppInvoicesRoute
-  '/transactions': typeof AppTransactionsRoute
+  '/meds': typeof AppMedsRoute
+  '/schedule': typeof AppScheduleRoute
   '/': typeof AppIndexRoute
   '/accounts/new': typeof AppAccountsNewRoute
   '/settings/loved-one': typeof AppSettingsLovedOneRoute
   '/settings/people': typeof AppSettingsPeopleRoute
+  '/settings/schedule': typeof AppSettingsScheduleRoute
+  '/transactions/$transactionId': typeof AppTransactionsTransactionIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/accounts': typeof AppAccountsIndexRoute
   '/settings': typeof AppSettingsIndexRoute
+  '/transactions': typeof AppTransactionsIndexRoute
   '/accounts/$accountId/settings': typeof AppAccountsAccountIdSettingsRoute
   '/accounts/$accountId': typeof AppAccountsAccountIdIndexRoute
   '/accounts/$accountId/transactions/new': typeof AppAccountsAccountIdTransactionsNewRoute
@@ -199,16 +239,21 @@ export interface FileRoutesById {
   '/_app/documents': typeof AppDocumentsRoute
   '/_app/insights': typeof AppInsightsRoute
   '/_app/invoices': typeof AppInvoicesRoute
+  '/_app/meds': typeof AppMedsRoute
+  '/_app/schedule': typeof AppScheduleRoute
   '/_app/settings': typeof AppSettingsRouteWithChildren
-  '/_app/transactions': typeof AppTransactionsRoute
+  '/_app/transactions': typeof AppTransactionsRouteWithChildren
   '/_app/': typeof AppIndexRoute
   '/_app/accounts/$accountId': typeof AppAccountsAccountIdRouteWithChildren
   '/_app/accounts/new': typeof AppAccountsNewRoute
   '/_app/settings/loved-one': typeof AppSettingsLovedOneRoute
   '/_app/settings/people': typeof AppSettingsPeopleRoute
+  '/_app/settings/schedule': typeof AppSettingsScheduleRoute
+  '/_app/transactions/$transactionId': typeof AppTransactionsTransactionIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/_app/accounts/': typeof AppAccountsIndexRoute
   '/_app/settings/': typeof AppSettingsIndexRoute
+  '/_app/transactions/': typeof AppTransactionsIndexRoute
   '/_app/accounts/$accountId/settings': typeof AppAccountsAccountIdSettingsRoute
   '/_app/accounts/$accountId/': typeof AppAccountsAccountIdIndexRoute
   '/_app/accounts/$accountId/transactions/new': typeof AppAccountsAccountIdTransactionsNewRoute
@@ -225,15 +270,20 @@ export interface FileRouteTypes {
     | '/documents'
     | '/insights'
     | '/invoices'
+    | '/meds'
+    | '/schedule'
     | '/settings'
     | '/transactions'
     | '/accounts/$accountId'
     | '/accounts/new'
     | '/settings/loved-one'
     | '/settings/people'
+    | '/settings/schedule'
+    | '/transactions/$transactionId'
     | '/api/auth/$'
     | '/accounts/'
     | '/settings/'
+    | '/transactions/'
     | '/accounts/$accountId/settings'
     | '/accounts/$accountId/'
     | '/accounts/$accountId/transactions/new'
@@ -246,14 +296,18 @@ export interface FileRouteTypes {
     | '/documents'
     | '/insights'
     | '/invoices'
-    | '/transactions'
+    | '/meds'
+    | '/schedule'
     | '/'
     | '/accounts/new'
     | '/settings/loved-one'
     | '/settings/people'
+    | '/settings/schedule'
+    | '/transactions/$transactionId'
     | '/api/auth/$'
     | '/accounts'
     | '/settings'
+    | '/transactions'
     | '/accounts/$accountId/settings'
     | '/accounts/$accountId'
     | '/accounts/$accountId/transactions/new'
@@ -268,6 +322,8 @@ export interface FileRouteTypes {
     | '/_app/documents'
     | '/_app/insights'
     | '/_app/invoices'
+    | '/_app/meds'
+    | '/_app/schedule'
     | '/_app/settings'
     | '/_app/transactions'
     | '/_app/'
@@ -275,9 +331,12 @@ export interface FileRouteTypes {
     | '/_app/accounts/new'
     | '/_app/settings/loved-one'
     | '/_app/settings/people'
+    | '/_app/settings/schedule'
+    | '/_app/transactions/$transactionId'
     | '/api/auth/$'
     | '/_app/accounts/'
     | '/_app/settings/'
+    | '/_app/transactions/'
     | '/_app/accounts/$accountId/settings'
     | '/_app/accounts/$accountId/'
     | '/_app/accounts/$accountId/transactions/new'
@@ -335,6 +394,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/schedule': {
+      id: '/_app/schedule'
+      path: '/schedule'
+      fullPath: '/schedule'
+      preLoaderRoute: typeof AppScheduleRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/meds': {
+      id: '/_app/meds'
+      path: '/meds'
+      fullPath: '/meds'
+      preLoaderRoute: typeof AppMedsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/invoices': {
       id: '/_app/invoices'
       path: '/invoices'
@@ -370,6 +443,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAccountsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/transactions/': {
+      id: '/_app/transactions/'
+      path: '/'
+      fullPath: '/transactions/'
+      preLoaderRoute: typeof AppTransactionsIndexRouteImport
+      parentRoute: typeof AppTransactionsRoute
+    }
     '/_app/settings/': {
       id: '/_app/settings/'
       path: '/'
@@ -390,6 +470,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/api/auth/$'
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_app/transactions/$transactionId': {
+      id: '/_app/transactions/$transactionId'
+      path: '/$transactionId'
+      fullPath: '/transactions/$transactionId'
+      preLoaderRoute: typeof AppTransactionsTransactionIdRouteImport
+      parentRoute: typeof AppTransactionsRoute
+    }
+    '/_app/settings/schedule': {
+      id: '/_app/settings/schedule'
+      path: '/schedule'
+      fullPath: '/settings/schedule'
+      preLoaderRoute: typeof AppSettingsScheduleRouteImport
+      parentRoute: typeof AppSettingsRoute
     }
     '/_app/settings/people': {
       id: '/_app/settings/people'
@@ -487,17 +581,33 @@ const AppAccountsRouteWithChildren = AppAccountsRoute._addFileChildren(
 interface AppSettingsRouteChildren {
   AppSettingsLovedOneRoute: typeof AppSettingsLovedOneRoute
   AppSettingsPeopleRoute: typeof AppSettingsPeopleRoute
+  AppSettingsScheduleRoute: typeof AppSettingsScheduleRoute
   AppSettingsIndexRoute: typeof AppSettingsIndexRoute
 }
 
 const AppSettingsRouteChildren: AppSettingsRouteChildren = {
   AppSettingsLovedOneRoute: AppSettingsLovedOneRoute,
   AppSettingsPeopleRoute: AppSettingsPeopleRoute,
+  AppSettingsScheduleRoute: AppSettingsScheduleRoute,
   AppSettingsIndexRoute: AppSettingsIndexRoute,
 }
 
 const AppSettingsRouteWithChildren = AppSettingsRoute._addFileChildren(
   AppSettingsRouteChildren,
+)
+
+interface AppTransactionsRouteChildren {
+  AppTransactionsTransactionIdRoute: typeof AppTransactionsTransactionIdRoute
+  AppTransactionsIndexRoute: typeof AppTransactionsIndexRoute
+}
+
+const AppTransactionsRouteChildren: AppTransactionsRouteChildren = {
+  AppTransactionsTransactionIdRoute: AppTransactionsTransactionIdRoute,
+  AppTransactionsIndexRoute: AppTransactionsIndexRoute,
+}
+
+const AppTransactionsRouteWithChildren = AppTransactionsRoute._addFileChildren(
+  AppTransactionsRouteChildren,
 )
 
 interface AppRouteChildren {
@@ -506,8 +616,10 @@ interface AppRouteChildren {
   AppDocumentsRoute: typeof AppDocumentsRoute
   AppInsightsRoute: typeof AppInsightsRoute
   AppInvoicesRoute: typeof AppInvoicesRoute
+  AppMedsRoute: typeof AppMedsRoute
+  AppScheduleRoute: typeof AppScheduleRoute
   AppSettingsRoute: typeof AppSettingsRouteWithChildren
-  AppTransactionsRoute: typeof AppTransactionsRoute
+  AppTransactionsRoute: typeof AppTransactionsRouteWithChildren
   AppIndexRoute: typeof AppIndexRoute
 }
 
@@ -517,8 +629,10 @@ const AppRouteChildren: AppRouteChildren = {
   AppDocumentsRoute: AppDocumentsRoute,
   AppInsightsRoute: AppInsightsRoute,
   AppInvoicesRoute: AppInvoicesRoute,
+  AppMedsRoute: AppMedsRoute,
+  AppScheduleRoute: AppScheduleRoute,
   AppSettingsRoute: AppSettingsRouteWithChildren,
-  AppTransactionsRoute: AppTransactionsRoute,
+  AppTransactionsRoute: AppTransactionsRouteWithChildren,
   AppIndexRoute: AppIndexRoute,
 }
 

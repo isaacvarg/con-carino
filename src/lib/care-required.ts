@@ -72,31 +72,41 @@ export function buildRequiredCoverageWindows(input: {
   return { daysOfWeek, windows }
 }
 
-/** Soft check: whether shift intervals cover a full local day (allows gaps across midnight). */
+/** Soft check: whether shift intervals cover every minute of a local day. */
 export function shiftsCoverFullDay(
   shifts: Array<{ startTime: string; endTime: string }>,
 ): boolean {
   if (shifts.length === 0) return false
+  const DAY = 24 * 60
   const minutes = (hhmm: string) => {
     const [h, m] = hhmm.split(':').map(Number)
+    if (!Number.isFinite(h) || !Number.isFinite(m)) return NaN
     return h! * 60 + m!
   }
   type Interval = { start: number; end: number }
   const intervals: Interval[] = []
   for (const shift of shifts) {
     const start = minutes(shift.startTime)
-    let end = minutes(shift.endTime)
-    if (end <= start) end += 24 * 60
-    intervals.push({ start, end })
+    const end = minutes(shift.endTime)
+    if (!Number.isFinite(start) || !Number.isFinite(end)) return false
+    if (start === end) {
+      // Identical start/end means a full 24h window.
+      return true
+    }
+    if (end > start) {
+      intervals.push({ start, end })
+    } else {
+      // Overnight wraps past midnight: cover evening and early morning.
+      intervals.push({ start, end: DAY })
+      intervals.push({ start: 0, end })
+    }
   }
-  intervals.sort((a, b) => a.start - b.start)
+  intervals.sort((a, b) => a.start - b.start || a.end - b.end)
   let covered = 0
-  let cursor = 0
   for (const iv of intervals) {
-    if (iv.start > cursor) return false
+    if (iv.start > covered) return false
     covered = Math.max(covered, iv.end)
-    cursor = covered
-    if (covered >= 24 * 60) return true
+    if (covered >= DAY) return true
   }
-  return covered >= 24 * 60
+  return covered >= DAY
 }

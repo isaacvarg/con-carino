@@ -1,5 +1,6 @@
 import { Outlet, createFileRoute } from '@tanstack/react-router'
 import { useId, useState } from 'react'
+import AppBreadcrumbs from '#/components/app/AppBreadcrumbs'
 import AppFooter from '#/components/app/AppFooter'
 import AppHeader from '#/components/app/AppHeader'
 import AppSidebar from '#/components/app/AppSidebar'
@@ -29,6 +30,7 @@ function AppLayout() {
       <div className="drawer-content flex min-h-screen flex-col bg-base-100 lg:rounded-tl-[2.5rem]">
         <AppHeader onMenuClick={() => setDrawerOpen(true)} />
         <div className="flex-1 px-4 pb-6 lg:px-6">
+          <AppBreadcrumbs />
           <Outlet />
         </div>
         <AppFooter />

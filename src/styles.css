@@ -387,6 +387,11 @@ pre code {
     border-top: 1px solid var(--color-base-200);
     padding-top: 1rem;
   }
+
+  .select option {
+    background-color: var(--color-base-100);
+    color: var(--color-base-content);
+  }
 }
 
 button,
