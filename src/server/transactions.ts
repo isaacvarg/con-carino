@@ -413,14 +413,11 @@ function parsePositiveAmount(value: string): number {
 
 function parseDate(value: string): Date {
   const trimmed = value.trim()
-  if (!trimmed) {
-    throw new Error('Date is required.')
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    throw new Error('Date must be YYYY-MM-DD.')
   }
-  const date = new Date(trimmed)
-  if (Number.isNaN(date.getTime())) {
-    throw new Error('Date is invalid.')
-  }
-  return date
+  const [y, m, d] = trimmed.split('-').map(Number)
+  return new Date(Date.UTC(y!, m! - 1, d!))
 }
 
 function parseDirection(value: unknown): TransactionDirection | undefined {
