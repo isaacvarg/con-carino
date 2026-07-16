@@ -1,3 +1,7 @@
+import { parseCsvParam, parsePositiveInt } from '#/lib/search-params'
+
+export { parseCsvValues, serializeCsvValues } from '#/lib/search-params'
+
 export const transactionsSearchDefaults = {
   page: 1,
   pageSize: 10,
@@ -22,33 +26,6 @@ export type TransactionsSearch = {
   category: string
   payee: string
   tags: string
-}
-
-function parsePositiveInt(value: unknown, fallback: number): number {
-  const n = typeof value === 'number' ? value : Number(value)
-  if (!Number.isFinite(n) || n < 1) return fallback
-  return Math.floor(n)
-}
-
-function parseCsvParam(value: unknown): string {
-  if (typeof value !== 'string' || !value.trim()) return ''
-  return value
-    .split(',')
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .join(',')
-}
-
-export function parseCsvValues(value: string): string[] {
-  if (!value.trim()) return []
-  return value
-    .split(',')
-    .map((part) => part.trim())
-    .filter(Boolean)
-}
-
-export function serializeCsvValues(values: string[]): string {
-  return values.filter(Boolean).join(',')
 }
 
 export function validateTransactionsSearch(

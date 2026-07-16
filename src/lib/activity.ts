@@ -17,9 +17,10 @@ export const ACTIVITY_ENTITY_TYPES = {
   care_person_type: 'care_person_type',
   care_event_type: 'care_event_type',
   care_settings: 'care_settings',
+  document: 'document',
+  document_type: 'document_type',
   /** Future */
   med: 'med',
-  document: 'document',
 } as const
 
 export type ActivityEntityType =
@@ -60,6 +61,10 @@ export type ActivityHref =
       search?: { invoiceId?: string }
     }
   | {
+      to: '/documents/$documentId'
+      params: { documentId: string }
+    }
+  | {
       to: '/schedule'
       search: {
         tab: 'calendar' | 'swaps'
@@ -84,6 +89,7 @@ export const ACTIVITY_ENTITY_LABELS: Record<string, string> = {
   care_settings: 'Loved one settings',
   med: 'Medication',
   document: 'Document',
+  document_type: 'Document type',
 }
 
 function serializeValue(value: unknown): ActivityChangeValue {
@@ -211,11 +217,18 @@ export function resolveActivityHref(entry: ResolveActivityInput): ActivityHref {
         },
       }
     }
+    case ACTIVITY_ENTITY_TYPES.document:
+      if (!id) return null
+      return {
+        to: '/documents/$documentId',
+        params: { documentId: id },
+      }
     case ACTIVITY_ENTITY_TYPES.care_settings:
       return null
     case ACTIVITY_ENTITY_TYPES.care_person:
     case ACTIVITY_ENTITY_TYPES.care_person_type:
     case ACTIVITY_ENTITY_TYPES.care_event_type:
+    case ACTIVITY_ENTITY_TYPES.document_type:
       return null
     default:
       return null

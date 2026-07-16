@@ -7,6 +7,7 @@ import type {
   PayeeRecord,
   TagRecord,
 } from '#/lib/taxonomy-types'
+import { optionalString, requireId, requireName } from '#/lib/validators'
 import { authConfig } from '#/utils/auth'
 
 export type {
@@ -42,28 +43,6 @@ const TAG_SELECT = {
   bgColor: true,
   textColor: true,
 } as const
-
-function optionalString(value: unknown): string | null {
-  if (typeof value !== 'string') return null
-  const trimmed = value.trim()
-  return trimmed || null
-}
-
-function requireName(value: unknown): string {
-  const name = typeof value === 'string' ? value.trim() : ''
-  if (!name) {
-    throw new Error('Name is required.')
-  }
-  return name
-}
-
-function requireId(value: unknown): string {
-  const id = typeof value === 'string' ? value.trim() : ''
-  if (!id) {
-    throw new Error('Id is required.')
-  }
-  return id
-}
 
 async function requireUserId() {
   const request = getRequest()

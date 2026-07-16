@@ -3,6 +3,7 @@ import {
   HiChevronRight,
   HiOutlineCalendar,
   HiOutlineCollection,
+  HiOutlineDocumentText,
   HiOutlineHeart,
   HiOutlineOfficeBuilding,
   HiOutlineTag,
@@ -17,6 +18,7 @@ type SettingsCard = {
     | '/settings/tags'
     | '/settings/categories'
     | '/settings/payees'
+    | '/settings/document-types'
   title: string
   description: string
   icon: typeof HiOutlineUserGroup
@@ -58,6 +60,12 @@ const SETTINGS_CARDS: SettingsCard[] = [
     title: 'Payees',
     description: 'People and merchants used on transactions.',
     icon: HiOutlineOfficeBuilding,
+  },
+  {
+    to: '/settings/document-types',
+    title: 'Document types',
+    description: 'Categories for documents in your library.',
+    icon: HiOutlineDocumentText,
   },
 ]
 

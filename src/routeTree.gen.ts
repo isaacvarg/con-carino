@@ -27,6 +27,7 @@ import { Route as AppActivityRouteImport } from './routes/_app/activity'
 import { Route as AppAccountsRouteImport } from './routes/_app/accounts'
 import { Route as AppTransactionsIndexRouteImport } from './routes/_app/transactions/index'
 import { Route as AppSettingsIndexRouteImport } from './routes/_app/settings/index'
+import { Route as AppDocumentsIndexRouteImport } from './routes/_app/documents/index'
 import { Route as AppActivityIndexRouteImport } from './routes/_app/activity/index'
 import { Route as AppAccountsIndexRouteImport } from './routes/_app/accounts/index'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
@@ -37,7 +38,9 @@ import { Route as AppSettingsScheduleRouteImport } from './routes/_app/settings/
 import { Route as AppSettingsPeopleRouteImport } from './routes/_app/settings/people'
 import { Route as AppSettingsPayeesRouteImport } from './routes/_app/settings/payees'
 import { Route as AppSettingsLovedOneRouteImport } from './routes/_app/settings/loved-one'
+import { Route as AppSettingsDocumentTypesRouteImport } from './routes/_app/settings/document-types'
 import { Route as AppSettingsCategoriesRouteImport } from './routes/_app/settings/categories'
+import { Route as AppDocumentsDocumentIdRouteImport } from './routes/_app/documents/$documentId'
 import { Route as AppActivityActivityIdRouteImport } from './routes/_app/activity/$activityId'
 import { Route as AppAccountsNewRouteImport } from './routes/_app/accounts/new'
 import { Route as AppAccountsAccountIdRouteImport } from './routes/_app/accounts/$accountId'
@@ -136,6 +139,11 @@ const AppSettingsIndexRoute = AppSettingsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppSettingsRoute,
 } as any)
+const AppDocumentsIndexRoute = AppDocumentsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppDocumentsRoute,
+} as any)
 const AppActivityIndexRoute = AppActivityIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -187,10 +195,21 @@ const AppSettingsLovedOneRoute = AppSettingsLovedOneRouteImport.update({
   path: '/loved-one',
   getParentRoute: () => AppSettingsRoute,
 } as any)
+const AppSettingsDocumentTypesRoute =
+  AppSettingsDocumentTypesRouteImport.update({
+    id: '/document-types',
+    path: '/document-types',
+    getParentRoute: () => AppSettingsRoute,
+  } as any)
 const AppSettingsCategoriesRoute = AppSettingsCategoriesRouteImport.update({
   id: '/categories',
   path: '/categories',
   getParentRoute: () => AppSettingsRoute,
+} as any)
+const AppDocumentsDocumentIdRoute = AppDocumentsDocumentIdRouteImport.update({
+  id: '/$documentId',
+  path: '/$documentId',
+  getParentRoute: () => AppDocumentsRoute,
 } as any)
 const AppActivityActivityIdRoute = AppActivityActivityIdRouteImport.update({
   id: '/$activityId',
@@ -245,7 +264,7 @@ export interface FileRoutesByFullPath {
   '/accounts': typeof AppAccountsRouteWithChildren
   '/activity': typeof AppActivityRouteWithChildren
   '/care': typeof AppCareRoute
-  '/documents': typeof AppDocumentsRoute
+  '/documents': typeof AppDocumentsRouteWithChildren
   '/insights': typeof AppInsightsRoute
   '/invoices': typeof AppInvoicesRoute
   '/meds': typeof AppMedsRoute
@@ -257,7 +276,9 @@ export interface FileRoutesByFullPath {
   '/accounts/$accountId': typeof AppAccountsAccountIdRouteWithChildren
   '/accounts/new': typeof AppAccountsNewRoute
   '/activity/$activityId': typeof AppActivityActivityIdRoute
+  '/documents/$documentId': typeof AppDocumentsDocumentIdRoute
   '/settings/categories': typeof AppSettingsCategoriesRoute
+  '/settings/document-types': typeof AppSettingsDocumentTypesRoute
   '/settings/loved-one': typeof AppSettingsLovedOneRoute
   '/settings/payees': typeof AppSettingsPayeesRoute
   '/settings/people': typeof AppSettingsPeopleRoute
@@ -268,6 +289,7 @@ export interface FileRoutesByFullPath {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/accounts/': typeof AppAccountsIndexRoute
   '/activity/': typeof AppActivityIndexRoute
+  '/documents/': typeof AppDocumentsIndexRoute
   '/settings/': typeof AppSettingsIndexRoute
   '/transactions/': typeof AppTransactionsIndexRoute
   '/accounts/$accountId/settings': typeof AppAccountsAccountIdSettingsRoute
@@ -280,7 +302,6 @@ export interface FileRoutesByTo {
   '/about': typeof AboutRoute
   '/login': typeof LoginRoute
   '/care': typeof AppCareRoute
-  '/documents': typeof AppDocumentsRoute
   '/insights': typeof AppInsightsRoute
   '/invoices': typeof AppInvoicesRoute
   '/meds': typeof AppMedsRoute
@@ -290,7 +311,9 @@ export interface FileRoutesByTo {
   '/': typeof AppIndexRoute
   '/accounts/new': typeof AppAccountsNewRoute
   '/activity/$activityId': typeof AppActivityActivityIdRoute
+  '/documents/$documentId': typeof AppDocumentsDocumentIdRoute
   '/settings/categories': typeof AppSettingsCategoriesRoute
+  '/settings/document-types': typeof AppSettingsDocumentTypesRoute
   '/settings/loved-one': typeof AppSettingsLovedOneRoute
   '/settings/payees': typeof AppSettingsPayeesRoute
   '/settings/people': typeof AppSettingsPeopleRoute
@@ -301,6 +324,7 @@ export interface FileRoutesByTo {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/accounts': typeof AppAccountsIndexRoute
   '/activity': typeof AppActivityIndexRoute
+  '/documents': typeof AppDocumentsIndexRoute
   '/settings': typeof AppSettingsIndexRoute
   '/transactions': typeof AppTransactionsIndexRoute
   '/accounts/$accountId/settings': typeof AppAccountsAccountIdSettingsRoute
@@ -317,7 +341,7 @@ export interface FileRoutesById {
   '/_app/accounts': typeof AppAccountsRouteWithChildren
   '/_app/activity': typeof AppActivityRouteWithChildren
   '/_app/care': typeof AppCareRoute
-  '/_app/documents': typeof AppDocumentsRoute
+  '/_app/documents': typeof AppDocumentsRouteWithChildren
   '/_app/insights': typeof AppInsightsRoute
   '/_app/invoices': typeof AppInvoicesRoute
   '/_app/meds': typeof AppMedsRoute
@@ -330,7 +354,9 @@ export interface FileRoutesById {
   '/_app/accounts/$accountId': typeof AppAccountsAccountIdRouteWithChildren
   '/_app/accounts/new': typeof AppAccountsNewRoute
   '/_app/activity/$activityId': typeof AppActivityActivityIdRoute
+  '/_app/documents/$documentId': typeof AppDocumentsDocumentIdRoute
   '/_app/settings/categories': typeof AppSettingsCategoriesRoute
+  '/_app/settings/document-types': typeof AppSettingsDocumentTypesRoute
   '/_app/settings/loved-one': typeof AppSettingsLovedOneRoute
   '/_app/settings/payees': typeof AppSettingsPayeesRoute
   '/_app/settings/people': typeof AppSettingsPeopleRoute
@@ -341,6 +367,7 @@ export interface FileRoutesById {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/_app/accounts/': typeof AppAccountsIndexRoute
   '/_app/activity/': typeof AppActivityIndexRoute
+  '/_app/documents/': typeof AppDocumentsIndexRoute
   '/_app/settings/': typeof AppSettingsIndexRoute
   '/_app/transactions/': typeof AppTransactionsIndexRoute
   '/_app/accounts/$accountId/settings': typeof AppAccountsAccountIdSettingsRoute
@@ -370,7 +397,9 @@ export interface FileRouteTypes {
     | '/accounts/$accountId'
     | '/accounts/new'
     | '/activity/$activityId'
+    | '/documents/$documentId'
     | '/settings/categories'
+    | '/settings/document-types'
     | '/settings/loved-one'
     | '/settings/payees'
     | '/settings/people'
@@ -381,6 +410,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/accounts/'
     | '/activity/'
+    | '/documents/'
     | '/settings/'
     | '/transactions/'
     | '/accounts/$accountId/settings'
@@ -393,7 +423,6 @@ export interface FileRouteTypes {
     | '/about'
     | '/login'
     | '/care'
-    | '/documents'
     | '/insights'
     | '/invoices'
     | '/meds'
@@ -403,7 +432,9 @@ export interface FileRouteTypes {
     | '/'
     | '/accounts/new'
     | '/activity/$activityId'
+    | '/documents/$documentId'
     | '/settings/categories'
+    | '/settings/document-types'
     | '/settings/loved-one'
     | '/settings/payees'
     | '/settings/people'
@@ -414,6 +445,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/accounts'
     | '/activity'
+    | '/documents'
     | '/settings'
     | '/transactions'
     | '/accounts/$accountId/settings'
@@ -442,7 +474,9 @@ export interface FileRouteTypes {
     | '/_app/accounts/$accountId'
     | '/_app/accounts/new'
     | '/_app/activity/$activityId'
+    | '/_app/documents/$documentId'
     | '/_app/settings/categories'
+    | '/_app/settings/document-types'
     | '/_app/settings/loved-one'
     | '/_app/settings/payees'
     | '/_app/settings/people'
@@ -453,6 +487,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/_app/accounts/'
     | '/_app/activity/'
+    | '/_app/documents/'
     | '/_app/settings/'
     | '/_app/transactions/'
     | '/_app/accounts/$accountId/settings'
@@ -599,6 +634,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsIndexRouteImport
       parentRoute: typeof AppSettingsRoute
     }
+    '/_app/documents/': {
+      id: '/_app/documents/'
+      path: '/'
+      fullPath: '/documents/'
+      preLoaderRoute: typeof AppDocumentsIndexRouteImport
+      parentRoute: typeof AppDocumentsRoute
+    }
     '/_app/activity/': {
       id: '/_app/activity/'
       path: '/'
@@ -669,12 +711,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsLovedOneRouteImport
       parentRoute: typeof AppSettingsRoute
     }
+    '/_app/settings/document-types': {
+      id: '/_app/settings/document-types'
+      path: '/document-types'
+      fullPath: '/settings/document-types'
+      preLoaderRoute: typeof AppSettingsDocumentTypesRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
     '/_app/settings/categories': {
       id: '/_app/settings/categories'
       path: '/categories'
       fullPath: '/settings/categories'
       preLoaderRoute: typeof AppSettingsCategoriesRouteImport
       parentRoute: typeof AppSettingsRoute
+    }
+    '/_app/documents/$documentId': {
+      id: '/_app/documents/$documentId'
+      path: '/$documentId'
+      fullPath: '/documents/$documentId'
+      preLoaderRoute: typeof AppDocumentsDocumentIdRouteImport
+      parentRoute: typeof AppDocumentsRoute
     }
     '/_app/activity/$activityId': {
       id: '/_app/activity/$activityId'
@@ -783,8 +839,23 @@ const AppActivityRouteWithChildren = AppActivityRoute._addFileChildren(
   AppActivityRouteChildren,
 )
 
+interface AppDocumentsRouteChildren {
+  AppDocumentsDocumentIdRoute: typeof AppDocumentsDocumentIdRoute
+  AppDocumentsIndexRoute: typeof AppDocumentsIndexRoute
+}
+
+const AppDocumentsRouteChildren: AppDocumentsRouteChildren = {
+  AppDocumentsDocumentIdRoute: AppDocumentsDocumentIdRoute,
+  AppDocumentsIndexRoute: AppDocumentsIndexRoute,
+}
+
+const AppDocumentsRouteWithChildren = AppDocumentsRoute._addFileChildren(
+  AppDocumentsRouteChildren,
+)
+
 interface AppSettingsRouteChildren {
   AppSettingsCategoriesRoute: typeof AppSettingsCategoriesRoute
+  AppSettingsDocumentTypesRoute: typeof AppSettingsDocumentTypesRoute
   AppSettingsLovedOneRoute: typeof AppSettingsLovedOneRoute
   AppSettingsPayeesRoute: typeof AppSettingsPayeesRoute
   AppSettingsPeopleRoute: typeof AppSettingsPeopleRoute
@@ -795,6 +866,7 @@ interface AppSettingsRouteChildren {
 
 const AppSettingsRouteChildren: AppSettingsRouteChildren = {
   AppSettingsCategoriesRoute: AppSettingsCategoriesRoute,
+  AppSettingsDocumentTypesRoute: AppSettingsDocumentTypesRoute,
   AppSettingsLovedOneRoute: AppSettingsLovedOneRoute,
   AppSettingsPayeesRoute: AppSettingsPayeesRoute,
   AppSettingsPeopleRoute: AppSettingsPeopleRoute,
@@ -829,7 +901,7 @@ interface AppRouteChildren {
   AppAccountsRoute: typeof AppAccountsRouteWithChildren
   AppActivityRoute: typeof AppActivityRouteWithChildren
   AppCareRoute: typeof AppCareRoute
-  AppDocumentsRoute: typeof AppDocumentsRoute
+  AppDocumentsRoute: typeof AppDocumentsRouteWithChildren
   AppInsightsRoute: typeof AppInsightsRoute
   AppInvoicesRoute: typeof AppInvoicesRoute
   AppMedsRoute: typeof AppMedsRoute
@@ -843,7 +915,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppAccountsRoute: AppAccountsRouteWithChildren,
   AppActivityRoute: AppActivityRouteWithChildren,
   AppCareRoute: AppCareRoute,
-  AppDocumentsRoute: AppDocumentsRoute,
+  AppDocumentsRoute: AppDocumentsRouteWithChildren,
   AppInsightsRoute: AppInsightsRoute,
   AppInvoicesRoute: AppInvoicesRoute,
   AppMedsRoute: AppMedsRoute,

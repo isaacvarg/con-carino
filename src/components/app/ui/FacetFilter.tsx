@@ -1,26 +1,25 @@
-import type { Column } from '@tanstack/react-table'
-
 type FacetOption = {
   value: string
   label: string
 }
 
-type FacetFilterProps<TData> = {
-  column: Column<TData, unknown>
+type FacetFilterProps = {
+  /** Row count per option value. TanStack tables pass
+   * `column.getFacetedUniqueValues()`; plain lists build their own. */
+  counts: ReadonlyMap<string, number>
   label: string
   options: FacetOption[]
   selected: string[]
   onChange: (next: string[]) => void
 }
 
-export function FacetFilter<TData>({
-  column,
+export function FacetFilter({
+  counts,
   label,
   options,
   selected,
   onChange,
-}: FacetFilterProps<TData>) {
-  const faceted = column.getFacetedUniqueValues()
+}: FacetFilterProps) {
   const selectedSet = new Set(selected)
   const sorted = [...options].sort((a, b) => a.label.localeCompare(b.label))
 
@@ -67,7 +66,7 @@ export function FacetFilter<TData>({
             </li>
           ) : (
             sorted.map((option) => {
-              const count = faceted.get(option.value) ?? 0
+              const count = counts.get(option.value) ?? 0
               return (
                 <li key={option.value}>
                   <label className="flex cursor-pointer items-center gap-2">

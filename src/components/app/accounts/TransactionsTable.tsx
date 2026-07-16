@@ -22,7 +22,7 @@ import {
   searchTransactionIds,
   type TransactionSearchKey,
 } from '#/lib/transaction-search'
-import { FacetFilter } from '#/components/app/transactions/FacetFilter'
+import { FacetFilter } from '#/components/app/ui/FacetFilter'
 import {
   parseCsvValues,
   serializeCsvValues,
@@ -360,6 +360,19 @@ export function TransactionsTable({
     getRowId: (row) => row.id,
   })
 
+  const facetCounts = {
+    type: table.getColumn('type')!.getFacetedUniqueValues() as Map<string, number>,
+    category: table.getColumn('category')!.getFacetedUniqueValues() as Map<
+      string,
+      number
+    >,
+    payee: table.getColumn('payee')!.getFacetedUniqueValues() as Map<
+      string,
+      number
+    >,
+    tags: table.getColumn('tags')!.getFacetedUniqueValues() as Map<string, number>,
+  }
+
   const pageCount = table.getPageCount()
 
   return (
@@ -431,28 +444,28 @@ export function TransactionsTable({
 
           <div className="flex flex-wrap items-center gap-2">
             <FacetFilter
-              column={table.getColumn('type')!}
+              counts={facetCounts.type}
               label="Type"
               options={facetOptions.type}
               selected={parseCsvValues(search.type)}
               onChange={(next) => setFacetFilter('type', next)}
             />
             <FacetFilter
-              column={table.getColumn('category')!}
+              counts={facetCounts.category}
               label="Category"
               options={facetOptions.category}
               selected={parseCsvValues(search.category)}
               onChange={(next) => setFacetFilter('category', next)}
             />
             <FacetFilter
-              column={table.getColumn('payee')!}
+              counts={facetCounts.payee}
               label="Payee"
               options={facetOptions.payee}
               selected={parseCsvValues(search.payee)}
               onChange={(next) => setFacetFilter('payee', next)}
             />
             <FacetFilter
-              column={table.getColumn('tags')!}
+              counts={facetCounts.tags}
               label="Tags"
               options={facetOptions.tags}
               selected={parseCsvValues(search.tags)}

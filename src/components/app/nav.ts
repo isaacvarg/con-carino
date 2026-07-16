@@ -152,12 +152,16 @@ export function titleForPath(pathname: string): string {
   if (/^\/activity\/[^/]+$/.test(path)) {
     return 'Activity details'
   }
+  if (/^\/documents\/[^/]+$/.test(path)) {
+    return 'Document'
+  }
   if (path === '/settings/loved-one') return 'Loved one'
   if (path === '/settings/people') return 'People'
   if (path === '/settings/schedule') return 'Schedule'
   if (path === '/settings/tags') return 'Tags'
   if (path === '/settings/categories') return 'Categories'
   if (path === '/settings/payees') return 'Payees'
+  if (path === '/settings/document-types') return 'Document types'
   const exact = flattenNavLinks().find((item) => item.to === path)
   if (exact) return exact.title
   return 'Dashboard'

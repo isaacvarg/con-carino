@@ -41,6 +41,7 @@ import {
 import { prisma } from '#/lib/prisma'
 import type { PrismaClient } from '#/generated/prisma/client'
 import { toSignedTransactionAmount } from '#/lib/transaction-amount'
+import { requireHexColor } from '#/lib/validators'
 import { logActivity } from '#/server/activity-log'
 import { authConfig } from '#/utils/auth'
 
@@ -580,10 +581,7 @@ function toEventDto(row: {
 }
 
 function optionalColorRequired(value: unknown, label: string): string {
-  if (typeof value !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(value.trim())) {
-    throw new Error(`${label} must be a hex color like #1d4ed8.`)
-  }
-  return value.trim().toLowerCase()
+  return requireHexColor(value, label)
 }
 
 async function billingStatusForAssigneeId(

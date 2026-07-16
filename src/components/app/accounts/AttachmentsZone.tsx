@@ -13,6 +13,8 @@ import {
   type AttachmentListItem,
   type AttachmentUploadMeta,
 } from '#/lib/attachment-types'
+import { formatBytes } from '#/lib/format-bytes'
+import { uploadFile } from '#/lib/upload-client'
 
 export type AttachmentsZoneHandle = {
   uploadAll: () => Promise<AttachmentUploadMeta[]>
@@ -31,12 +33,6 @@ type AttachmentsZoneProps = {
 }
 
 const ACCEPT = ALLOWED_CONTENT_TYPES.join(',')
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
 
 export const AttachmentsZone = forwardRef<
   AttachmentsZoneHandle,
@@ -139,27 +135,7 @@ export const AttachmentsZone = forwardRef<
 
           setProgress({ done: index, total: pending.length })
 
-          const form = new FormData()
-          form.append('file', item.file)
-          const response = await fetch('/api/uploads', {
-            method: 'POST',
-            body: form,
-          })
-
-          if (!response.ok) {
-            const body = (await response.json().catch(() => null)) as {
-              error?: string
-            } | null
-            throw new Error(
-              body?.error ??
-                `Failed to upload "${item.file.name}" (${response.status}).`,
-            )
-          }
-
-          const { attachment } = (await response.json()) as {
-            attachment: AttachmentUploadMeta
-          }
-          uploaded.push(attachment)
+          uploaded.push(await uploadFile(item.file))
         }
 
         return uploaded

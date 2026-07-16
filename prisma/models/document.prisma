@@ -1,0 +1,39 @@
+/// User-managed category for documents, controlling how the document appears
+/// in the library (background and text color).
+model DocumentType {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  bgColor     String
+  textColor   String
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  documents Document[]
+
+  @@map("document_types")
+}
+
+/// A standalone uploaded document. Distinct from Attachment, which only ever
+/// hangs off a transaction.
+model Document {
+  id             String   @id @default(uuid())
+  userId         String
+  documentTypeId String
+  name           String
+  storageKey     String   @unique
+  thumbnailKey   String?
+  fileName       String
+  contentType    String
+  byteSize       Int
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type DocumentType @relation(fields: [documentTypeId], references: [id], onDelete: Restrict)
+
+  @@index([userId])
+  @@index([documentTypeId])
+  @@map("documents")
+}
