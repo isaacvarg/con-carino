@@ -159,6 +159,27 @@ export function crumbsForPath(
     ]
   }
 
+  if (path === '/settings/tags') {
+    return [
+      { label: 'settings', href: { to: '/settings' } },
+      { label: 'tags' },
+    ]
+  }
+
+  if (path === '/settings/categories') {
+    return [
+      { label: 'settings', href: { to: '/settings' } },
+      { label: 'categories' },
+    ]
+  }
+
+  if (path === '/settings/payees') {
+    return [
+      { label: 'settings', href: { to: '/settings' } },
+      { label: 'payees' },
+    ]
+  }
+
   const navItem = flattenNavLinks().find((item) => item.to === path)
   if (navItem && navItem.to !== '/') {
     return [{ label: navItem.label.toLowerCase() }]

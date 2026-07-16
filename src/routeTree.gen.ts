@@ -32,9 +32,12 @@ import { Route as AppAccountsIndexRouteImport } from './routes/_app/accounts/ind
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as AppTransactionsNewRouteImport } from './routes/_app/transactions/new'
 import { Route as AppTransactionsTransactionIdRouteImport } from './routes/_app/transactions/$transactionId'
+import { Route as AppSettingsTagsRouteImport } from './routes/_app/settings/tags'
 import { Route as AppSettingsScheduleRouteImport } from './routes/_app/settings/schedule'
 import { Route as AppSettingsPeopleRouteImport } from './routes/_app/settings/people'
+import { Route as AppSettingsPayeesRouteImport } from './routes/_app/settings/payees'
 import { Route as AppSettingsLovedOneRouteImport } from './routes/_app/settings/loved-one'
+import { Route as AppSettingsCategoriesRouteImport } from './routes/_app/settings/categories'
 import { Route as AppActivityActivityIdRouteImport } from './routes/_app/activity/$activityId'
 import { Route as AppAccountsNewRouteImport } from './routes/_app/accounts/new'
 import { Route as AppAccountsAccountIdRouteImport } from './routes/_app/accounts/$accountId'
@@ -159,6 +162,11 @@ const AppTransactionsTransactionIdRoute =
     path: '/$transactionId',
     getParentRoute: () => AppTransactionsRoute,
   } as any)
+const AppSettingsTagsRoute = AppSettingsTagsRouteImport.update({
+  id: '/tags',
+  path: '/tags',
+  getParentRoute: () => AppSettingsRoute,
+} as any)
 const AppSettingsScheduleRoute = AppSettingsScheduleRouteImport.update({
   id: '/schedule',
   path: '/schedule',
@@ -169,9 +177,19 @@ const AppSettingsPeopleRoute = AppSettingsPeopleRouteImport.update({
   path: '/people',
   getParentRoute: () => AppSettingsRoute,
 } as any)
+const AppSettingsPayeesRoute = AppSettingsPayeesRouteImport.update({
+  id: '/payees',
+  path: '/payees',
+  getParentRoute: () => AppSettingsRoute,
+} as any)
 const AppSettingsLovedOneRoute = AppSettingsLovedOneRouteImport.update({
   id: '/loved-one',
   path: '/loved-one',
+  getParentRoute: () => AppSettingsRoute,
+} as any)
+const AppSettingsCategoriesRoute = AppSettingsCategoriesRouteImport.update({
+  id: '/categories',
+  path: '/categories',
   getParentRoute: () => AppSettingsRoute,
 } as any)
 const AppActivityActivityIdRoute = AppActivityActivityIdRouteImport.update({
@@ -239,9 +257,12 @@ export interface FileRoutesByFullPath {
   '/accounts/$accountId': typeof AppAccountsAccountIdRouteWithChildren
   '/accounts/new': typeof AppAccountsNewRoute
   '/activity/$activityId': typeof AppActivityActivityIdRoute
+  '/settings/categories': typeof AppSettingsCategoriesRoute
   '/settings/loved-one': typeof AppSettingsLovedOneRoute
+  '/settings/payees': typeof AppSettingsPayeesRoute
   '/settings/people': typeof AppSettingsPeopleRoute
   '/settings/schedule': typeof AppSettingsScheduleRoute
+  '/settings/tags': typeof AppSettingsTagsRoute
   '/transactions/$transactionId': typeof AppTransactionsTransactionIdRoute
   '/transactions/new': typeof AppTransactionsNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -269,9 +290,12 @@ export interface FileRoutesByTo {
   '/': typeof AppIndexRoute
   '/accounts/new': typeof AppAccountsNewRoute
   '/activity/$activityId': typeof AppActivityActivityIdRoute
+  '/settings/categories': typeof AppSettingsCategoriesRoute
   '/settings/loved-one': typeof AppSettingsLovedOneRoute
+  '/settings/payees': typeof AppSettingsPayeesRoute
   '/settings/people': typeof AppSettingsPeopleRoute
   '/settings/schedule': typeof AppSettingsScheduleRoute
+  '/settings/tags': typeof AppSettingsTagsRoute
   '/transactions/$transactionId': typeof AppTransactionsTransactionIdRoute
   '/transactions/new': typeof AppTransactionsNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -306,9 +330,12 @@ export interface FileRoutesById {
   '/_app/accounts/$accountId': typeof AppAccountsAccountIdRouteWithChildren
   '/_app/accounts/new': typeof AppAccountsNewRoute
   '/_app/activity/$activityId': typeof AppActivityActivityIdRoute
+  '/_app/settings/categories': typeof AppSettingsCategoriesRoute
   '/_app/settings/loved-one': typeof AppSettingsLovedOneRoute
+  '/_app/settings/payees': typeof AppSettingsPayeesRoute
   '/_app/settings/people': typeof AppSettingsPeopleRoute
   '/_app/settings/schedule': typeof AppSettingsScheduleRoute
+  '/_app/settings/tags': typeof AppSettingsTagsRoute
   '/_app/transactions/$transactionId': typeof AppTransactionsTransactionIdRoute
   '/_app/transactions/new': typeof AppTransactionsNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -343,9 +370,12 @@ export interface FileRouteTypes {
     | '/accounts/$accountId'
     | '/accounts/new'
     | '/activity/$activityId'
+    | '/settings/categories'
     | '/settings/loved-one'
+    | '/settings/payees'
     | '/settings/people'
     | '/settings/schedule'
+    | '/settings/tags'
     | '/transactions/$transactionId'
     | '/transactions/new'
     | '/api/auth/$'
@@ -373,9 +403,12 @@ export interface FileRouteTypes {
     | '/'
     | '/accounts/new'
     | '/activity/$activityId'
+    | '/settings/categories'
     | '/settings/loved-one'
+    | '/settings/payees'
     | '/settings/people'
     | '/settings/schedule'
+    | '/settings/tags'
     | '/transactions/$transactionId'
     | '/transactions/new'
     | '/api/auth/$'
@@ -409,9 +442,12 @@ export interface FileRouteTypes {
     | '/_app/accounts/$accountId'
     | '/_app/accounts/new'
     | '/_app/activity/$activityId'
+    | '/_app/settings/categories'
     | '/_app/settings/loved-one'
+    | '/_app/settings/payees'
     | '/_app/settings/people'
     | '/_app/settings/schedule'
+    | '/_app/settings/tags'
     | '/_app/transactions/$transactionId'
     | '/_app/transactions/new'
     | '/api/auth/$'
@@ -598,6 +634,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppTransactionsTransactionIdRouteImport
       parentRoute: typeof AppTransactionsRoute
     }
+    '/_app/settings/tags': {
+      id: '/_app/settings/tags'
+      path: '/tags'
+      fullPath: '/settings/tags'
+      preLoaderRoute: typeof AppSettingsTagsRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
     '/_app/settings/schedule': {
       id: '/_app/settings/schedule'
       path: '/schedule'
@@ -612,11 +655,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsPeopleRouteImport
       parentRoute: typeof AppSettingsRoute
     }
+    '/_app/settings/payees': {
+      id: '/_app/settings/payees'
+      path: '/payees'
+      fullPath: '/settings/payees'
+      preLoaderRoute: typeof AppSettingsPayeesRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
     '/_app/settings/loved-one': {
       id: '/_app/settings/loved-one'
       path: '/loved-one'
       fullPath: '/settings/loved-one'
       preLoaderRoute: typeof AppSettingsLovedOneRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
+    '/_app/settings/categories': {
+      id: '/_app/settings/categories'
+      path: '/categories'
+      fullPath: '/settings/categories'
+      preLoaderRoute: typeof AppSettingsCategoriesRouteImport
       parentRoute: typeof AppSettingsRoute
     }
     '/_app/activity/$activityId': {
@@ -727,16 +784,22 @@ const AppActivityRouteWithChildren = AppActivityRoute._addFileChildren(
 )
 
 interface AppSettingsRouteChildren {
+  AppSettingsCategoriesRoute: typeof AppSettingsCategoriesRoute
   AppSettingsLovedOneRoute: typeof AppSettingsLovedOneRoute
+  AppSettingsPayeesRoute: typeof AppSettingsPayeesRoute
   AppSettingsPeopleRoute: typeof AppSettingsPeopleRoute
   AppSettingsScheduleRoute: typeof AppSettingsScheduleRoute
+  AppSettingsTagsRoute: typeof AppSettingsTagsRoute
   AppSettingsIndexRoute: typeof AppSettingsIndexRoute
 }
 
 const AppSettingsRouteChildren: AppSettingsRouteChildren = {
+  AppSettingsCategoriesRoute: AppSettingsCategoriesRoute,
   AppSettingsLovedOneRoute: AppSettingsLovedOneRoute,
+  AppSettingsPayeesRoute: AppSettingsPayeesRoute,
   AppSettingsPeopleRoute: AppSettingsPeopleRoute,
   AppSettingsScheduleRoute: AppSettingsScheduleRoute,
+  AppSettingsTagsRoute: AppSettingsTagsRoute,
   AppSettingsIndexRoute: AppSettingsIndexRoute,
 }
 

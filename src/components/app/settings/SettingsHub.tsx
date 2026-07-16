@@ -2,12 +2,21 @@ import { Link } from '@tanstack/react-router'
 import {
   HiChevronRight,
   HiOutlineCalendar,
+  HiOutlineCollection,
   HiOutlineHeart,
+  HiOutlineOfficeBuilding,
+  HiOutlineTag,
   HiOutlineUserGroup,
 } from 'react-icons/hi'
 
 type SettingsCard = {
-  to: '/settings/loved-one' | '/settings/people' | '/settings/schedule'
+  to:
+    | '/settings/loved-one'
+    | '/settings/people'
+    | '/settings/schedule'
+    | '/settings/tags'
+    | '/settings/categories'
+    | '/settings/payees'
   title: string
   description: string
   icon: typeof HiOutlineUserGroup
@@ -31,6 +40,24 @@ const SETTINGS_CARDS: SettingsCard[] = [
     title: 'Schedule',
     description: 'Event types and how appointments appear on the calendar.',
     icon: HiOutlineCalendar,
+  },
+  {
+    to: '/settings/tags',
+    title: 'Tags',
+    description: 'Labels for filtering and organizing transactions.',
+    icon: HiOutlineTag,
+  },
+  {
+    to: '/settings/categories',
+    title: 'Categories',
+    description: 'Spending and income categories for transactions.',
+    icon: HiOutlineCollection,
+  },
+  {
+    to: '/settings/payees',
+    title: 'Payees',
+    description: 'People and merchants used on transactions.',
+    icon: HiOutlineOfficeBuilding,
   },
 ]
 
