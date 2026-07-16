@@ -2,6 +2,7 @@ import { Link } from '@tanstack/react-router'
 import {
   HiOutlineCalendar,
   HiOutlineClock,
+  HiOutlineExternalLink,
   HiOutlineSwitchHorizontal,
   HiPlus,
 } from 'react-icons/hi'
@@ -11,6 +12,7 @@ import {
 } from '#/components/app/accounts/account-utils'
 import { accountDetailSearchDefaults } from '#/components/app/accounts/account-detail-search'
 import { toDateInputValue } from '#/components/app/care/care-utils'
+import { FEEDBACK_URL } from '#/lib/feedback'
 import type { AccountListItem } from '#/server/accounts'
 import type { OpenCoverageSlotDto } from '#/server/care'
 
@@ -92,7 +94,7 @@ export function AccountBalanceCards({
 }) {
   if (accounts.length === 0) {
     return (
-      <div className="rounded-box bg-base-100 p-4 text-base-content shadow-sm">
+      <div className="app-card p-4 text-base-content">
         <p className="text-sm text-base-content/70">No accounts yet.</p>
         <Link
           to="/accounts/new"
@@ -112,7 +114,7 @@ export function AccountBalanceCards({
           to="/accounts/$accountId"
           params={{ accountId: account.id }}
           search={accountDetailSearchDefaults}
-          className="rounded-box bg-base-100 p-4 text-base-content shadow-sm transition hover:bg-base-200/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+          className="app-card app-card-interactive p-4 text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
         >
           <p className="truncate text-sm text-base-content/70">{account.name}</p>
           <p className="mt-1 text-xs text-base-content/50">
@@ -154,7 +156,7 @@ export function OpenCoverageSlotsCard({
   const scheduleSearch = currentScheduleSearch()
 
   return (
-    <div className="rounded-box bg-base-100 p-5 text-base-content shadow-sm">
+    <div className="app-card p-5 text-base-content">
       <div className="mb-4 flex items-center justify-between gap-2">
         <h2 className="font-semibold text-base-content">Open coverage</h2>
         <Link
@@ -198,6 +200,26 @@ export function OpenCoverageSlotsCard({
           ))}
         </ul>
       )}
+    </div>
+  )
+}
+
+export function DashboardFeedbackCard() {
+  return (
+    <div className="app-card p-5 text-base-content">
+      <h2 className="font-semibold text-base-content">Feedback</h2>
+      <p className="mt-1 text-sm text-base-content/60">
+        Share ideas and issues so we can improve the app.
+      </p>
+      <a
+        href={FEEDBACK_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="btn btn-primary btn-sm mt-4 w-full gap-2"
+      >
+        Send feedback
+        <HiOutlineExternalLink className="size-4" aria-hidden />
+      </a>
     </div>
   )
 }

@@ -85,7 +85,7 @@ export function StatisticDoughnutCard({
   )
 
   return (
-    <div className="rounded-box bg-base-100 p-5 text-base-content shadow-sm">
+    <div className="app-card p-5 text-base-content">
       <h2 className="mb-4 font-semibold text-base-content">{title}</h2>
 
       {stats.length === 0 || total === 0 ? (
@@ -153,7 +153,7 @@ export function CoverageAssigneeCard({
   const total = stats.reduce((sum, s) => sum + s.count, 0)
 
   return (
-    <div className="rounded-box bg-base-100 p-5 text-base-content shadow-sm">
+    <div className="app-card p-5 text-base-content">
       <h2 className="mb-1 font-semibold text-base-content">Coverage</h2>
       <p className="mb-4 text-xs text-base-content/60">
         Assigned shifts this week and next

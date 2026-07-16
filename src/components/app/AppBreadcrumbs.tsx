@@ -248,7 +248,7 @@ export default function AppBreadcrumbs() {
   return (
     <nav
       aria-label="Breadcrumb"
-      className="mb-4 flex flex-wrap items-center gap-2 text-sm text-base-content/70"
+      className="mb-4 flex flex-wrap items-center gap-2 text-base font-semibold text-base-content/70"
     >
       <button
         type="button"
@@ -256,14 +256,14 @@ export default function AppBreadcrumbs() {
         aria-label="Go back"
         onClick={() => router.history.back()}
       >
-        <HiArrowLeft className="size-4" aria-hidden />
+        <HiArrowLeft className="size-5" aria-hidden />
       </button>
       <Link
         to="/"
         className="btn btn-ghost btn-square btn-sm bg-base-200"
         aria-label="Home"
       >
-        <HiOutlineHome className="size-4" aria-hidden />
+        <HiOutlineHome className="size-5" aria-hidden />
       </Link>
       <span className="text-base-content/40" aria-hidden>
         /

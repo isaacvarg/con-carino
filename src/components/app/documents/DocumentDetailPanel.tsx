@@ -111,7 +111,7 @@ export function DocumentDetailPanel({
           <DocumentViewer document={document} />
         </div>
 
-        <div className="rounded-box bg-base-100 p-4 shadow-sm sm:p-6">
+        <div className="app-card p-4 sm:p-6">
           {editing ? (
             <form
               className="app-form"

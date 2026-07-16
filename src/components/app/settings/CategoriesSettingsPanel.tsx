@@ -78,7 +78,7 @@ export function CategoriesSettingsPanel({
   }
 
   return (
-    <div className="rounded-box bg-base-100 p-4 shadow-sm sm:p-6">
+    <div className="app-card p-4 sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="text-xl font-bold tracking-tight text-base-content">
@@ -179,7 +179,7 @@ export function CategoriesSettingsPanel({
           {categories.map((category) => (
             <li
               key={category.id}
-              className="flex flex-col gap-3 rounded-box border border-base-300 bg-base-100 p-4"
+              className="flex flex-col gap-3 app-card p-4"
             >
               <div className="flex flex-col items-start gap-2">
                 <TaxonomyBadge

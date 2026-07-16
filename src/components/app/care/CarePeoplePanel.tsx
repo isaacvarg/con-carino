@@ -227,7 +227,7 @@ export function CarePeoplePanel({
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="rounded-box bg-base-100 p-4 shadow-sm sm:p-6">
+      <div className="app-card p-4 sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="text-xl font-bold tracking-tight text-base-content">
@@ -451,7 +451,7 @@ export function CarePeoplePanel({
             {people.map((person) => (
               <li
                 key={person.id}
-                className="flex flex-col gap-3 rounded-box border border-base-300 bg-base-100 p-4"
+                className="flex flex-col gap-3 app-card p-4"
               >
                 <div className="flex items-start justify-between gap-2">
                   <span
@@ -492,7 +492,7 @@ export function CarePeoplePanel({
         )}
       </div>
 
-      <div className="rounded-box bg-base-100 p-4 shadow-sm sm:p-6">
+      <div className="app-card p-4 sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="text-xl font-bold tracking-tight text-base-content">
@@ -584,7 +584,7 @@ export function CarePeoplePanel({
             {types.map((t) => (
               <li
                 key={t.id}
-                className="flex flex-col gap-3 rounded-box border border-base-300 bg-base-100 p-4"
+                className="flex flex-col gap-3 app-card p-4"
               >
                 <p className="font-medium text-base-content">{t.name}</p>
                 <p className="text-sm text-base-content/60">

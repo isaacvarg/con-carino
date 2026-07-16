@@ -18,7 +18,7 @@ export function AccountsPage({ accounts }: AccountsPageProps) {
       </div>
 
       {accounts.length === 0 ? (
-        <div className="rounded-box bg-base-100 p-8 text-center shadow-sm">
+        <div className="app-card p-8 text-center">
           <p className="text-base font-medium text-base-content">
             No accounts yet
           </p>

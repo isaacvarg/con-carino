@@ -100,13 +100,13 @@ export function DocumentsGrid({
       </div>
 
       {documents.length === 0 ? (
-        <div className="rounded-box bg-base-100 p-8 text-center shadow-sm">
+        <div className="app-card p-8 text-center">
           <p className="text-base-content/60">
             No documents yet. Upload one to start your library.
           </p>
         </div>
       ) : visible.length === 0 ? (
-        <div className="rounded-box bg-base-100 p-8 text-center shadow-sm">
+        <div className="app-card p-8 text-center">
           <p className="text-base-content/60">
             No documents match your search or filters.
           </p>

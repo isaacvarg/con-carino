@@ -3,12 +3,30 @@ enum AppTheme {
   macchiato
 }
 
+enum AppAccent {
+  rosewater
+  flamingo
+  pink
+  mauve
+  red
+  maroon
+  peach
+  yellow
+  green
+  teal
+  sky
+  sapphire
+  blue
+  lavender
+}
+
 model UserConfiguration {
-  id        String   @id @default(uuid())
-  userId    String   @unique
-  theme     AppTheme @default(latte)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id        String    @id @default(uuid())
+  userId    String    @unique
+  theme     AppTheme  @default(latte)
+  accent    AppAccent @default(flamingo)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

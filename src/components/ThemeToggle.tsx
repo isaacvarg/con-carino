@@ -1,80 +1,26 @@
-import { useEffect, useState } from 'react'
-import { useRouterState } from '@tanstack/react-router'
-import type { AuthSession } from 'start-authjs'
-import {
-  applyTheme,
-  DEFAULT_THEME,
-  resolveStoredTheme,
-  STORAGE_KEY,
-  type ThemeName,
-} from '#/lib/themes'
-import {
-  getUserConfiguration,
-  upsertUserTheme,
-} from '#/server/user-configuration'
+import { useAppearance } from '#/lib/appearance'
+import { applyTheme } from '#/lib/themes'
 
 export { applyTheme }
 
 export default function ThemeToggle() {
-  const [theme, setTheme] = useState<ThemeName>(DEFAULT_THEME)
-  const session = useRouterState({
-    select: (state) =>
-      (state.matches[0]?.context as { session?: AuthSession | null } | undefined)
-        ?.session ?? null,
-  })
-  const isSignedIn = Boolean(session?.user?.id)
-
-  useEffect(() => {
-    let cancelled = false
-
-    async function syncTheme() {
-      const local = resolveStoredTheme(window.localStorage.getItem(STORAGE_KEY))
-      setTheme(local)
-      applyTheme(local)
-
-      if (!isSignedIn) {
-        return
-      }
-
-      try {
-        const config = await getUserConfiguration()
-        if (cancelled) return
-        setTheme(config.theme)
-        applyTheme(config.theme)
-        window.localStorage.setItem(STORAGE_KEY, config.theme)
-      } catch {
-        // Keep local theme if the user is signed out mid-flight or the fetch fails.
-      }
-    }
-
-    void syncTheme()
-    return () => {
-      cancelled = true
-    }
-  }, [isSignedIn])
-
-  function persistTheme(next: ThemeName) {
-    setTheme(next)
-    applyTheme(next)
-    window.localStorage.setItem(STORAGE_KEY, next)
-
-    if (isSignedIn) {
-      void upsertUserTheme({ data: { theme: next } }).catch(() => {
-        // Local preference already applied; DB sync can retry on next toggle.
-      })
-    }
-  }
+  const { theme, setTheme } = useAppearance()
 
   return (
     <label className="swap swap-rotate btn btn-ghost btn-circle btn-sm text-base-content">
       <span className="sr-only">Toggle color theme</span>
+      {/*
+        No `theme-controller` class: applyTheme() sets data-theme on <html>, and
+        daisyUI's CSS-only controller emits a :has(...:checked) rule specific
+        enough to outrank the [data-accent] overrides and force primary back to
+        the theme's built-in value.
+      */}
       <input
         type="checkbox"
-        className="theme-controller"
         value="macchiato"
         checked={theme === 'macchiato'}
         onChange={(event) => {
-          persistTheme(event.target.checked ? 'macchiato' : 'latte')
+          setTheme(event.target.checked ? 'macchiato' : 'latte')
         }}
         aria-label="Toggle color theme"
       />

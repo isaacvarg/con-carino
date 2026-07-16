@@ -2,6 +2,7 @@ import { Link, useRouterState } from '@tanstack/react-router'
 import type { AuthSession } from 'start-authjs'
 import { HiOutlineMenu } from 'react-icons/hi'
 import { signOut } from '#/lib/auth-client'
+import AccentPicker from '../AccentPicker'
 import ThemeToggle from '../ThemeToggle'
 import { titleForPath } from './nav'
 
@@ -68,6 +69,7 @@ export default function AppHeader({ onMenuClick }: AppHeaderProps) {
       </div>
 
       <div className="ml-auto flex flex-wrap items-center justify-end gap-2 sm:gap-3">
+        <AccentPicker />
         <ThemeToggle />
 
         {session?.user ? (

@@ -45,7 +45,7 @@ export function RecentTransactions({
   transactions: VisibleTransactionListItem[]
 }) {
   return (
-    <div className="rounded-box bg-base-100 p-5 text-base-content shadow-sm">
+    <div className="app-card p-5 text-base-content">
       <div className="mb-4 flex items-center justify-between gap-2">
         <h2 className="font-semibold text-base-content">Recent Transactions</h2>
         <Link
@@ -60,69 +60,120 @@ export function RecentTransactions({
       {transactions.length === 0 ? (
         <p className="text-sm text-base-content/60">No transactions yet.</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="table">
-            <thead>
-              <tr className="text-base-content/70">
-                <th>Transaction</th>
-                <th>Date</th>
-                <th>Amount</th>
-                <th>Account</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {transactions.map((tx) => {
-                const title = transactionTitle(tx)
-                const amount = Number(tx.amount)
-                const isNegative = Number.isFinite(amount) && amount < 0
-                return (
-                  <tr key={tx.id} className="text-base-content">
-                    <td>
-                      <Link
-                        to="/transactions/$transactionId"
-                        params={{ transactionId: tx.id }}
-                        className="flex items-center gap-3 hover:underline"
-                      >
-                        <span className="grid size-9 place-items-center rounded-full bg-primary text-xs font-bold text-primary-content">
+        <>
+          <ul className="space-y-3 md:hidden">
+            {transactions.map((tx) => {
+              const title = transactionTitle(tx)
+              const amount = Number(tx.amount)
+              const isNegative = Number.isFinite(amount) && amount < 0
+              return (
+                <li key={tx.id}>
+                  <Link
+                    to="/transactions/$transactionId"
+                    params={{ transactionId: tx.id }}
+                    className="block rounded-lg border border-base-300 p-4 text-inherit no-underline transition-colors hover:bg-base-200/70"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span className="grid size-9 shrink-0 place-items-center rounded-full bg-primary text-xs font-bold text-primary-content">
                           {title.slice(0, 1).toUpperCase()}
                         </span>
-                        <div>
-                          <p className="font-medium text-base-content">
+                        <div className="min-w-0">
+                          <p className="truncate font-medium text-base-content">
                             {title}
                           </p>
                           <p className="text-xs text-base-content/70">
                             {tx.category?.name ?? tx.type}
                           </p>
                         </div>
-                      </Link>
-                    </td>
-                    <td className="text-sm text-base-content/70">
-                      {formatTransactionDate(tx.date)}
-                    </td>
-                    <td
-                      className={`font-semibold ${
-                        isNegative ? 'text-error' : 'text-base-content'
-                      }`}
-                    >
-                      {formatAccountCurrency(tx.amount)}
-                    </td>
-                    <td className="text-sm text-base-content/70">
-                      {tx.account.name}
-                    </td>
-                    <td>
+                      </div>
+                      <p
+                        className={`shrink-0 font-semibold tabular-nums ${
+                          isNegative ? 'text-error' : 'text-base-content'
+                        }`}
+                      >
+                        {formatAccountCurrency(tx.amount)}
+                      </p>
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-base-content/70">
+                      <span>{formatTransactionDate(tx.date)}</span>
+                      <span>{tx.account.name}</span>
                       <span
                         className={`badge badge-sm ${statusClass(tx.reconciliationStatus)}`}
                       >
                         {statusLabel(tx.reconciliationStatus)}
                       </span>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+                    </div>
+                  </Link>
+                </li>
+              )
+            })}
+          </ul>
+
+          <div className="hidden overflow-x-auto md:block">
+            <table className="table">
+              <thead>
+                <tr className="text-base-content/70">
+                  <th>Transaction</th>
+                  <th>Date</th>
+                  <th>Amount</th>
+                  <th>Account</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {transactions.map((tx) => {
+                  const title = transactionTitle(tx)
+                  const amount = Number(tx.amount)
+                  const isNegative = Number.isFinite(amount) && amount < 0
+                  return (
+                    <tr key={tx.id} className="text-base-content">
+                      <td>
+                        <Link
+                          to="/transactions/$transactionId"
+                          params={{ transactionId: tx.id }}
+                          className="flex items-center gap-3 hover:underline"
+                        >
+                          <span className="grid size-9 place-items-center rounded-full bg-primary text-xs font-bold text-primary-content">
+                            {title.slice(0, 1).toUpperCase()}
+                          </span>
+                          <div>
+                            <p className="font-medium text-base-content">
+                              {title}
+                            </p>
+                            <p className="text-xs text-base-content/70">
+                              {tx.category?.name ?? tx.type}
+                            </p>
+                          </div>
+                        </Link>
+                      </td>
+                      <td className="text-sm text-base-content/70">
+                        {formatTransactionDate(tx.date)}
+                      </td>
+                      <td
+                        className={`font-semibold ${
+                          isNegative ? 'text-error' : 'text-base-content'
+                        }`}
+                      >
+                        {formatAccountCurrency(tx.amount)}
+                      </td>
+                      <td className="text-sm text-base-content/70">
+                        {tx.account.name}
+                      </td>
+                      <td>
+                        <span
+                          className={`badge badge-sm ${statusClass(tx.reconciliationStatus)}`}
+                        >
+                          {statusLabel(tx.reconciliationStatus)}
+                        </span>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </div>
   )

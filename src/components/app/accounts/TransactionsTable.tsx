@@ -22,6 +22,7 @@ import {
   searchTransactionIds,
   type TransactionSearchKey,
 } from '#/lib/transaction-search'
+import { DataTableCards } from '#/components/app/ui/DataTableCards'
 import { FacetFilter } from '#/components/app/ui/FacetFilter'
 import {
   parseCsvValues,
@@ -378,7 +379,7 @@ export function TransactionsTable({
   return (
     <div className="flex flex-col gap-4">
       <div className="grid gap-4 sm:grid-cols-2">
-        <div className="rounded-box bg-base-100 p-5 shadow-sm">
+        <div className="app-card p-5">
           <p className="text-xs uppercase tracking-wide text-base-content/50">
             Opening balance
           </p>
@@ -386,7 +387,7 @@ export function TransactionsTable({
             {formatAccountCurrency(openingBalance)}
           </p>
         </div>
-        <div className="rounded-box bg-base-100 p-5 shadow-sm">
+        <div className="app-card p-5">
           <p className="text-xs uppercase tracking-wide text-base-content/50">
             Current balance
           </p>
@@ -425,7 +426,7 @@ export function TransactionsTable({
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-box bg-base-100 p-4 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3 app-card p-4">
         <div className="flex flex-wrap items-center gap-3">
           <label className="input input-bordered flex min-w-56 items-center gap-2">
             <HiOutlineSearch
@@ -502,7 +503,22 @@ export function TransactionsTable({
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-box bg-base-100 shadow-sm">
+      <DataTableCards
+        table={table}
+        emptyMessage={
+          transactions.length === 0
+            ? 'No transactions yet. Add one to get started.'
+            : 'No transactions match the current filters.'
+        }
+        onRowClick={(tx) => {
+          void navigate({
+            to: '/transactions/$transactionId',
+            params: { transactionId: tx.id },
+          })
+        }}
+        className="app-card p-3"
+      />
+      <div className="hidden overflow-x-auto app-card md:block">
         <table className="table">
           <thead>
             {table.getHeaderGroups().map((headerGroup) => (

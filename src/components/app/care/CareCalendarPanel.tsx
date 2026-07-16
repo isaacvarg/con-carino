@@ -317,7 +317,7 @@ export function CareCalendarPanel({
 
   return (
     <div className="relative flex flex-col gap-4 lg:grid lg:grid-cols-[2.5fr_1fr] lg:items-start">
-      <div className="rounded-box bg-base-100 p-4 shadow-sm">
+      <div className="app-card p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <button type="button" className="btn btn-ghost btn-sm" onClick={prevMonth}>
             Prev
@@ -423,7 +423,7 @@ export function CareCalendarPanel({
         </div>
       </div>
 
-      <div className="rounded-box bg-base-100 p-4 shadow-sm">
+      <div className="app-card p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="font-semibold">
             {selectedDate.toLocaleDateString(undefined, {

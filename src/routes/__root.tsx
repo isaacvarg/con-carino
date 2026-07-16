@@ -4,6 +4,7 @@ import {
   createRootRouteWithContext,
 } from '@tanstack/react-router'
 import type { RouterContext } from '../router'
+import { AppearanceProvider } from '../lib/appearance'
 import { fetchSession } from '../server/auth'
 
 import appCss from '../styles.css?url'
@@ -39,7 +40,9 @@ async function getSessionCached() {
   return (await sessionInFlight).session
 }
 
-const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var theme=stored==='macchiato'?'macchiato':'latte';var root=document.documentElement;root.setAttribute('data-theme',theme);root.style.colorScheme=theme==='macchiato'?'dark':'light';}catch(e){}})();`
+// Runs before paint to avoid a flash of the default theme/accent. Cannot import
+// from #/lib/themes or #/lib/accents, so the names are duplicated here — keep in sync.
+const THEME_INIT_SCRIPT = `(function(){try{var root=document.documentElement;var stored=window.localStorage.getItem('theme');var theme=stored==='macchiato'?'macchiato':'latte';root.setAttribute('data-theme',theme);root.style.colorScheme=theme==='macchiato'?'dark':'light';var accents=['rosewater','flamingo','pink','mauve','red','maroon','peach','yellow','green','teal','sky','sapphire','blue','lavender'];var storedAccent=window.localStorage.getItem('accent');var accent=accents.indexOf(storedAccent)===-1?'flamingo':storedAccent;root.setAttribute('data-accent',accent);}catch(e){}})();`
 
 export const Route = createRootRouteWithContext<RouterContext>()({
   beforeLoad: async () => {
@@ -77,7 +80,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <HeadContent />
       </head>
       <body className="bg-base-100 text-base-content font-sans antialiased [overflow-wrap:anywhere] selection:bg-primary/24">
-        {children}
+        <AppearanceProvider>{children}</AppearanceProvider>
         <Scripts />
       </body>
     </html>

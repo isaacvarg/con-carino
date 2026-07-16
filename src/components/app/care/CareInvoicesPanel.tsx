@@ -93,7 +93,13 @@ export function CareInvoicesPanel({
 
   useEffect(() => {
     if (!highlightInvoiceId) return
-    const el = document.getElementById(`invoice-${highlightInvoiceId}`)
+    const nodes = document.querySelectorAll(
+      `[data-invoice-id="${highlightInvoiceId}"]`,
+    )
+    const el =
+      Array.from(nodes).find(
+        (node) => window.getComputedStyle(node).display !== 'none',
+      ) ?? nodes[0]
     el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     setExpandedIds((prev) => new Set(prev).add(highlightInvoiceId))
   }, [highlightInvoiceId, invoices])
@@ -247,7 +253,7 @@ export function CareInvoicesPanel({
         </p>
       ) : null}
 
-      <section className="rounded-box bg-base-100 p-4 shadow-sm">
+      <section className="app-card p-4">
         <h3 className="font-semibold">Open invoices</h3>
         <p className="mt-1 text-sm text-base-content/60">
           Created on each paid person&apos;s pay schedule from accrued coverage.
@@ -262,7 +268,7 @@ export function CareInvoicesPanel({
               return (
                 <li
                   key={inv.id}
-                  id={`invoice-${inv.id}`}
+                  data-invoice-id={inv.id}
                   className={
                     highlightInvoiceId === inv.id
                       ? 'rounded-lg border border-primary bg-primary/5 p-4'
@@ -321,7 +327,7 @@ export function CareInvoicesPanel({
         ) : null}
       </section>
 
-      <section className="rounded-box bg-base-100 p-4 shadow-sm">
+      <section className="app-card p-4">
         <h3 className="font-semibold">Paid & voided</h3>
         <p className="mt-1 text-sm text-base-content/60">
           Paid rows open the settlement transaction on the account.
@@ -329,101 +335,171 @@ export function CareInvoicesPanel({
         {closed.length === 0 ? (
           <p className="mt-4 text-sm text-base-content/50">None yet.</p>
         ) : (
-          <div className="mt-4 overflow-x-auto">
-            <table className="table">
-              <thead>
-                {closedTable.getHeaderGroups().map((headerGroup) => (
-                  <tr key={headerGroup.id}>
-                    {headerGroup.headers.map((header) => (
-                      <th key={header.id} scope="col">
-                        {header.isPlaceholder ? null : header.column.getCanSort() ? (
-                          <button
-                            type="button"
-                            className="inline-flex items-center gap-1 font-semibold"
-                            onClick={header.column.getToggleSortingHandler()}
-                          >
-                            {flexRender(
+          <>
+            <ul className="mt-4 space-y-3 md:hidden">
+              {closedTable.getRowModel().rows.map((row) => {
+                const inv = row.original
+                const link = settledTransactionLink(inv)
+                const highlighted = highlightInvoiceId === inv.id
+                const expanded = expandedIds.has(inv.id)
+                return (
+                  <li key={row.id}>
+                    <div
+                      data-invoice-id={inv.id}
+                      className={
+                        highlighted
+                          ? 'rounded-lg border border-primary bg-primary/5 p-4'
+                          : 'rounded-lg border border-base-300 p-4'
+                      }
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          {link ? (
+                            <Link
+                              to={link.to}
+                              params={link.params}
+                              className="hover:underline"
+                              aria-label={`Open settlement transaction for ${inv.carePersonName}`}
+                            >
+                              <p className="font-medium">
+                                {inv.carePersonName} · $
+                                {Number(inv.amount).toFixed(2)}
+                              </p>
+                            </Link>
+                          ) : (
+                            <p className="font-medium">
+                              {inv.carePersonName} · $
+                              {Number(inv.amount).toFixed(2)}
+                            </p>
+                          )}
+                          <p className="mt-1 text-sm text-base-content/60">
+                            {periodLabel(inv)}
+                          </p>
+                          <p className="mt-1 text-xs text-base-content/50">
+                            Created{' '}
+                            {new Date(inv.createdAt).toLocaleDateString()}
+                          </p>
+                        </div>
+                        <span className="badge badge-outline shrink-0">
+                          {inv.status}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        className="mt-2 text-xs text-primary underline-offset-2 hover:underline"
+                        onClick={() => toggleExpanded(inv.id)}
+                      >
+                        {expanded ? 'Hide coverage' : 'Show coverage'}
+                      </button>
+                      {expanded ? (
+                        <div className="mt-2">
+                          <InvoiceLines invoice={inv} />
+                        </div>
+                      ) : null}
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+            <div className="mt-4 hidden overflow-x-auto md:block">
+              <table className="table">
+                <thead>
+                  {closedTable.getHeaderGroups().map((headerGroup) => (
+                    <tr key={headerGroup.id}>
+                      {headerGroup.headers.map((header) => (
+                        <th key={header.id} scope="col">
+                          {header.isPlaceholder ? null : header.column.getCanSort() ? (
+                            <button
+                              type="button"
+                              className="inline-flex items-center gap-1 font-semibold"
+                              onClick={header.column.getToggleSortingHandler()}
+                            >
+                              {flexRender(
+                                header.column.columnDef.header,
+                                header.getContext(),
+                              )}
+                              {{
+                                asc: ' ↑',
+                                desc: ' ↓',
+                              }[header.column.getIsSorted() as string] ?? null}
+                            </button>
+                          ) : (
+                            flexRender(
                               header.column.columnDef.header,
                               header.getContext(),
-                            )}
-                            {{
-                              asc: ' ↑',
-                              desc: ' ↓',
-                            }[header.column.getIsSorted() as string] ?? null}
-                          </button>
-                        ) : (
-                          flexRender(
-                            header.column.columnDef.header,
-                            header.getContext(),
-                          )
-                        )}
-                      </th>
-                    ))}
-                  </tr>
-                ))}
-              </thead>
-              <tbody>
-                {closedTable.getRowModel().rows.map((row) => {
-                  const link = settledTransactionLink(row.original)
-                  const highlighted = highlightInvoiceId === row.original.id
-                  const expanded = expandedIds.has(row.original.id)
-                  return (
-                    <Fragment key={row.id}>
-                      <tr
-                        id={`invoice-${row.original.id}`}
-                        className={
-                          highlighted
-                            ? 'bg-primary/5'
-                            : link
-                              ? 'hover:bg-base-200/70'
-                              : undefined
-                        }
-                      >
-                        {row.getVisibleCells().map((cell) => (
-                          <td key={cell.id} className={link ? '!p-0' : undefined}>
-                            {link ? (
-                              <Link
-                                to={link.to}
-                                params={link.params}
-                                className="block h-full w-full cursor-pointer px-4 py-3 text-inherit no-underline"
-                                aria-label={`Open settlement transaction for ${row.original.carePersonName}`}
-                              >
-                                {flexRender(
+                            )
+                          )}
+                        </th>
+                      ))}
+                    </tr>
+                  ))}
+                </thead>
+                <tbody>
+                  {closedTable.getRowModel().rows.map((row) => {
+                    const link = settledTransactionLink(row.original)
+                    const highlighted = highlightInvoiceId === row.original.id
+                    const expanded = expandedIds.has(row.original.id)
+                    return (
+                      <Fragment key={row.id}>
+                        <tr
+                          data-invoice-id={row.original.id}
+                          className={
+                            highlighted
+                              ? 'bg-primary/5'
+                              : link
+                                ? 'hover:bg-base-200/70'
+                                : undefined
+                          }
+                        >
+                          {row.getVisibleCells().map((cell) => (
+                            <td
+                              key={cell.id}
+                              className={link ? '!p-0' : undefined}
+                            >
+                              {link ? (
+                                <Link
+                                  to={link.to}
+                                  params={link.params}
+                                  className="block h-full w-full cursor-pointer px-4 py-3 text-inherit no-underline"
+                                  aria-label={`Open settlement transaction for ${row.original.carePersonName}`}
+                                >
+                                  {flexRender(
+                                    cell.column.columnDef.cell,
+                                    cell.getContext(),
+                                  )}
+                                </Link>
+                              ) : (
+                                flexRender(
                                   cell.column.columnDef.cell,
                                   cell.getContext(),
-                                )}
-                              </Link>
-                            ) : (
-                              flexRender(
-                                cell.column.columnDef.cell,
-                                cell.getContext(),
-                              )
-                            )}
+                                )
+                              )}
+                            </td>
+                          ))}
+                        </tr>
+                        <tr>
+                          <td colSpan={columns.length} className="!py-0">
+                            <button
+                              type="button"
+                              className="mb-2 text-xs text-primary underline-offset-2 hover:underline"
+                              onClick={() => toggleExpanded(row.original.id)}
+                            >
+                              {expanded ? 'Hide coverage' : 'Show coverage'}
+                            </button>
+                            {expanded ? (
+                              <div className="pb-3">
+                                <InvoiceLines invoice={row.original} />
+                              </div>
+                            ) : null}
                           </td>
-                        ))}
-                      </tr>
-                      <tr>
-                        <td colSpan={columns.length} className="!py-0">
-                          <button
-                            type="button"
-                            className="mb-2 text-xs text-primary underline-offset-2 hover:underline"
-                            onClick={() => toggleExpanded(row.original.id)}
-                          >
-                            {expanded ? 'Hide coverage' : 'Show coverage'}
-                          </button>
-                          {expanded ? (
-                            <div className="pb-3">
-                              <InvoiceLines invoice={row.original} />
-                            </div>
-                          ) : null}
-                        </td>
-                      </tr>
-                    </Fragment>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+                        </tr>
+                      </Fragment>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </section>
 

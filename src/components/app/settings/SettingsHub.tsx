@@ -79,7 +79,7 @@ export function SettingsHub() {
             <Link
               key={card.to}
               to={card.to}
-              className="flex items-center gap-4 rounded-box bg-base-100 px-4 py-4 shadow-sm transition hover:bg-base-200/60"
+              className="flex items-center gap-4 app-card app-card-interactive px-4 py-4"
             >
               <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
                 <Icon className="size-5" aria-hidden />

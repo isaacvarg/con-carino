@@ -28,6 +28,7 @@ import {
   searchTransactionIds,
   type TransactionSearchKey,
 } from '#/lib/transaction-search'
+import { DataTableCards } from '#/components/app/ui/DataTableCards'
 import { FacetFilter } from '#/components/app/ui/FacetFilter'
 import { TransactionsSpeedDial } from './TransactionsSpeedDial'
 import {
@@ -414,7 +415,7 @@ export function AllTransactionsTable({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-box bg-base-100 p-4 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3 app-card p-4">
         <div className="flex flex-wrap items-center gap-3">
           <label className="input input-bordered flex min-w-56 items-center gap-2">
             <HiOutlineSearch
@@ -504,7 +505,22 @@ export function AllTransactionsTable({
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-box bg-base-100 shadow-sm">
+      <DataTableCards
+        table={table}
+        emptyMessage={
+          transactions.length === 0
+            ? 'No transactions yet across your accounts.'
+            : 'No transactions match the current filters.'
+        }
+        onRowClick={(tx) => {
+          void navigate({
+            to: '/transactions/$transactionId',
+            params: { transactionId: tx.id },
+          })
+        }}
+        className="app-card p-3"
+      />
+      <div className="hidden overflow-x-auto app-card md:block">
         <table className="table">
           <thead>
             {table.getHeaderGroups().map((headerGroup) => (

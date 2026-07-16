@@ -33,7 +33,7 @@ export function FormShell({
     <form
       className={cx(
         'app-form',
-        card && 'rounded-box bg-base-100 p-5 shadow-sm sm:p-6',
+        card && 'app-card p-5 sm:p-6',
         className,
       )}
       {...props}

@@ -40,7 +40,7 @@ export function CareSwapsPanel({ swaps }: CareSwapsPanelProps) {
         </p>
       ) : null}
 
-      <section className="rounded-box bg-base-100 p-4 shadow-sm">
+      <section className="app-card p-4">
         <h3 className="font-semibold">Pending swaps</h3>
         <p className="mt-1 text-sm text-base-content/60">
           Any signed-in user can approve or reject.
@@ -104,7 +104,7 @@ export function CareSwapsPanel({ swaps }: CareSwapsPanelProps) {
         )}
       </section>
 
-      <section className="rounded-box bg-base-100 p-4 shadow-sm">
+      <section className="app-card p-4">
         <h3 className="font-semibold">History</h3>
         {history.length === 0 ? (
           <p className="mt-4 text-sm text-base-content/50">No past swaps.</p>

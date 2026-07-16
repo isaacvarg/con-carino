@@ -1,6 +1,5 @@
 import { HiOutlineExternalLink } from 'react-icons/hi'
-
-const FEEDBACK_URL = 'https://feedback.isaacvargas.dev'
+import { FEEDBACK_URL } from '#/lib/feedback'
 
 type ComingSoonFeedbackProps = {
   title: string

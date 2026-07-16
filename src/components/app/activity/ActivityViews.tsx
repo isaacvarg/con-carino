@@ -142,89 +142,165 @@ export function ActivityTable({
   }
 
   return (
-    <div className="overflow-x-auto rounded-box border border-base-300 bg-base-100 shadow-sm">
-      <table className="table">
-        <thead>
-          <tr>
-            <th>When</th>
-            <th>Actor</th>
-            <th>Summary</th>
-            <th>Type</th>
-            <th className="w-28 text-right">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item) => {
-            const href = resolveActivityHref(item)
-            return (
-              <tr key={item.id} className="hover">
-                <td className="whitespace-nowrap text-sm text-base-content/70">
-                  <span title={formatWhen(item.createdAt)}>
-                    {relativeTime(item.createdAt)}
-                  </span>
-                </td>
-                <td>
-                  <div className="flex items-center gap-2">
-                    <div className="avatar avatar-placeholder">
-                      <div className="w-8 rounded-full bg-primary text-primary-content">
-                        <span className="text-[10px] font-semibold">
-                          {actorInitials(item.actor)}
-                        </span>
-                      </div>
-                    </div>
-                    <span className="text-sm">{actorLabel(item.actor)}</span>
-                  </div>
-                </td>
-                <td>
+    <div className="app-card">
+      <ul className="space-y-3 p-3 md:hidden">
+        {items.map((item) => {
+          const href = resolveActivityHref(item)
+          return (
+            <li
+              key={item.id}
+              className="rounded-lg border border-base-300 p-4"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
                   {href ? (
                     <button
                       type="button"
-                      className="text-left text-sm hover:underline"
+                      className="text-left text-sm font-medium hover:underline"
                       onClick={() => navigateToEntity(item)}
                     >
                       {item.summary}
                     </button>
                   ) : (
-                    <span className="text-sm">{item.summary}</span>
+                    <p className="text-sm font-medium">{item.summary}</p>
                   )}
-                  <p className="text-xs text-base-content/50">
+                  <p className="mt-1 text-xs text-base-content/50">
                     {formatActivityAction(item.action)}
                   </p>
-                </td>
-                <td>
-                  <span className="badge badge-ghost badge-sm">
-                    {item.entityTypeLabel}
-                  </span>
-                </td>
-                <td>
-                  <div className="flex justify-end gap-1">
+                </div>
+                <span className="badge badge-ghost badge-sm shrink-0">
+                  {item.entityTypeLabel}
+                </span>
+              </div>
+              <div className="mt-3 flex items-center gap-2">
+                <div className="avatar avatar-placeholder">
+                  <div className="w-8 rounded-full bg-primary text-primary-content">
+                    <span className="text-[10px] font-semibold">
+                      {actorInitials(item.actor)}
+                    </span>
+                  </div>
+                </div>
+                <div className="min-w-0 text-sm">
+                  <p>{actorLabel(item.actor)}</p>
+                  <p
+                    className="text-xs text-base-content/60"
+                    title={formatWhen(item.createdAt)}
+                  >
+                    {relativeTime(item.createdAt)}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3 flex justify-end gap-1">
+                {href ? (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-square btn-sm"
+                    title="Open related item"
+                    aria-label="Open related item"
+                    onClick={() => navigateToEntity(item)}
+                  >
+                    <HiOutlineExternalLink className="size-4" aria-hidden />
+                  </button>
+                ) : null}
+                <Link
+                  to="/activity/$activityId"
+                  params={{ activityId: item.id }}
+                  className="btn btn-ghost btn-square btn-sm"
+                  title="View audit details"
+                  aria-label="View audit details"
+                >
+                  <HiOutlineSearch className="size-4" aria-hidden />
+                </Link>
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+
+      <div className="hidden overflow-x-auto md:block">
+        <table className="table">
+          <thead>
+            <tr>
+              <th>When</th>
+              <th>Actor</th>
+              <th>Summary</th>
+              <th>Type</th>
+              <th className="w-28 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item) => {
+              const href = resolveActivityHref(item)
+              return (
+                <tr key={item.id} className="hover">
+                  <td className="whitespace-nowrap text-sm text-base-content/70">
+                    <span title={formatWhen(item.createdAt)}>
+                      {relativeTime(item.createdAt)}
+                    </span>
+                  </td>
+                  <td>
+                    <div className="flex items-center gap-2">
+                      <div className="avatar avatar-placeholder">
+                        <div className="w-8 rounded-full bg-primary text-primary-content">
+                          <span className="text-[10px] font-semibold">
+                            {actorInitials(item.actor)}
+                          </span>
+                        </div>
+                      </div>
+                      <span className="text-sm">{actorLabel(item.actor)}</span>
+                    </div>
+                  </td>
+                  <td>
                     {href ? (
                       <button
                         type="button"
-                        className="btn btn-ghost btn-square btn-sm"
-                        title="Open related item"
-                        aria-label="Open related item"
+                        className="text-left text-sm hover:underline"
                         onClick={() => navigateToEntity(item)}
                       >
-                        <HiOutlineExternalLink className="size-4" aria-hidden />
+                        {item.summary}
                       </button>
-                    ) : null}
-                    <Link
-                      to="/activity/$activityId"
-                      params={{ activityId: item.id }}
-                      className="btn btn-ghost btn-square btn-sm"
-                      title="View audit details"
-                      aria-label="View audit details"
-                    >
-                      <HiOutlineSearch className="size-4" aria-hidden />
-                    </Link>
-                  </div>
-                </td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
+                    ) : (
+                      <span className="text-sm">{item.summary}</span>
+                    )}
+                    <p className="text-xs text-base-content/50">
+                      {formatActivityAction(item.action)}
+                    </p>
+                  </td>
+                  <td>
+                    <span className="badge badge-ghost badge-sm">
+                      {item.entityTypeLabel}
+                    </span>
+                  </td>
+                  <td>
+                    <div className="flex justify-end gap-1">
+                      {href ? (
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-square btn-sm"
+                          title="Open related item"
+                          aria-label="Open related item"
+                          onClick={() => navigateToEntity(item)}
+                        >
+                          <HiOutlineExternalLink className="size-4" aria-hidden />
+                        </button>
+                      ) : null}
+                      <Link
+                        to="/activity/$activityId"
+                        params={{ activityId: item.id }}
+                        className="btn btn-ghost btn-square btn-sm"
+                        title="View audit details"
+                        aria-label="View audit details"
+                      >
+                        <HiOutlineSearch className="size-4" aria-hidden />
+                      </Link>
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
       {nextCursor && onLoadMore ? (
         <div className="border-t border-base-300 p-3 text-center">
           <button type="button" className="btn btn-ghost btn-sm" onClick={onLoadMore}>
@@ -246,7 +322,7 @@ export function ActivityDetailView({
 
   return (
     <div className="flex flex-col gap-4">
-      <section className="rounded-box border border-base-300 bg-base-100 p-5 shadow-sm">
+      <section className="app-card p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-base-content/60">
@@ -268,35 +344,65 @@ export function ActivityDetailView({
         </div>
       </section>
 
-      <section className="rounded-box border border-base-300 bg-base-100 p-5 shadow-sm">
+      <section className="app-card p-5">
         <h2 className="mb-3 font-semibold text-base-content">Audit trail</h2>
         {changes.length === 0 ? (
           <p className="text-sm text-base-content/60">No field changes recorded.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="table table-sm">
-              <thead>
-                <tr>
-                  <th>Field</th>
-                  <th>Before</th>
-                  <th>After</th>
-                </tr>
-              </thead>
-              <tbody>
-                {changes.map((change) => (
-                  <tr key={change.field}>
-                    <td className="text-sm font-medium">{change.label}</td>
-                    <td className="max-w-xs text-sm text-base-content/70">
-                      <ActivityValue values={change.before} />
-                    </td>
-                    <td className="max-w-xs text-sm">
-                      <ActivityValue values={change.after} />
-                    </td>
+          <>
+            <ul className="space-y-3 md:hidden">
+              {changes.map((change) => (
+                <li
+                  key={change.field}
+                  className="rounded-lg border border-base-300 p-4"
+                >
+                  <p className="text-sm font-medium">{change.label}</p>
+                  <dl className="mt-3 space-y-2">
+                    <div>
+                      <dt className="text-xs font-medium text-base-content/60">
+                        Before
+                      </dt>
+                      <dd className="mt-1 text-sm text-base-content/70">
+                        <ActivityValue values={change.before} />
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs font-medium text-base-content/60">
+                        After
+                      </dt>
+                      <dd className="mt-1 text-sm">
+                        <ActivityValue values={change.after} />
+                      </dd>
+                    </div>
+                  </dl>
+                </li>
+              ))}
+            </ul>
+            <div className="hidden overflow-x-auto md:block">
+              <table className="table table-sm">
+                <thead>
+                  <tr>
+                    <th>Field</th>
+                    <th>Before</th>
+                    <th>After</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {changes.map((change) => (
+                    <tr key={change.field}>
+                      <td className="text-sm font-medium">{change.label}</td>
+                      <td className="max-w-xs text-sm text-base-content/70">
+                        <ActivityValue values={change.before} />
+                      </td>
+                      <td className="max-w-xs text-sm">
+                        <ActivityValue values={change.after} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </section>
     </div>
@@ -338,7 +444,7 @@ export function DashboardRecentActivity({
 
   return (
     <div
-      className={`w-full rounded-box bg-base-100 p-5 text-base-content shadow-sm ${
+      className={`w-full app-card p-5 text-base-content ${
         expanded ? 'flex h-full min-h-0 flex-1 flex-col' : ''
       }`}
     >

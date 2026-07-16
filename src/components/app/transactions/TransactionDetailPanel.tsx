@@ -149,7 +149,7 @@ function DetailCard({
 }) {
   return (
     <section
-      className={`flex h-full flex-col rounded-box bg-base-100 p-5 shadow-sm sm:p-6 ${className}`}
+      className={`flex h-full flex-col app-card p-5 sm:p-6 ${className}`}
     >
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h3 className="font-semibold text-base-content">{title}</h3>

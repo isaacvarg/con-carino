@@ -14,7 +14,7 @@ export function DocumentThumbCard({ document }: DocumentThumbCardProps) {
   const showThumb = document.thumbnailUrl !== null && !thumbFailed
 
   return (
-    <li className="overflow-hidden rounded-box border border-base-300 bg-base-100">
+    <li className="overflow-hidden app-card">
       <Link
         to="/documents/$documentId"
         params={{ documentId: document.id }}

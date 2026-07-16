@@ -13,7 +13,7 @@ export function AccountCard({ account }: AccountCardProps) {
       to="/accounts/$accountId"
       params={{ accountId: account.id }}
       search={accountDetailSearchDefaults}
-      className="flex flex-col gap-4 rounded-box bg-base-100 p-5 shadow-sm transition hover:bg-base-200/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+      className="flex flex-col gap-4 app-card app-card-interactive p-5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">

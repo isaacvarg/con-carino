@@ -92,6 +92,140 @@
   --noise: 0;
 }
 
+/*
+ * Catppuccin accent palette — canonical hexes from https://catppuccin.com/palette/.
+ * The daisyUI theme blocks above cover base/neutral/status tokens; these name the
+ * full accent range so a user's pick can drive `primary` and `accent`.
+ */
+:root[data-theme="latte"] {
+  --ctp-surface0: #ccd0da;
+  --ctp-rosewater: #dc8a78;
+  --ctp-flamingo: #dd7878;
+  --ctp-pink: #ea76cb;
+  --ctp-mauve: #8839ef;
+  --ctp-red: #d20f39;
+  --ctp-maroon: #e64553;
+  --ctp-peach: #fe640b;
+  --ctp-yellow: #df8e1d;
+  --ctp-green: #40a02b;
+  --ctp-teal: #179299;
+  --ctp-sky: #04a5e5;
+  --ctp-sapphire: #209fb5;
+  --ctp-blue: #1e66f5;
+  --ctp-lavender: #7287fd;
+}
+
+:root[data-theme="macchiato"] {
+  --ctp-surface0: #363a4f;
+  --ctp-rosewater: #f4dbd6;
+  --ctp-flamingo: #f0c6c6;
+  --ctp-pink: #f5bde6;
+  --ctp-mauve: #c6a0f6;
+  --ctp-red: #ed8796;
+  --ctp-maroon: #ee99a0;
+  --ctp-peach: #f5a97f;
+  --ctp-yellow: #eed49f;
+  --ctp-green: #a6da95;
+  --ctp-teal: #8bd5ca;
+  --ctp-sky: #91d7e3;
+  --ctp-sapphire: #7dc4e4;
+  --ctp-blue: #8aadf4;
+  --ctp-lavender: #b7bdf8;
+}
+
+/*
+ * User accent selection. `data-accent` on <html> picks the primary hue and a
+ * roughly complementary in-palette partner for `accent`. Specificity (0,1,1)
+ * beats the [data-theme=…] rules daisyUI emits, so source order is irrelevant.
+ */
+:root[data-accent="rosewater"] {
+  --color-primary: var(--ctp-rosewater);
+  --color-accent: var(--ctp-sapphire);
+}
+:root[data-accent="flamingo"] {
+  --color-primary: var(--ctp-flamingo);
+  --color-accent: var(--ctp-teal);
+}
+:root[data-accent="pink"] {
+  --color-primary: var(--ctp-pink);
+  --color-accent: var(--ctp-sky);
+}
+:root[data-accent="mauve"] {
+  --color-primary: var(--ctp-mauve);
+  --color-accent: var(--ctp-pink);
+}
+:root[data-accent="red"] {
+  --color-primary: var(--ctp-red);
+  --color-accent: var(--ctp-sky);
+}
+:root[data-accent="maroon"] {
+  --color-primary: var(--ctp-maroon);
+  --color-accent: var(--ctp-teal);
+}
+:root[data-accent="peach"] {
+  --color-primary: var(--ctp-peach);
+  --color-accent: var(--ctp-sapphire);
+}
+:root[data-accent="yellow"] {
+  --color-primary: var(--ctp-yellow);
+  --color-accent: var(--ctp-lavender);
+}
+:root[data-accent="green"] {
+  --color-primary: var(--ctp-green);
+  --color-accent: var(--ctp-mauve);
+}
+:root[data-accent="teal"] {
+  --color-primary: var(--ctp-teal);
+  --color-accent: var(--ctp-flamingo);
+}
+:root[data-accent="sky"] {
+  --color-primary: var(--ctp-sky);
+  --color-accent: var(--ctp-maroon);
+}
+:root[data-accent="sapphire"] {
+  --color-primary: var(--ctp-sapphire);
+  --color-accent: var(--ctp-peach);
+}
+:root[data-accent="blue"] {
+  --color-primary: var(--ctp-blue);
+  --color-accent: var(--ctp-peach);
+}
+:root[data-accent="lavender"] {
+  --color-primary: var(--ctp-lavender);
+  --color-accent: var(--ctp-yellow);
+}
+
+/*
+ * Content (text-on-color) for the accent-driven slots.
+ *
+ * Macchiato's accents are uniformly pastel — the dark content text already in
+ * its theme block clears AA on all 14, so it needs nothing here.
+ *
+ * Latte's accents are mid-tone, and the theme's light content text only reaches
+ * ~2.6:1 on the paler ones. Catppuccin crust is the better partner for 11 of
+ * the 14 and keeps every accent above 3:1, so it is the latte default and the
+ * genuinely deep accents opt back out below.
+ */
+:root[data-theme="latte"][data-accent] {
+  --color-primary-content: #11111b;
+  --color-accent-content: #11111b;
+}
+
+/* Deep enough to carry the theme's light text. Same specificity as the rule
+   above, so these must stay after it to win. */
+:root[data-theme="latte"]:is(
+    [data-accent="mauve"],
+    [data-accent="red"],
+    [data-accent="blue"]
+  ) {
+  --color-primary-content: oklch(96% 0.01 265);
+}
+
+/* Keyed off the paired accent hue, not the primary: only green pairs to mauve. */
+:root[data-theme="latte"]:is([data-accent="green"]) {
+  --color-accent-content: oklch(96% 0.01 265);
+}
+
 @theme {
   --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
 }
@@ -108,6 +242,9 @@
   --surface: color-mix(in oklab, var(--color-base-100) 74%, transparent);
   --surface-strong: color-mix(in oklab, var(--color-base-100) 90%, transparent);
   --line: color-mix(in oklab, var(--color-base-content) 14%, transparent);
+  /* Catppuccin `surface0` is the separator role: darker than `base` in latte,
+   * lighter in macchiato, so it lifts cards correctly in both themes. */
+  --card-line: var(--ctp-surface0);
   --inset-glint: color-mix(in oklab, var(--color-base-content) 8%, white 82%);
   --kicker: color-mix(in oklab, var(--color-secondary) 90%, transparent);
   --bg-base: var(--color-base-100);
@@ -399,6 +536,28 @@ pre code {
 
 .demo-table tr:hover td {
   background: color-mix(in oklab, var(--lagoon) 8%, transparent);
+}
+
+@layer components {
+  .app-card {
+    border-radius: var(--radius-box);
+    background-color: var(--color-base-100);
+    border: 1px solid var(--card-line);
+  }
+
+  .app-card-interactive {
+    transition:
+      background-color 150ms ease,
+      border-color 150ms ease;
+  }
+
+  .app-card-interactive:hover {
+    background-color: color-mix(
+      in oklab,
+      var(--color-base-100) 94%,
+      var(--color-base-content)
+    );
+  }
 }
 
 /* App form layout — prefer React helpers in #/components/app/ui/form */

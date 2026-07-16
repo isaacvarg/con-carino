@@ -47,7 +47,7 @@ Intent result at scaffold time: 9 intent-enabled packages, 31 skills (Start, Rou
 | Toolchain | Vite (default CLI toolchain), TypeScript, Vitest |
 | Partner integrations | None requested; none installed |
 
-Default starter still includes Header/Footer/ThemeToggle, Home + About routes, and TanStack Devtools — not partner add-ons.
+Default starter still includes ThemeToggle, Home + About routes, and TanStack Devtools — not partner add-ons.
 
 ## Environment variables
 
@@ -97,7 +97,7 @@ Default local production flow: `pnpm build` then `pnpm preview` until a host plu
 ## Next steps
 
 1. Run `pnpm dev` and confirm Home/About.
-2. Replace starter chrome (Header/Footer/theme) as product UI takes shape.
+2. Replace remaining starter chrome (theme) as product UI takes shape.
 3. Add routes under `src/routes` as needed.
 4. Load Intent skills before introducing server functions, auth, or a deploy adapter.
 5. Optionally add a host plugin when deployment target is known.
