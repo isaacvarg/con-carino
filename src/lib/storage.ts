@@ -59,6 +59,11 @@ export function getS3Client(): S3Client {
       secretAccessKey,
     },
     forcePathStyle,
+    // WHEN_SUPPORTED (the default) bakes a CRC32 of an empty body into
+    // presigned PUT URLs, which fails validation once the browser sends
+    // the real file.
+    requestChecksumCalculation: 'WHEN_REQUIRED',
+    responseChecksumValidation: 'WHEN_REQUIRED',
   })
 
   if (process.env.NODE_ENV !== 'production') {
