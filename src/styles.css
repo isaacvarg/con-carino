@@ -3,44 +3,88 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 @plugin "daisyui" {
-  themes: all;
+  themes: latte --default, macchiato;
 }
 
+/* Catppuccin Latte — https://catppuccin.com/palette/ */
 @plugin "daisyui/theme" {
-  name: "concarino";
+  name: "latte";
   default: true;
   prefersdark: false;
   color-scheme: light;
 
-  --color-base-100: oklch(100% 0 0);
-  --color-base-200: oklch(97% 0.005 160);
-  --color-base-300: oklch(93% 0.01 160);
-  --color-base-content: oklch(22% 0.02 175);
+  --color-base-100: oklch(96% 0.01 265);
+  --color-base-200: oklch(93% 0.01 265);
+  --color-base-300: oklch(91% 0.01 265);
+  --color-base-content: oklch(44% 0.04 279);
 
-  --color-primary: oklch(90% 0.1 130);
-  --color-primary-content: oklch(25% 0.04 175);
+  --color-primary: oklch(55% 0.25 297);
+  --color-primary-content: oklch(96% 0.01 265);
 
-  --color-secondary: oklch(25% 0.035 175);
-  --color-secondary-content: oklch(98% 0.01 130);
+  --color-secondary: oklch(56% 0.23 262);
+  --color-secondary-content: oklch(96% 0.01 265);
 
-  --color-accent: oklch(78% 0.09 160);
-  --color-accent-content: oklch(22% 0.02 175);
+  --color-accent: oklch(73% 0.17 338);
+  --color-accent-content: oklch(96% 0.01 265);
 
-  --color-neutral: oklch(30% 0.02 175);
-  --color-neutral-content: oklch(98% 0 0);
+  --color-neutral: oklch(65% 0.03 278);
+  --color-neutral-content: oklch(96% 0.01 265);
 
-  --color-info: oklch(75% 0.1 220);
-  --color-info-content: oklch(25% 0.04 220);
-  --color-success: oklch(85% 0.08 145);
-  --color-success-content: oklch(25% 0.04 145);
-  --color-warning: oklch(85% 0.1 70);
-  --color-warning-content: oklch(30% 0.05 70);
-  --color-error: oklch(80% 0.1 25);
-  --color-error-content: oklch(30% 0.06 25);
+  --color-info: oklch(68% 0.14 235);
+  --color-info-content: oklch(96% 0.01 265);
+  --color-success: oklch(63% 0.18 140);
+  --color-success-content: oklch(96% 0.01 265);
+  --color-warning: oklch(71% 0.15 68);
+  --color-warning-content: oklch(44% 0.04 279);
+  --color-error: oklch(55% 0.22 20);
+  --color-error-content: oklch(96% 0.01 265);
 
-  --radius-selector: 1.5rem;
-  --radius-field: 9999px;
-  --radius-box: 1.75rem;
+  --radius-selector: 1rem;
+  --radius-field: 0.5rem;
+  --radius-box: 1rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
+
+/* Catppuccin Macchiato — https://catppuccin.com/palette/ */
+@plugin "daisyui/theme" {
+  name: "macchiato";
+  default: false;
+  prefersdark: false;
+  color-scheme: dark;
+
+  --color-base-100: oklch(28% 0.04 277);
+  --color-base-200: oklch(25% 0.03 278);
+  --color-base-300: oklch(22% 0.03 281);
+  --color-base-content: oklch(87% 0.05 274);
+
+  --color-primary: oklch(77% 0.13 304);
+  --color-primary-content: oklch(28% 0.04 277);
+
+  --color-secondary: oklch(75% 0.11 264);
+  --color-secondary-content: oklch(28% 0.04 277);
+
+  --color-accent: oklch(86% 0.08 336);
+  --color-accent-content: oklch(28% 0.04 277);
+
+  --color-neutral: oklch(63% 0.04 274);
+  --color-neutral-content: oklch(28% 0.04 277);
+
+  --color-info: oklch(84% 0.07 209);
+  --color-info-content: oklch(28% 0.04 277);
+  --color-success: oklch(83% 0.11 138);
+  --color-success-content: oklch(28% 0.04 277);
+  --color-warning: oklch(88% 0.07 85);
+  --color-warning-content: oklch(28% 0.04 277);
+  --color-error: oklch(74% 0.13 11);
+  --color-error-content: oklch(28% 0.04 277);
+
+  --radius-selector: 1rem;
+  --radius-field: 0.5rem;
+  --radius-box: 1rem;
   --size-selector: 0.25rem;
   --size-field: 0.25rem;
   --border: 1px;

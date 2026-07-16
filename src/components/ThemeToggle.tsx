@@ -1,97 +1,101 @@
-import { useEffect, useState, type ChangeEvent } from 'react'
+import { useEffect, useState } from 'react'
+import { useRouterState } from '@tanstack/react-router'
+import type { AuthSession } from 'start-authjs'
 import {
-  THEMES,
-  colorSchemeForTheme,
-  formatThemeLabel,
-  isThemeSelection,
+  applyTheme,
+  DEFAULT_THEME,
+  resolveStoredTheme,
+  STORAGE_KEY,
   type ThemeName,
-  type ThemeSelection,
 } from '#/lib/themes'
+import {
+  getUserConfiguration,
+  upsertUserTheme,
+} from '#/server/user-configuration'
 
-const STORAGE_KEY = 'theme'
-
-function getInitialSelection(): ThemeSelection {
-  if (typeof window === 'undefined') {
-    return 'system'
-  }
-
-  const stored = window.localStorage.getItem(STORAGE_KEY)
-  if (stored && isThemeSelection(stored)) {
-    return stored
-  }
-
-  // Migrate legacy light/dark/auto values
-  if (stored === 'auto') {
-    return 'system'
-  }
-
-  return 'system'
-}
-
-export function applyThemeSelection(selection: ThemeSelection) {
-  const root = document.documentElement
-  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-
-  if (selection === 'system') {
-    root.removeAttribute('data-theme')
-    root.style.colorScheme = prefersDark ? 'dark' : 'light'
-    return
-  }
-
-  root.setAttribute('data-theme', selection)
-  root.style.colorScheme = colorSchemeForTheme(selection)
-}
+export { applyTheme }
 
 export default function ThemeToggle() {
-  const [selection, setSelection] = useState<ThemeSelection>('system')
+  const [theme, setTheme] = useState<ThemeName>(DEFAULT_THEME)
+  const session = useRouterState({
+    select: (state) =>
+      (state.matches[0]?.context as { session?: AuthSession | null } | undefined)
+        ?.session ?? null,
+  })
+  const isSignedIn = Boolean(session?.user?.id)
 
   useEffect(() => {
-    const initial = getInitialSelection()
-    setSelection(initial)
-    applyThemeSelection(initial)
-  }, [])
+    let cancelled = false
 
-  useEffect(() => {
-    if (selection !== 'system') {
-      return
+    async function syncTheme() {
+      const local = resolveStoredTheme(window.localStorage.getItem(STORAGE_KEY))
+      setTheme(local)
+      applyTheme(local)
+
+      if (!isSignedIn) {
+        return
+      }
+
+      try {
+        const config = await getUserConfiguration()
+        if (cancelled) return
+        setTheme(config.theme)
+        applyTheme(config.theme)
+        window.localStorage.setItem(STORAGE_KEY, config.theme)
+      } catch {
+        // Keep local theme if the user is signed out mid-flight or the fetch fails.
+      }
     }
 
-    const media = window.matchMedia('(prefers-color-scheme: dark)')
-    const onChange = () => applyThemeSelection('system')
-
-    media.addEventListener('change', onChange)
+    void syncTheme()
     return () => {
-      media.removeEventListener('change', onChange)
+      cancelled = true
     }
-  }, [selection])
+  }, [isSignedIn])
 
-  function onChange(event: ChangeEvent<HTMLSelectElement>) {
-    const next = event.target.value
-    if (!isThemeSelection(next)) {
-      return
-    }
-
-    setSelection(next)
-    applyThemeSelection(next)
+  function persistTheme(next: ThemeName) {
+    setTheme(next)
+    applyTheme(next)
     window.localStorage.setItem(STORAGE_KEY, next)
+
+    if (isSignedIn) {
+      void upsertUserTheme({ data: { theme: next } }).catch(() => {
+        // Local preference already applied; DB sync can retry on next toggle.
+      })
+    }
   }
 
   return (
-    <label className="flex items-center gap-2">
-      <span className="sr-only">Theme</span>
-      <select
-        className="select select-bordered select-sm w-[9.5rem] font-semibold text-base-content"
-        value={selection}
-        onChange={onChange}
-        aria-label="Color theme"
+    <label className="swap swap-rotate btn btn-ghost btn-circle btn-sm text-base-content">
+      <span className="sr-only">Toggle color theme</span>
+      <input
+        type="checkbox"
+        className="theme-controller"
+        value="macchiato"
+        checked={theme === 'macchiato'}
+        onChange={(event) => {
+          persistTheme(event.target.checked ? 'macchiato' : 'latte')
+        }}
+        aria-label="Toggle color theme"
+      />
+      {/* sun — latte (light) */}
+      <svg
+        className="swap-off size-5 fill-current"
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        aria-hidden
       >
-        <option value="system">System</option>
-        {THEMES.map((theme: ThemeName) => (
-          <option key={theme} value={theme}>
-            {formatThemeLabel(theme)}
-          </option>
-        ))}
-      </select>
+        <path d="M5.64,17l-.71.71a1,1,0,0,0,0,1.41,1,1,0,0,0,1.41,0l.71-.71A1,1,0,0,0,5.64,17ZM5,12a1,1,0,0,0-1-1H3a1,1,0,0,0,0,2H4A1,1,0,0,0,5,12Zm7-7a1,1,0,0,0,1-1V3a1,1,0,0,0-2,0V4A1,1,0,0,0,12,5ZM5.64,7.05a1,1,0,0,0,.7.29,1,1,0,0,0,.71-.29,1,1,0,0,0,0-1.41l-.71-.71A1,1,0,0,0,4.93,6.34Zm12,.29a1,1,0,0,0,.7-.29l.71-.71a1,1,0,1,0-1.41-1.41L17,5.64a1,1,0,0,0,0,1.41A1,1,0,0,0,17.66,7.34ZM21,11H20a1,1,0,0,0,0,2h1a1,1,0,0,0,0-2Zm-9,8a1,1,0,0,0-1,1v1a1,1,0,0,0,2,0V20A1,1,0,0,0,12,19ZM18.36,17A1,1,0,0,0,17,18.36l.71.71a1,1,0,0,0,1.41,0,1,1,0,0,0,0-1.41ZM12,6.5A5.5,5.5,0,1,0,17.5,12,5.51,5.51,0,0,0,12,6.5Zm0,9A3.5,3.5,0,1,1,15.5,12,3.5,3.5,0,0,1,12,15.5Z" />
+      </svg>
+      {/* moon — macchiato (dark) */}
+      <svg
+        className="swap-on size-5 fill-current"
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        aria-hidden
+      >
+        <path d="M21.64,13a1,1,0,0,0-1.05-.14,8.05,8.05,0,0,1-3.37.73A8.15,8.15,0,0,1,9.08,5.49a8.59,8.59,0,0,1,.25-2A1,1,0,0,0,8,2.36,10.14,10.14,0,1,0,22,14.05,1,1,0,0,0,21.64,13Zm-9.5,6.69A8.14,8.14,0,0,1,7.08,5.22v.27A10.15,10.15,0,0,0,17.22,15.63a9.79,9.79,0,0,0,2.1-.22A8.11,8.11,0,0,1,12.14,19.73Z" />
+      </svg>
     </label>
   )
 }

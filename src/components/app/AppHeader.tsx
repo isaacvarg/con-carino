@@ -1,11 +1,7 @@
 import { Link, useRouterState } from '@tanstack/react-router'
 import type { AuthSession } from 'start-authjs'
-import {
-  HiOutlineBell,
-  HiOutlineChatAlt,
-  HiOutlineMenu,
-  HiOutlineSearch,
-} from 'react-icons/hi'
+import { HiOutlineMenu } from 'react-icons/hi'
+import { signOut } from '#/lib/auth-client'
 import ThemeToggle from '../ThemeToggle'
 import { titleForPath } from './nav'
 
@@ -72,51 +68,36 @@ export default function AppHeader({ onMenuClick }: AppHeaderProps) {
       </div>
 
       <div className="ml-auto flex flex-wrap items-center justify-end gap-2 sm:gap-3">
-        <label className="input input-bordered flex w-full max-w-xs items-center gap-2 rounded-full bg-base-100 text-base-content sm:w-64 lg:w-72">
-          <HiOutlineSearch
-            className="size-4 shrink-0 text-base-content/60"
-            aria-hidden
-          />
-          <input
-            type="search"
-            className="grow text-base-content placeholder:text-base-content/50"
-            placeholder="Search"
-            aria-label="Search"
-          />
-        </label>
-
         <ThemeToggle />
-
-        <button
-          type="button"
-          className="btn btn-ghost btn-circle btn-sm text-base-content"
-          aria-label="Messages"
-        >
-          <HiOutlineChatAlt className="size-5" aria-hidden />
-        </button>
-
-        <button
-          type="button"
-          className="btn btn-ghost btn-circle btn-sm text-base-content"
-          aria-label="Notifications"
-        >
-          <div className="indicator">
-            <HiOutlineBell className="size-5" aria-hidden />
-            <span className="badge indicator-item badge-error badge-xs" />
-          </div>
-        </button>
 
         {session?.user ? (
           <div className="flex items-center gap-2 pl-1">
             <span className="hidden text-sm font-semibold text-base-content sm:inline">
               {displayName}
             </span>
-            <div className="avatar avatar-placeholder">
-              <div className="w-9 rounded-full bg-secondary text-secondary-content">
-                <span className="text-xs font-semibold text-secondary-content">
-                  {initials}
-                </span>
+            <div className="dropdown dropdown-end">
+              <div
+                tabIndex={0}
+                role="button"
+                className="avatar avatar-placeholder cursor-pointer"
+                aria-label="Account menu"
+              >
+                <div className="w-9 rounded-full bg-secondary text-secondary-content">
+                  <span className="text-xs font-semibold text-secondary-content">
+                    {initials}
+                  </span>
+                </div>
               </div>
+              <ul
+                tabIndex={0}
+                className="menu dropdown-content z-50 mt-3 w-52 rounded-box bg-base-100 p-2 shadow-sm"
+              >
+                <li>
+                  <button type="button" onClick={() => void signOut()}>
+                    Log out
+                  </button>
+                </li>
+              </ul>
             </div>
           </div>
         ) : (

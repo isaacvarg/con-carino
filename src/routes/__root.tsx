@@ -39,7 +39,7 @@ async function getSessionCached() {
   return (await sessionInFlight).session
 }
 
-const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var themes=['concarino','light','dark','cupcake','bumblebee','emerald','corporate','synthwave','retro','cyberpunk','valentine','halloween','garden','forest','aqua','lofi','pastel','fantasy','wireframe','black','luxury','dracula','cmyk','autumn','business','acid','lemonade','night','coffee','winter','dim','nord','sunset','caramellatte','abyss','silk'];var darkThemes={dark:1,synthwave:1,halloween:1,forest:1,black:1,luxury:1,dracula:1,business:1,night:1,coffee:1,dim:1,abyss:1,sunset:1};var selection=(stored==='system'||stored==='auto'||!stored)?'system':(themes.indexOf(stored)>=0?stored:'system');var root=document.documentElement;var prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;if(selection==='system'){root.removeAttribute('data-theme');root.style.colorScheme=prefersDark?'dark':'light';}else{root.setAttribute('data-theme',selection);root.style.colorScheme=darkThemes[selection]?'dark':'light';}}catch(e){}})();`
+const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var theme=stored==='macchiato'?'macchiato':'latte';var root=document.documentElement;root.setAttribute('data-theme',theme);root.style.colorScheme=theme==='macchiato'?'dark':'light';}catch(e){}})();`
 
 export const Route = createRootRouteWithContext<RouterContext>()({
   beforeLoad: async () => {

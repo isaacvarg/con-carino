@@ -19,6 +19,7 @@ model User {
   swapRequestsMade  CareSwapRequest[] @relation("SwapRequestedBy")
   swapRequestsReviewed CareSwapRequest[] @relation("SwapReviewedBy")
   activityLogs      ActivityLog[]
+  configuration     UserConfiguration?
 
   @@map("users")
 }
