@@ -12,6 +12,9 @@ type BreadcrumbHref =
   | { to: '/activity' }
   | { to: '/schedule' }
   | { to: '/meds' }
+  | { to: '/meals' }
+  | { to: '/notes' }
+  | { to: '/shopping' }
   | { to: '/invoices' }
   | { to: '/documents' }
   | { to: '/insights' }

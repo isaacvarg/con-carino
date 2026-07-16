@@ -592,6 +592,177 @@ export const listVisibleTransactions = createServerFn({ method: 'GET' }).handler
   },
 )
 
+export const listRecentTransactions = createServerFn({ method: 'GET' })
+  .validator((data: unknown) => {
+    const input = (data ?? {}) as Record<string, unknown>
+    const takeRaw =
+      typeof input.take === 'number'
+        ? input.take
+        : typeof input.take === 'string'
+          ? Number(input.take)
+          : 8
+    const take = Number.isFinite(takeRaw)
+      ? Math.min(Math.max(Math.floor(takeRaw), 1), 20)
+      : 8
+    return { take }
+  })
+  .handler(async ({ data }): Promise<VisibleTransactionListItem[]> => {
+    const userId = await requireUserId()
+
+    const transactions = await prisma.transaction.findMany({
+      where: {
+        financialAccount: ownOrGlobal(userId),
+      },
+      orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+      take: data.take,
+      include: {
+        financialAccount: {
+          select: { id: true, name: true, isGlobal: true },
+        },
+        payee: { select: { id: true, name: true } },
+        category: { select: { id: true, name: true } },
+        tags: { select: { id: true, name: true }, orderBy: { name: 'asc' } },
+        reconciliationUpdatedBy: { select: { id: true, name: true } },
+      },
+    })
+
+    return transactions.map(toVisibleTransactionListItem)
+  })
+
+export type TaxonomyTransactionStat = {
+  id: string | null
+  name: string
+  count: number
+}
+
+export type PayeeTransactionStat = TaxonomyTransactionStat
+
+const STATS_TOP = 8
+
+function capTaxonomyStats(
+  stats: TaxonomyTransactionStat[],
+): TaxonomyTransactionStat[] {
+  const sorted = [...stats].sort((a, b) => b.count - a.count)
+  if (sorted.length <= STATS_TOP) return sorted
+  const head = sorted.slice(0, STATS_TOP)
+  const otherCount = sorted.slice(STATS_TOP).reduce((sum, s) => sum + s.count, 0)
+  return [...head, { id: null, name: 'Other', count: otherCount }]
+}
+
+export const getPayeeTransactionStats = createServerFn({
+  method: 'GET',
+}).handler(async (): Promise<TaxonomyTransactionStat[]> => {
+  const userId = await requireUserId()
+
+  const groups = await prisma.transaction.groupBy({
+    by: ['payeeId'],
+    where: {
+      financialAccount: ownOrGlobal(userId),
+    },
+    _count: { _all: true },
+  })
+
+  const payeeIds = groups
+    .map((g) => g.payeeId)
+    .filter((id): id is string => typeof id === 'string')
+
+  const payees =
+    payeeIds.length > 0
+      ? await prisma.payee.findMany({
+          where: { id: { in: payeeIds } },
+          select: { id: true, name: true },
+        })
+      : []
+  const nameById = new Map(payees.map((p) => [p.id, p.name]))
+
+  return capTaxonomyStats(
+    groups.map((g) => ({
+      id: g.payeeId,
+      name: g.payeeId ? (nameById.get(g.payeeId) ?? 'Unknown') : 'No payee',
+      count: g._count._all,
+    })),
+  )
+})
+
+export const getCategoryTransactionStats = createServerFn({
+  method: 'GET',
+}).handler(async (): Promise<TaxonomyTransactionStat[]> => {
+  const userId = await requireUserId()
+
+  const groups = await prisma.transaction.groupBy({
+    by: ['categoryId'],
+    where: {
+      financialAccount: ownOrGlobal(userId),
+    },
+    _count: { _all: true },
+  })
+
+  const categoryIds = groups
+    .map((g) => g.categoryId)
+    .filter((id): id is string => typeof id === 'string')
+
+  const categories =
+    categoryIds.length > 0
+      ? await prisma.category.findMany({
+          where: { id: { in: categoryIds } },
+          select: { id: true, name: true },
+        })
+      : []
+  const nameById = new Map(categories.map((c) => [c.id, c.name]))
+
+  return capTaxonomyStats(
+    groups.map((g) => ({
+      id: g.categoryId,
+      name: g.categoryId
+        ? (nameById.get(g.categoryId) ?? 'Unknown')
+        : 'No category',
+      count: g._count._all,
+    })),
+  )
+})
+
+export const getTagTransactionStats = createServerFn({
+  method: 'GET',
+}).handler(async (): Promise<TaxonomyTransactionStat[]> => {
+  const userId = await requireUserId()
+
+  const rows = await prisma.tag.findMany({
+    select: {
+      id: true,
+      name: true,
+      _count: {
+        select: {
+          transactions: {
+            where: { financialAccount: ownOrGlobal(userId) },
+          },
+        },
+      },
+    },
+  })
+
+  const withTags = rows
+    .filter((row) => row._count.transactions > 0)
+    .map((row) => ({
+      id: row.id,
+      name: row.name,
+      count: row._count.transactions,
+    }))
+
+  const untagged = await prisma.transaction.count({
+    where: {
+      financialAccount: ownOrGlobal(userId),
+      tags: { none: {} },
+    },
+  })
+
+  const stats: TaxonomyTransactionStat[] = [...withTags]
+  if (untagged > 0) {
+    stats.push({ id: null, name: 'No tags', count: untagged })
+  }
+
+  return capTaxonomyStats(stats)
+})
+
 export const getTransaction = createServerFn({ method: 'GET' })
   .validator((data: unknown) => {
     if (!data || typeof data !== 'object') {

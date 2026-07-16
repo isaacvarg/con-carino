@@ -1796,6 +1796,122 @@ async function ensureCalendarMaintenance(padStart: Date, padEnd: Date) {
   }
 }
 
+export type OpenCoverageSlotDto = {
+  id: string
+  startsAt: string
+  endsAt: string
+  notes: string | null
+  isRequired: boolean
+  seriesNotes: string | null
+}
+
+export type CoverageAssigneeStat = {
+  personId: string
+  name: string
+  count: number
+  bgColor: string | null
+  textColor: string | null
+}
+
+/** Local Sunday 00:00 through Saturday of the following week 23:59:59. */
+function thisAndNextWeekRange(now = new Date()) {
+  const rangeStart = new Date(now)
+  rangeStart.setHours(0, 0, 0, 0)
+  rangeStart.setDate(rangeStart.getDate() - rangeStart.getDay())
+
+  const rangeEnd = new Date(rangeStart)
+  rangeEnd.setDate(rangeEnd.getDate() + 13)
+  rangeEnd.setHours(23, 59, 59, 999)
+
+  return { rangeStart, rangeEnd }
+}
+
+export const listOpenCoverageSlots = createServerFn({
+  method: 'GET',
+}).handler(async (): Promise<OpenCoverageSlotDto[]> => {
+  await requireUserId()
+
+  const { rangeStart, rangeEnd } = thisAndNextWeekRange()
+
+  const padStart = new Date(rangeStart)
+  padStart.setDate(padStart.getDate() - 7)
+  const padEnd = new Date(rangeEnd)
+  padEnd.setDate(padEnd.getDate() + 7)
+
+  await ensureCalendarMaintenance(padStart, padEnd)
+
+  const rows = await prisma.careCoverageOccurrence.findMany({
+    where: {
+      assigneeId: null,
+      status: 'SCHEDULED',
+      startsAt: { gte: rangeStart, lte: rangeEnd },
+    },
+    orderBy: { startsAt: 'asc' },
+    include: {
+      series: { select: { isRequired: true, notes: true } },
+    },
+  })
+
+  return rows.map((row) => ({
+    id: row.id,
+    startsAt: row.startsAt.toISOString(),
+    endsAt: row.endsAt.toISOString(),
+    notes: row.notes,
+    isRequired: row.series?.isRequired ?? false,
+    seriesNotes: row.series?.notes ?? null,
+  }))
+})
+
+export const getCoverageAssigneeStats = createServerFn({
+  method: 'GET',
+}).handler(async (): Promise<CoverageAssigneeStat[]> => {
+  await requireUserId()
+
+  const { rangeStart, rangeEnd } = thisAndNextWeekRange()
+
+  const padStart = new Date(rangeStart)
+  padStart.setDate(padStart.getDate() - 7)
+  const padEnd = new Date(rangeEnd)
+  padEnd.setDate(padEnd.getDate() + 7)
+
+  await ensureCalendarMaintenance(padStart, padEnd)
+
+  const groups = await prisma.careCoverageOccurrence.groupBy({
+    by: ['assigneeId'],
+    where: {
+      assigneeId: { not: null },
+      status: { in: ['SCHEDULED', 'COMPLETED'] },
+      startsAt: { gte: rangeStart, lte: rangeEnd },
+    },
+    _count: { _all: true },
+  })
+
+  const personIds = groups
+    .map((g) => g.assigneeId)
+    .filter((id): id is string => typeof id === 'string')
+
+  if (personIds.length === 0) return []
+
+  const people = await prisma.carePerson.findMany({
+    where: { id: { in: personIds } },
+    select: { id: true, name: true, bgColor: true, textColor: true },
+  })
+  const personById = new Map(people.map((p) => [p.id, p]))
+
+  return groups
+    .map((g) => {
+      const person = g.assigneeId ? personById.get(g.assigneeId) : undefined
+      return {
+        personId: g.assigneeId!,
+        name: person?.name ?? 'Unknown',
+        count: g._count._all,
+        bgColor: person?.bgColor ?? null,
+        textColor: person?.textColor ?? null,
+      }
+    })
+    .sort((a, b) => b.count - a.count)
+})
+
 export const listCareCalendar = createServerFn({ method: 'GET' })
   .validator((data: unknown) => {
     if (!data || typeof data !== 'object') throw new Error('Invalid payload.')

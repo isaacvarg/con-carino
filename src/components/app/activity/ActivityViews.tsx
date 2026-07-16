@@ -325,14 +325,24 @@ function ActivityValue({ values }: { values: ActivityDisplayValue[] }) {
   )
 }
 
-export function DashboardRecentActivity({ items }: { items: ActivityListItem[] }) {
+export function DashboardRecentActivity({
+  items,
+  expanded = false,
+}: {
+  items: ActivityListItem[]
+  expanded?: boolean
+}) {
   const navigateToEntity = useNavigateToActivityEntity()
 
   const groups = groupByDay(items)
 
   return (
-    <div className="rounded-box bg-base-100 p-5 text-base-content shadow-sm">
-      <div className="mb-4 flex items-center justify-between gap-2">
+    <div
+      className={`w-full rounded-box bg-base-100 p-5 text-base-content shadow-sm ${
+        expanded ? 'flex h-full min-h-0 flex-1 flex-col' : ''
+      }`}
+    >
+      <div className="mb-4 flex w-full shrink-0 items-center justify-between gap-2">
         <h2 className="font-semibold text-base-content">Recent Activity</h2>
         <Link to="/activity" className="link link-hover text-xs text-base-content/60">
           View all
@@ -341,19 +351,23 @@ export function DashboardRecentActivity({ items }: { items: ActivityListItem[] }
       {items.length === 0 ? (
         <p className="text-sm text-base-content/60">No recent activity.</p>
       ) : (
-        <div className="space-y-5">
+        <div
+          className={`w-full space-y-5 ${
+            expanded ? 'min-h-0 flex-1 overflow-y-auto pr-1' : 'max-h-80 overflow-y-auto'
+          }`}
+        >
           {groups.map((group) => (
-            <div key={group.day}>
+            <div key={group.day} className="w-full">
               <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-base-content/70">
                 {group.day}
               </p>
-              <ul className="space-y-3">
+              <ul className="w-full space-y-3">
                 {group.items.map((item) => {
                   const href = resolveActivityHref(item)
                   return (
-                    <li key={item.id} className="flex gap-3">
-                      <div className="avatar avatar-placeholder">
-                        <div className="w-9 rounded-full bg-primary text-primary-content">
+                    <li key={item.id} className="flex w-full items-start gap-3">
+                      <div className="avatar avatar-placeholder shrink-0">
+                        <div className="aspect-square size-9 rounded-full bg-primary text-primary-content">
                           <span className="text-xs font-semibold text-primary-content">
                             {actorInitials(item.actor)}
                           </span>
@@ -363,7 +377,7 @@ export function DashboardRecentActivity({ items }: { items: ActivityListItem[] }
                         {href ? (
                           <button
                             type="button"
-                            className="text-left text-sm text-base-content hover:underline"
+                            className="w-full text-left text-sm text-base-content hover:underline"
                             onClick={() => navigateToEntity(item)}
                           >
                             <span className="font-semibold text-base-content">
@@ -390,7 +404,10 @@ export function DashboardRecentActivity({ items }: { items: ActivityListItem[] }
                             title="View audit details"
                             aria-label="View audit details"
                           >
-                            <HiOutlineSearch className="size-3.5" aria-hidden />
+                            <HiOutlineExternalLink
+                              className="size-3.5"
+                              aria-hidden
+                            />
                           </Link>
                         </div>
                       </div>

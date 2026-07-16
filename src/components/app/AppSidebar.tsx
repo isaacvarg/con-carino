@@ -1,4 +1,5 @@
 import { Link } from '@tanstack/react-router'
+import { LuHeart } from 'react-icons/lu'
 import { APP_NAV, type AppNavLink } from './nav'
 
 type AppSidebarProps = {
@@ -60,15 +61,10 @@ export default function AppSidebar({ onNavigate }: AppSidebarProps) {
         className="mb-8 flex items-center gap-2.5 px-2 text-base-content no-underline"
       >
         <span
-          className="grid size-8 place-items-center rounded-lg bg-secondary text-secondary-content"
+          className="grid size-8 place-items-center rounded-lg bg-primary/10 text-primary"
           aria-hidden="true"
         >
-          <span className="grid grid-cols-2 gap-0.5">
-            <span className="size-1.5 rounded-sm bg-primary" />
-            <span className="size-1.5 rounded-sm bg-primary" />
-            <span className="size-1.5 rounded-sm bg-primary" />
-            <span className="size-1.5 rounded-sm bg-primary" />
-          </span>
+          <LuHeart className="size-4" />
         </span>
         <span className="text-lg font-bold tracking-tight text-base-content">
           Con cariño

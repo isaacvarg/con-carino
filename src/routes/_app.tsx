@@ -29,7 +29,7 @@ function AppLayout() {
 
       <div className="drawer-content flex min-h-screen flex-col bg-base-100 lg:rounded-tl-[2.5rem]">
         <AppHeader onMenuClick={() => setDrawerOpen(true)} />
-        <div className="flex-1 px-4 pb-6 lg:px-6">
+        <div className="flex-1 px-6 pb-8 lg:px-10">
           <AppBreadcrumbs />
           <Outlet />
         </div>

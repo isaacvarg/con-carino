@@ -16,9 +16,12 @@ import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as ApiUploadsRouteImport } from './routes/api/uploads'
 import { Route as ApiFilesRouteImport } from './routes/api/files'
 import { Route as AppTransactionsRouteImport } from './routes/_app/transactions'
+import { Route as AppShoppingRouteImport } from './routes/_app/shopping'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppScheduleRouteImport } from './routes/_app/schedule'
+import { Route as AppNotesRouteImport } from './routes/_app/notes'
 import { Route as AppMedsRouteImport } from './routes/_app/meds'
+import { Route as AppMealsRouteImport } from './routes/_app/meals'
 import { Route as AppInvoicesRouteImport } from './routes/_app/invoices'
 import { Route as AppInsightsRouteImport } from './routes/_app/insights'
 import { Route as AppDocumentsRouteImport } from './routes/_app/documents'
@@ -84,6 +87,11 @@ const AppTransactionsRoute = AppTransactionsRouteImport.update({
   path: '/transactions',
   getParentRoute: () => AppRoute,
 } as any)
+const AppShoppingRoute = AppShoppingRouteImport.update({
+  id: '/shopping',
+  path: '/shopping',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsRoute = AppSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -94,9 +102,19 @@ const AppScheduleRoute = AppScheduleRouteImport.update({
   path: '/schedule',
   getParentRoute: () => AppRoute,
 } as any)
+const AppNotesRoute = AppNotesRouteImport.update({
+  id: '/notes',
+  path: '/notes',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppMedsRoute = AppMedsRouteImport.update({
   id: '/meds',
   path: '/meds',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppMealsRoute = AppMealsRouteImport.update({
+  id: '/meals',
+  path: '/meals',
   getParentRoute: () => AppRoute,
 } as any)
 const AppInvoicesRoute = AppInvoicesRouteImport.update({
@@ -267,9 +285,12 @@ export interface FileRoutesByFullPath {
   '/documents': typeof AppDocumentsRouteWithChildren
   '/insights': typeof AppInsightsRoute
   '/invoices': typeof AppInvoicesRoute
+  '/meals': typeof AppMealsRoute
   '/meds': typeof AppMedsRoute
+  '/notes': typeof AppNotesRoute
   '/schedule': typeof AppScheduleRoute
   '/settings': typeof AppSettingsRouteWithChildren
+  '/shopping': typeof AppShoppingRoute
   '/transactions': typeof AppTransactionsRouteWithChildren
   '/api/files': typeof ApiFilesRoute
   '/api/uploads': typeof ApiUploadsRoute
@@ -304,8 +325,11 @@ export interface FileRoutesByTo {
   '/care': typeof AppCareRoute
   '/insights': typeof AppInsightsRoute
   '/invoices': typeof AppInvoicesRoute
+  '/meals': typeof AppMealsRoute
   '/meds': typeof AppMedsRoute
+  '/notes': typeof AppNotesRoute
   '/schedule': typeof AppScheduleRoute
+  '/shopping': typeof AppShoppingRoute
   '/api/files': typeof ApiFilesRoute
   '/api/uploads': typeof ApiUploadsRoute
   '/': typeof AppIndexRoute
@@ -344,9 +368,12 @@ export interface FileRoutesById {
   '/_app/documents': typeof AppDocumentsRouteWithChildren
   '/_app/insights': typeof AppInsightsRoute
   '/_app/invoices': typeof AppInvoicesRoute
+  '/_app/meals': typeof AppMealsRoute
   '/_app/meds': typeof AppMedsRoute
+  '/_app/notes': typeof AppNotesRoute
   '/_app/schedule': typeof AppScheduleRoute
   '/_app/settings': typeof AppSettingsRouteWithChildren
+  '/_app/shopping': typeof AppShoppingRoute
   '/_app/transactions': typeof AppTransactionsRouteWithChildren
   '/api/files': typeof ApiFilesRoute
   '/api/uploads': typeof ApiUploadsRoute
@@ -388,9 +415,12 @@ export interface FileRouteTypes {
     | '/documents'
     | '/insights'
     | '/invoices'
+    | '/meals'
     | '/meds'
+    | '/notes'
     | '/schedule'
     | '/settings'
+    | '/shopping'
     | '/transactions'
     | '/api/files'
     | '/api/uploads'
@@ -425,8 +455,11 @@ export interface FileRouteTypes {
     | '/care'
     | '/insights'
     | '/invoices'
+    | '/meals'
     | '/meds'
+    | '/notes'
     | '/schedule'
+    | '/shopping'
     | '/api/files'
     | '/api/uploads'
     | '/'
@@ -464,9 +497,12 @@ export interface FileRouteTypes {
     | '/_app/documents'
     | '/_app/insights'
     | '/_app/invoices'
+    | '/_app/meals'
     | '/_app/meds'
+    | '/_app/notes'
     | '/_app/schedule'
     | '/_app/settings'
+    | '/_app/shopping'
     | '/_app/transactions'
     | '/api/files'
     | '/api/uploads'
@@ -557,6 +593,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppTransactionsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/shopping': {
+      id: '/_app/shopping'
+      path: '/shopping'
+      fullPath: '/shopping'
+      preLoaderRoute: typeof AppShoppingRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings': {
       id: '/_app/settings'
       path: '/settings'
@@ -571,11 +614,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppScheduleRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/notes': {
+      id: '/_app/notes'
+      path: '/notes'
+      fullPath: '/notes'
+      preLoaderRoute: typeof AppNotesRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/meds': {
       id: '/_app/meds'
       path: '/meds'
       fullPath: '/meds'
       preLoaderRoute: typeof AppMedsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/meals': {
+      id: '/_app/meals'
+      path: '/meals'
+      fullPath: '/meals'
+      preLoaderRoute: typeof AppMealsRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/invoices': {
@@ -904,9 +961,12 @@ interface AppRouteChildren {
   AppDocumentsRoute: typeof AppDocumentsRouteWithChildren
   AppInsightsRoute: typeof AppInsightsRoute
   AppInvoicesRoute: typeof AppInvoicesRoute
+  AppMealsRoute: typeof AppMealsRoute
   AppMedsRoute: typeof AppMedsRoute
+  AppNotesRoute: typeof AppNotesRoute
   AppScheduleRoute: typeof AppScheduleRoute
   AppSettingsRoute: typeof AppSettingsRouteWithChildren
+  AppShoppingRoute: typeof AppShoppingRoute
   AppTransactionsRoute: typeof AppTransactionsRouteWithChildren
   AppIndexRoute: typeof AppIndexRoute
 }
@@ -918,9 +978,12 @@ const AppRouteChildren: AppRouteChildren = {
   AppDocumentsRoute: AppDocumentsRouteWithChildren,
   AppInsightsRoute: AppInsightsRoute,
   AppInvoicesRoute: AppInvoicesRoute,
+  AppMealsRoute: AppMealsRoute,
   AppMedsRoute: AppMedsRoute,
+  AppNotesRoute: AppNotesRoute,
   AppScheduleRoute: AppScheduleRoute,
   AppSettingsRoute: AppSettingsRouteWithChildren,
+  AppShoppingRoute: AppShoppingRoute,
   AppTransactionsRoute: AppTransactionsRouteWithChildren,
   AppIndexRoute: AppIndexRoute,
 }

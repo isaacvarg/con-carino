@@ -1,5 +1,7 @@
 import type { IconType } from 'react-icons'
 import {
+  HiOutlineAnnotation,
+  HiOutlineCake,
   HiOutlineCalendar,
   HiOutlineClipboardList,
   HiOutlineClock,
@@ -8,6 +10,7 @@ import {
   HiOutlineDocumentText,
   HiOutlineLightBulb,
   HiOutlineReceiptTax,
+  HiOutlineShoppingCart,
   HiOutlineSwitchHorizontal,
   HiOutlineViewGrid,
 } from 'react-icons/hi'
@@ -19,6 +22,9 @@ export type AppNavPath =
   | '/activity'
   | '/schedule'
   | '/meds'
+  | '/meals'
+  | '/notes'
+  | '/shopping'
   | '/invoices'
   | '/documents'
   | '/insights'
@@ -106,6 +112,27 @@ export const APP_NAV: AppNavEntry[] = [
         to: '/meds',
         icon: HiOutlineClipboardList,
         title: 'Meds',
+      },
+      {
+        kind: 'link',
+        label: 'Meals',
+        to: '/meals',
+        icon: HiOutlineCake,
+        title: 'Meals',
+      },
+      {
+        kind: 'link',
+        label: 'Notes',
+        to: '/notes',
+        icon: HiOutlineAnnotation,
+        title: 'Notes',
+      },
+      {
+        kind: 'link',
+        label: 'Shopping',
+        to: '/shopping',
+        icon: HiOutlineShoppingCart,
+        title: 'Shopping',
       },
     ],
   },
