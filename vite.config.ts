@@ -8,6 +8,12 @@ import tailwindcss from '@tailwindcss/vite'
 const config = defineConfig({
   resolve: { tsconfigPaths: true },
   plugins: [tailwindcss(), tanstackStart(), viteReact()],
+  ssr: {
+    external: ['sharp', '@napi-rs/canvas', 'pdfjs-dist'],
+  },
+  optimizeDeps: {
+    exclude: ['sharp', '@napi-rs/canvas', 'pdfjs-dist'],
+  },
 })
 
 export default config

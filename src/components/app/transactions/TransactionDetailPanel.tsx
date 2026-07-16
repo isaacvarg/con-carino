@@ -1,5 +1,7 @@
 import { Link } from '@tanstack/react-router'
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
+import { HiOutlineDocument } from 'react-icons/hi'
+import type { AttachmentListItem } from '#/lib/attachment-types'
 import {
   formatAccountCurrency,
   formatTransactionDate,
@@ -31,6 +33,44 @@ function DetailField({
 function dash(value: string | null | undefined): string {
   const trimmed = value?.trim()
   return trimmed ? trimmed : '—'
+}
+
+function AttachmentCard({ attachment }: { attachment: AttachmentListItem }) {
+  const [thumbFailed, setThumbFailed] = useState(false)
+  const showThumb = attachment.thumbnailUrl !== null && !thumbFailed
+
+  return (
+    <a
+      href={attachment.fileUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="group w-24"
+      title={`Open ${attachment.fileName}`}
+    >
+      {showThumb ? (
+        <img
+          src={attachment.thumbnailUrl ?? undefined}
+          alt={attachment.fileName}
+          loading="lazy"
+          onError={() => setThumbFailed(true)}
+          className="h-24 w-24 rounded-box border border-base-300 bg-base-200/40 object-cover transition group-hover:border-primary"
+        />
+      ) : (
+        <div className="flex h-24 w-24 items-center justify-center rounded-box border border-base-300 bg-base-200/40 transition group-hover:border-primary">
+          <HiOutlineDocument
+            className="size-8 text-base-content/40"
+            aria-hidden
+          />
+        </div>
+      )}
+      <p className="mt-1 truncate text-xs font-medium group-hover:text-primary">
+        {attachment.fileName}
+      </p>
+      <p className="text-xs text-base-content/50">
+        {Math.max(1, Math.round(attachment.byteSize / 1024))} KB
+      </p>
+    </a>
+  )
 }
 
 export function TransactionDetailPanel({
@@ -141,17 +181,11 @@ export function TransactionDetailPanel({
             {transaction.attachments.length === 0 ? (
               '—'
             ) : (
-              <ul className="list-inside list-disc space-y-1">
+              <div className="flex flex-wrap gap-3">
                 {transaction.attachments.map((attachment) => (
-                  <li key={attachment.id} className="text-sm">
-                    {attachment.fileName}
-                    <span className="text-base-content/50">
-                      {' '}
-                      ({Math.max(1, Math.round(attachment.byteSize / 1024))} KB)
-                    </span>
-                  </li>
+                  <AttachmentCard key={attachment.id} attachment={attachment} />
                 ))}
-              </ul>
+              </div>
             )}
           </DetailField>
         </div>

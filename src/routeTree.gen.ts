@@ -13,6 +13,8 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
+import { Route as ApiUploadsRouteImport } from './routes/api/uploads'
+import { Route as ApiFilesRouteImport } from './routes/api/files'
 import { Route as AppTransactionsRouteImport } from './routes/_app/transactions'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppScheduleRouteImport } from './routes/_app/schedule'
@@ -58,6 +60,16 @@ const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => AppRoute,
+} as any)
+const ApiUploadsRoute = ApiUploadsRouteImport.update({
+  id: '/api/uploads',
+  path: '/api/uploads',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiFilesRoute = ApiFilesRouteImport.update({
+  id: '/api/files',
+  path: '/api/files',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AppTransactionsRoute = AppTransactionsRouteImport.update({
   id: '/transactions',
@@ -209,6 +221,8 @@ export interface FileRoutesByFullPath {
   '/schedule': typeof AppScheduleRoute
   '/settings': typeof AppSettingsRouteWithChildren
   '/transactions': typeof AppTransactionsRouteWithChildren
+  '/api/files': typeof ApiFilesRoute
+  '/api/uploads': typeof ApiUploadsRoute
   '/accounts/$accountId': typeof AppAccountsAccountIdRouteWithChildren
   '/accounts/new': typeof AppAccountsNewRoute
   '/activity/$activityId': typeof AppActivityActivityIdRoute
@@ -235,6 +249,8 @@ export interface FileRoutesByTo {
   '/invoices': typeof AppInvoicesRoute
   '/meds': typeof AppMedsRoute
   '/schedule': typeof AppScheduleRoute
+  '/api/files': typeof ApiFilesRoute
+  '/api/uploads': typeof ApiUploadsRoute
   '/': typeof AppIndexRoute
   '/accounts/new': typeof AppAccountsNewRoute
   '/activity/$activityId': typeof AppActivityActivityIdRoute
@@ -267,6 +283,8 @@ export interface FileRoutesById {
   '/_app/schedule': typeof AppScheduleRoute
   '/_app/settings': typeof AppSettingsRouteWithChildren
   '/_app/transactions': typeof AppTransactionsRouteWithChildren
+  '/api/files': typeof ApiFilesRoute
+  '/api/uploads': typeof ApiUploadsRoute
   '/_app/': typeof AppIndexRoute
   '/_app/accounts/$accountId': typeof AppAccountsAccountIdRouteWithChildren
   '/_app/accounts/new': typeof AppAccountsNewRoute
@@ -301,6 +319,8 @@ export interface FileRouteTypes {
     | '/schedule'
     | '/settings'
     | '/transactions'
+    | '/api/files'
+    | '/api/uploads'
     | '/accounts/$accountId'
     | '/accounts/new'
     | '/activity/$activityId'
@@ -327,6 +347,8 @@ export interface FileRouteTypes {
     | '/invoices'
     | '/meds'
     | '/schedule'
+    | '/api/files'
+    | '/api/uploads'
     | '/'
     | '/accounts/new'
     | '/activity/$activityId'
@@ -358,6 +380,8 @@ export interface FileRouteTypes {
     | '/_app/schedule'
     | '/_app/settings'
     | '/_app/transactions'
+    | '/api/files'
+    | '/api/uploads'
     | '/_app/'
     | '/_app/accounts/$accountId'
     | '/_app/accounts/new'
@@ -381,6 +405,8 @@ export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
   AboutRoute: typeof AboutRoute
   LoginRoute: typeof LoginRoute
+  ApiFilesRoute: typeof ApiFilesRoute
+  ApiUploadsRoute: typeof ApiUploadsRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
@@ -413,6 +439,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRoute
+    }
+    '/api/uploads': {
+      id: '/api/uploads'
+      path: '/api/uploads'
+      fullPath: '/api/uploads'
+      preLoaderRoute: typeof ApiUploadsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/files': {
+      id: '/api/files'
+      path: '/api/files'
+      fullPath: '/api/files'
+      preLoaderRoute: typeof ApiFilesRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/_app/transactions': {
       id: '/_app/transactions'
@@ -713,6 +753,8 @@ const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
   AboutRoute: AboutRoute,
   LoginRoute: LoginRoute,
+  ApiFilesRoute: ApiFilesRoute,
+  ApiUploadsRoute: ApiUploadsRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport

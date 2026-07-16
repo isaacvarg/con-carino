@@ -1,7 +1,8 @@
 model Attachment {
   id          String   @id @default(uuid())
   userId      String
-  storageKey  String   @unique
+  storageKey   String  @unique
+  thumbnailKey String?
   fileName    String
   contentType String
   byteSize    Int

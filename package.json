@@ -2,6 +2,7 @@
   "name": "con-carino",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@11.9.0",
   "imports": {
     "#/*": "./src/*"
   },
@@ -10,13 +11,14 @@
     "generate-routes": "tsr generate",
     "build": "vite build",
     "preview": "vite preview",
+    "start": "node server.prod.mjs",
     "test": "vitest run"
   },
   "dependencies": {
     "@auth/core": "^0.41.2",
     "@auth/prisma-adapter": "^2.11.2",
     "@aws-sdk/client-s3": "^3.1086.0",
-    "@aws-sdk/s3-request-presigner": "^3.1086.0",
+    "@napi-rs/canvas": "1.0.2",
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
     "@tailwindcss/vite": "^4.1.18",
@@ -26,10 +28,13 @@
     "@tanstack/react-start": "1.168.28",
     "@tanstack/react-table": "^8.21.3",
     "@tanstack/router-plugin": "^1.132.0",
+    "pdfjs-dist": "6.1.200",
     "pg": "^8.22.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-icons": "^5.7.0",
+    "sharp": "0.35.3",
+    "srvx": "0.11.22",
     "start-authjs": "^1.0.2",
     "tailwindcss": "^4.1.18"
   },

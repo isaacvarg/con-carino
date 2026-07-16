@@ -6,7 +6,6 @@ import {
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3'
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import {
   assertAllowedContentType,
   assertUploadSize,
@@ -35,9 +34,11 @@ function requireEnv(name: string): string {
   return value
 }
 
-function getBucket(): string {
+export function getBucketName(): string {
   return requireEnv('S3_BUCKET')
 }
+
+const getBucket = getBucketName
 
 export function getS3Client(): S3Client {
   if (globalForStorage.s3Client) {
@@ -162,13 +163,14 @@ export async function putObject(options: {
   return { key: options.key, bucket }
 }
 
-export async function getObject(key: string) {
+export async function getObject(key: string, range?: string) {
   const client = getS3Client()
   const bucket = getBucket()
   return client.send(
     new GetObjectCommand({
       Bucket: bucket,
       Key: key,
+      Range: range,
     }),
   )
 }
@@ -181,46 +183,6 @@ export async function deleteObject(key: string): Promise<void> {
       Bucket: bucket,
       Key: key,
     }),
-  )
-}
-
-const DEFAULT_PRESIGN_EXPIRES_IN = 60 * 15
-
-export async function presignGetObject(
-  key: string,
-  expiresIn = DEFAULT_PRESIGN_EXPIRES_IN,
-): Promise<string> {
-  const client = getS3Client()
-  const bucket = getBucket()
-  return getSignedUrl(
-    client,
-    new GetObjectCommand({ Bucket: bucket, Key: key }),
-    { expiresIn },
-  )
-}
-
-export async function presignPutObject(options: {
-  key: string
-  contentType: AllowedContentType
-  contentLength: number
-  expiresIn?: number
-}): Promise<string> {
-  assertAllowedContentType(options.contentType)
-  assertUploadSize(options.contentLength)
-  await ensureBucket()
-
-  const client = getS3Client()
-  const bucket = getBucket()
-
-  return getSignedUrl(
-    client,
-    new PutObjectCommand({
-      Bucket: bucket,
-      Key: options.key,
-      ContentType: options.contentType,
-      ContentLength: options.contentLength,
-    }),
-    { expiresIn: options.expiresIn ?? DEFAULT_PRESIGN_EXPIRES_IN },
   )
 }
 

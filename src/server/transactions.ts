@@ -10,12 +10,14 @@ import {
 import {
   assertAllowedContentType,
   assertUploadSize,
+  deriveThumbnailKey,
   MAX_ATTACHMENTS_PER_TXN,
   type AttachmentListItem,
   type AttachmentUploadMeta,
 } from '#/lib/attachment-types'
+import { buildSignedFileUrl } from '#/lib/file-tokens'
 import { prisma } from '#/lib/prisma'
-import { assertObjectKeyOwnedByUser } from '#/lib/storage'
+import { assertObjectKeyOwnedByUser, getBucketName } from '#/lib/storage'
 import {
   toSignedTransactionAmount,
   transactionTypeNeedsDirection,
@@ -193,7 +195,14 @@ export type TransactionDetailDto = VisibleTransactionListItem & {
   } | null
 }
 
-type AttachmentRef = AttachmentListItem
+type AttachmentRef = {
+  id: string
+  fileName: string
+  contentType: string
+  byteSize: number
+  storageKey: string
+  thumbnailKey: string | null
+}
 
 type TransactionWithTaxonomies = {
   id: string
@@ -218,12 +227,18 @@ type TransactionWithAccount = TransactionWithTaxonomies & {
 }
 
 function toAttachmentListItem(attachment: AttachmentRef): AttachmentListItem {
+  const bucket = getBucketName()
   return {
     id: attachment.id,
     fileName: attachment.fileName,
     contentType: attachment.contentType,
     byteSize: attachment.byteSize,
     storageKey: attachment.storageKey,
+    thumbnailKey: attachment.thumbnailKey,
+    fileUrl: buildSignedFileUrl(bucket, attachment.storageKey),
+    thumbnailUrl: attachment.thumbnailKey
+      ? buildSignedFileUrl(bucket, attachment.thumbnailKey)
+      : null,
   }
 }
 
@@ -309,6 +324,16 @@ function parseAttachments(value: unknown): AttachmentUploadMeta[] {
     assertAllowedContentType(contentType)
     assertUploadSize(byteSize)
 
+    // Thumbnail keys are derived server-side (see deriveThumbnailKey); the
+    // client may only echo that exact value back, or null when generation
+    // failed. Anything else is a forged key.
+    const rawThumbnailKey =
+      typeof entry.thumbnailKey === 'string' ? entry.thumbnailKey.trim() : null
+    const thumbnailKey = rawThumbnailKey || null
+    if (thumbnailKey !== null && thumbnailKey !== deriveThumbnailKey(storageKey)) {
+      throw new Error('Invalid attachment thumbnail key.')
+    }
+
     if (seenKeys.has(storageKey)) {
       throw new Error('Duplicate attachment keys are not allowed.')
     }
@@ -316,6 +341,7 @@ function parseAttachments(value: unknown): AttachmentUploadMeta[] {
 
     attachments.push({
       storageKey,
+      thumbnailKey,
       fileName,
       contentType,
       byteSize,
@@ -349,6 +375,7 @@ async function linkAttachments(
         data: {
           userId,
           storageKey: meta.storageKey,
+          thumbnailKey: meta.thumbnailKey,
           fileName: meta.fileName,
           contentType: meta.contentType,
           byteSize: meta.byteSize,
@@ -362,6 +389,7 @@ async function linkAttachments(
           contentType: true,
           byteSize: true,
           storageKey: true,
+          thumbnailKey: true,
         },
       }),
     ),
@@ -515,6 +543,7 @@ export const getTransaction = createServerFn({ method: 'GET' })
             contentType: true,
             byteSize: true,
             storageKey: true,
+            thumbnailKey: true,
           },
           orderBy: { createdAt: 'asc' },
         },

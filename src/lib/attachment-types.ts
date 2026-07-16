@@ -23,6 +23,7 @@ export const CONTENT_TYPE_EXTENSIONS: Record<AllowedContentType, string> = {
 
 export type AttachmentUploadMeta = {
   storageKey: string
+  thumbnailKey: string | null
   fileName: string
   contentType: string
   byteSize: number
@@ -34,6 +35,20 @@ export type AttachmentListItem = {
   contentType: string
   byteSize: number
   storageKey: string
+  thumbnailKey: string | null
+  /** Same-origin signed URL for the full file (see src/lib/file-tokens.ts). */
+  fileUrl: string
+  /** Same-origin signed URL for the thumbnail, when one was generated. */
+  thumbnailUrl: string | null
+}
+
+/**
+ * The thumbnail key is derived from the storage key rather than supplied by
+ * the client, so the server never has to trust a client-sent key and the
+ * `${userId}/` ownership prefix carries over automatically.
+ */
+export function deriveThumbnailKey(storageKey: string): string {
+  return storageKey.replace(/\.[^./]+$/, '') + '.thumb.webp'
 }
 
 export function isAllowedContentType(

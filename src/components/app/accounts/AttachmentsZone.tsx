@@ -12,7 +12,6 @@ import {
   MAX_UPLOAD_BYTES,
   type AttachmentUploadMeta,
 } from '#/lib/attachment-types'
-import { createUploadUrl } from '#/server/storage'
 
 export type AttachmentsZoneHandle = {
   uploadAll: () => Promise<AttachmentUploadMeta[]>
@@ -44,6 +43,10 @@ export const AttachmentsZone = forwardRef<
   const [pending, setPending] = useState<PendingFile[]>([])
   const [error, setError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [progress, setProgress] = useState<{
+    done: number
+    total: number
+  } | null>(null)
 
   function setUploadingState(next: boolean) {
     setUploading(next)
@@ -104,38 +107,34 @@ export const AttachmentsZone = forwardRef<
       const uploaded: AttachmentUploadMeta[] = []
 
       try {
-        for (const item of pending) {
+        for (const [index, item] of pending.entries()) {
           if (!isAllowedContentType(item.file.type)) {
             throw new Error(`Unsupported file type: ${item.file.name}`)
           }
 
-          const { key, uploadUrl } = await createUploadUrl({
-            data: {
-              contentType: item.file.type,
-              contentLength: item.file.size,
-            },
-          })
+          setProgress({ done: index, total: pending.length })
 
-          const response = await fetch(uploadUrl, {
-            method: 'PUT',
-            body: item.file,
-            headers: {
-              'Content-Type': item.file.type,
-            },
+          const form = new FormData()
+          form.append('file', item.file)
+          const response = await fetch('/api/uploads', {
+            method: 'POST',
+            body: form,
           })
 
           if (!response.ok) {
+            const body = (await response.json().catch(() => null)) as {
+              error?: string
+            } | null
             throw new Error(
-              `Failed to upload "${item.file.name}" (${response.status}).`,
+              body?.error ??
+                `Failed to upload "${item.file.name}" (${response.status}).`,
             )
           }
 
-          uploaded.push({
-            storageKey: key,
-            fileName: item.file.name,
-            contentType: item.file.type,
-            byteSize: item.file.size,
-          })
+          const { attachment } = (await response.json()) as {
+            attachment: AttachmentUploadMeta
+          }
+          uploaded.push(attachment)
         }
 
         return uploaded
@@ -145,6 +144,7 @@ export const AttachmentsZone = forwardRef<
         setError(message)
         throw err
       } finally {
+        setProgress(null)
         setUploadingState(false)
       }
     },
@@ -200,6 +200,13 @@ export const AttachmentsZone = forwardRef<
             </li>
           ))}
         </ul>
+      ) : null}
+
+      {progress ? (
+        <p className="mt-2 text-sm text-base-content/70" role="status">
+          Uploading {Math.min(progress.done + 1, progress.total)} of{' '}
+          {progress.total}…
+        </p>
       ) : null}
 
       {error ? (
