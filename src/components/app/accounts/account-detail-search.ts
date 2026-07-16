@@ -4,7 +4,11 @@ export const accountDetailSearchDefaults = {
   sort: '-date',
   q: '',
   cols: '',
+  mode: '',
+  reconView: 'list',
 } as const
+
+export type AccountReconView = 'list' | 'review'
 
 export type AccountTransactionsSearch = {
   page: number
@@ -12,12 +16,22 @@ export type AccountTransactionsSearch = {
   sort: string
   q: string
   cols: string
+  mode: '' | 'reconcile'
+  reconView: AccountReconView
 }
 
 function parsePositiveInt(value: unknown, fallback: number): number {
   const n = typeof value === 'number' ? value : Number(value)
   if (!Number.isFinite(n) || n < 1) return fallback
   return Math.floor(n)
+}
+
+function parseMode(value: unknown): '' | 'reconcile' {
+  return value === 'reconcile' ? 'reconcile' : ''
+}
+
+function parseReconView(value: unknown): AccountReconView {
+  return value === 'review' ? 'review' : 'list'
 }
 
 export function validateAccountTransactionsSearch(
@@ -38,5 +52,7 @@ export function validateAccountTransactionsSearch(
       typeof search.cols === 'string'
         ? search.cols
         : accountDetailSearchDefaults.cols,
+    mode: parseMode(search.mode),
+    reconView: parseReconView(search.reconView),
   }
 }

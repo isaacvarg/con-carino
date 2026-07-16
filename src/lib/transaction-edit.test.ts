@@ -67,6 +67,7 @@ describe('transaction activity snapshots', () => {
       transferGroupId: null,
       tagIds: ['tag-b', 'tag-a'],
       attachmentIds: ['att-2', 'att-1'],
+      reconciliationStatus: 'UNCLEARED',
     })
     const after = buildTransactionActivitySnapshot({
       financialAccountId: 'acct-1',
@@ -79,6 +80,7 @@ describe('transaction activity snapshots', () => {
       transferGroupId: null,
       tagIds: ['tag-a'],
       attachmentIds: ['att-1'],
+      reconciliationStatus: 'CLEARED',
     })
 
     expect(before.tagIds).toEqual(['tag-a', 'tag-b'])
@@ -100,6 +102,10 @@ describe('transaction activity snapshots', () => {
     expect(changes.attachmentIds).toEqual({
       before: JSON.stringify(['att-1', 'att-2']),
       after: JSON.stringify(['att-1']),
+    })
+    expect(changes.reconciliationStatus).toEqual({
+      before: 'UNCLEARED',
+      after: 'CLEARED',
     })
     expect(changes.type).toBeUndefined()
   })

@@ -12,6 +12,7 @@ model User {
   financialAccounts FinancialAccount[]
   accountGroups     AccountGroup[]
   transactions      Transaction[]
+  transactionsReconciliationUpdated Transaction[] @relation("TransactionReconciliationUpdatedBy")
   attachments       Attachment[]
   carePerson        CarePerson?
   swapRequestsMade  CareSwapRequest[] @relation("SwapRequestedBy")

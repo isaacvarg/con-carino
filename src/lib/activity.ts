@@ -38,6 +38,7 @@ export type ActivityLinkMeta = {
   isGlobal?: boolean
   invoiceId?: string
   accountName?: string
+  duringReconciliation?: boolean
 }
 
 export type ActivityHref =
@@ -54,6 +55,8 @@ export type ActivityHref =
         sort: string
         q: string
         cols: string
+        mode: '' | 'reconcile'
+        reconView: 'list' | 'review'
       }
     }
   | {
@@ -185,6 +188,8 @@ export function resolveActivityHref(entry: ResolveActivityInput): ActivityHref {
           sort: '-date',
           q: '',
           cols: '',
+          mode: '',
+          reconView: 'list',
         },
       }
     case ACTIVITY_ENTITY_TYPES.invoice:
@@ -241,6 +246,7 @@ export const ACTIVITY_FIELD_LABELS: Record<string, string> = {
   transferGroupId: 'Transfer group',
   tagIds: 'Tags',
   attachmentIds: 'Attachments',
+  reconciliationStatus: 'Reconciliation status',
 }
 
 export function formatActivityField(field: string): string {

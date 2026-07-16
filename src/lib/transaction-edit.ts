@@ -70,6 +70,7 @@ export const TRANSACTION_UPDATE_ACTIVITY_FIELDS = [
   'transferGroupId',
   'tagIds',
   'attachmentIds',
+  'reconciliationStatus',
 ] as const
 
 export type TransactionActivitySnapshot = {
@@ -83,6 +84,7 @@ export type TransactionActivitySnapshot = {
   transferGroupId: string | null
   tagIds: string[]
   attachmentIds: string[]
+  reconciliationStatus: string
 }
 
 export function buildTransactionActivitySnapshot(input: {
@@ -96,6 +98,7 @@ export function buildTransactionActivitySnapshot(input: {
   transferGroupId: string | null
   tagIds: string[]
   attachmentIds: string[]
+  reconciliationStatus?: string | null
 }): TransactionActivitySnapshot {
   const date =
     input.date instanceof Date ? input.date.toISOString() : input.date
@@ -111,5 +114,6 @@ export function buildTransactionActivitySnapshot(input: {
     transferGroupId: input.transferGroupId,
     tagIds: sortedIdList(input.tagIds),
     attachmentIds: sortedIdList(input.attachmentIds),
+    reconciliationStatus: input.reconciliationStatus ?? 'UNCLEARED',
   }
 }

@@ -7,6 +7,13 @@ enum TransactionType {
   REIMBURSEMENT
 }
 
+enum ReconciliationStatus {
+  UNCLEARED
+  CLEARED
+  NEEDS_REVIEW
+  RECONCILED
+}
+
 model Transaction {
   id                 String          @id @default(uuid())
   userId             String
@@ -19,21 +26,27 @@ model Transaction {
   date               DateTime
   // Links the two paired rows that make up a single transfer.
   transferGroupId    String?
+  reconciliationStatus      ReconciliationStatus @default(UNCLEARED)
+  reconciliationUpdatedAt   DateTime?
+  reconciliationUpdatedById String?
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
 
-  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  financialAccount FinancialAccount @relation(fields: [financialAccountId], references: [id], onDelete: Cascade)
-  payee            Payee?           @relation(fields: [payeeId], references: [id], onDelete: SetNull)
-  category         Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  tags             Tag[]
-  attachments      Attachment[]
-  careInvoice      CareInvoice?
+  user                    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  financialAccount        FinancialAccount @relation(fields: [financialAccountId], references: [id], onDelete: Cascade)
+  payee                   Payee?           @relation(fields: [payeeId], references: [id], onDelete: SetNull)
+  category                Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  reconciliationUpdatedBy User?            @relation("TransactionReconciliationUpdatedBy", fields: [reconciliationUpdatedById], references: [id], onDelete: SetNull)
+  tags                    Tag[]
+  attachments             Attachment[]
+  careInvoice             CareInvoice?
 
   @@index([userId, date])
   @@index([financialAccountId, date])
+  @@index([financialAccountId, reconciliationStatus])
   @@index([payeeId])
   @@index([categoryId])
   @@index([transferGroupId])
+  @@index([reconciliationUpdatedById])
   @@map("transactions")
 }

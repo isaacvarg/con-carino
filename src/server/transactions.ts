@@ -1,8 +1,14 @@
 import { createServerFn } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
 import { getSession } from 'start-authjs'
-import { TransactionType as TransactionTypeEnum } from '#/generated/prisma/enums'
-import type { TransactionType } from '#/generated/prisma/enums'
+import {
+  ReconciliationStatus as ReconciliationStatusEnum,
+  TransactionType as TransactionTypeEnum,
+} from '#/generated/prisma/enums'
+import type {
+  ReconciliationStatus,
+  TransactionType,
+} from '#/generated/prisma/enums'
 import {
   ACTIVITY_ENTITY_TYPES,
   createChanges,
@@ -32,6 +38,12 @@ import {
   transactionTypeNeedsDirection,
   type TransactionDirection,
 } from '#/lib/transaction-amount'
+import {
+  assertCanMutateReconciliationStatus,
+  isMutableReconciliationStatus,
+  reconciliationStatusActivitySummary,
+  type MutableReconciliationStatus,
+} from '#/lib/reconciliation'
 import {
   buildTransactionActivitySnapshot,
   directionFromSignedAmount,
@@ -70,6 +82,11 @@ const ATTACHMENT_SELECT = {
   thumbnailKey: true,
 } as const
 
+export type ReconciliationActorRef = {
+  id: string
+  name: string | null
+}
+
 export type TransactionListItem = {
   id: string
   userId: string
@@ -82,6 +99,9 @@ export type TransactionListItem = {
   category: TaxonomyRef | null
   tags: TaxonomyRef[]
   attachments: AttachmentListItem[]
+  reconciliationStatus: ReconciliationStatus
+  reconciliationUpdatedAt: string | null
+  reconciliationUpdatedBy: ReconciliationActorRef | null
 }
 
 const UUID_RE =
@@ -248,6 +268,9 @@ type TransactionWithTaxonomies = {
   category: TaxonomyRef | null
   tags: TaxonomyRef[]
   attachments?: AttachmentRef[]
+  reconciliationStatus: ReconciliationStatus
+  reconciliationUpdatedAt: Date | null
+  reconciliationUpdatedBy?: ReconciliationActorRef | null
 }
 
 type TransactionWithAccount = TransactionWithTaxonomies & {
@@ -291,6 +314,16 @@ function toTransactionListItem(
       : null,
     tags: txn.tags.map((tag) => ({ id: tag.id, name: tag.name })),
     attachments: (txn.attachments ?? []).map(toAttachmentListItem),
+    reconciliationStatus: txn.reconciliationStatus,
+    reconciliationUpdatedAt: txn.reconciliationUpdatedAt
+      ? txn.reconciliationUpdatedAt.toISOString()
+      : null,
+    reconciliationUpdatedBy: txn.reconciliationUpdatedBy
+      ? {
+          id: txn.reconciliationUpdatedBy.id,
+          name: txn.reconciliationUpdatedBy.name,
+        }
+      : null,
   }
 }
 
@@ -313,6 +346,9 @@ function emptyTaxonomies() {
     category: null as TaxonomyRef | null,
     tags: [] as TaxonomyRef[],
     attachments: [] as AttachmentListItem[],
+    reconciliationStatus: 'UNCLEARED' as ReconciliationStatus,
+    reconciliationUpdatedAt: null as string | null,
+    reconciliationUpdatedBy: null as ReconciliationActorRef | null,
   }
 }
 
@@ -451,7 +487,18 @@ async function assertAccountVisible(userId: string, accountId: string) {
     where: {
       AND: [{ id: accountId }, ownOrGlobal(userId)],
     },
-    select: { id: true, name: true, initialBalance: true },
+    select: { id: true, name: true, initialBalance: true, userId: true, isGlobal: true },
+  })
+  if (!account) {
+    throw new Error('Account not found.')
+  }
+  return account
+}
+
+async function assertAccountOwned(userId: string, accountId: string) {
+  const account = await prisma.financialAccount.findFirst({
+    where: { id: accountId, userId },
+    select: { id: true, name: true, userId: true, isGlobal: true },
   })
   if (!account) {
     throw new Error('Account not found.')
@@ -510,6 +557,11 @@ export const listAccountTransactions = createServerFn({ method: 'GET' })
         payee: { select: { id: true, name: true } },
         category: { select: { id: true, name: true } },
         tags: { select: { id: true, name: true }, orderBy: { name: 'asc' } },
+        attachments: {
+          select: ATTACHMENT_SELECT,
+          orderBy: { createdAt: 'asc' },
+        },
+        reconciliationUpdatedBy: { select: { id: true, name: true } },
       },
     })
 
@@ -532,6 +584,7 @@ export const listVisibleTransactions = createServerFn({ method: 'GET' }).handler
         payee: { select: { id: true, name: true } },
         category: { select: { id: true, name: true } },
         tags: { select: { id: true, name: true }, orderBy: { name: 'asc' } },
+        reconciliationUpdatedBy: { select: { id: true, name: true } },
       },
     })
 
@@ -573,6 +626,7 @@ export const getTransaction = createServerFn({ method: 'GET' })
           orderBy: { createdAt: 'asc' },
         },
         careInvoice: { select: { id: true, status: true } },
+        reconciliationUpdatedBy: { select: { id: true, name: true } },
       },
     })
 
@@ -632,6 +686,9 @@ function toTransactionDetailDto(
     transferGroupId: string | null
     createdAt: Date
     updatedAt: Date
+    reconciliationStatus: ReconciliationStatus
+    reconciliationUpdatedAt: Date | null
+    reconciliationUpdatedBy?: ReconciliationActorRef | null
     payee: ColoredTaxonomyRef | null
     category: ColoredTaxonomyRef | null
     tags: ColoredTaxonomyRef[]
@@ -667,6 +724,16 @@ function toTransactionDetailDto(
     transferGroupId: txn.transferGroupId,
     createdAt: txn.createdAt.toISOString(),
     updatedAt: txn.updatedAt.toISOString(),
+    reconciliationStatus: txn.reconciliationStatus,
+    reconciliationUpdatedAt: txn.reconciliationUpdatedAt
+      ? txn.reconciliationUpdatedAt.toISOString()
+      : null,
+    reconciliationUpdatedBy: txn.reconciliationUpdatedBy
+      ? {
+          id: txn.reconciliationUpdatedBy.id,
+          name: txn.reconciliationUpdatedBy.name,
+        }
+      : null,
     transferCounterpart,
     careInvoice: txn.careInvoice
       ? { id: txn.careInvoice.id, status: txn.careInvoice.status }
@@ -1071,6 +1138,7 @@ const detailInclude = {
     orderBy: { createdAt: 'asc' as const },
   },
   careInvoice: { select: { id: true, status: true } },
+  reconciliationUpdatedBy: { select: { id: true, name: true } },
 } as const
 
 export const updateTransaction = createServerFn({ method: 'POST' })
@@ -1092,6 +1160,11 @@ export const updateTransaction = createServerFn({ method: 'POST' })
 
     const direction = parseDirection(input.direction)
 
+    const dateRaw = typeof input.date === 'string' ? input.date.trim() : ''
+    if (dateRaw) {
+      parseDate(dateRaw)
+    }
+
     const payee =
       typeof input.payee === 'string'
         ? input.payee
@@ -1109,17 +1182,20 @@ export const updateTransaction = createServerFn({ method: 'POST' })
       : []
     const keepAttachmentIds = parseKeepAttachmentIds(input.keepAttachmentIds)
     const attachments = parseAttachments(input.attachments)
+    const duringReconciliation = input.duringReconciliation === true
 
     return {
       id,
       amount,
       description: description || null,
       direction,
+      date: dateRaw || null,
       payee,
       category,
       tags,
       keepAttachmentIds,
       attachments,
+      duringReconciliation,
     }
   })
   .handler(async ({ data }): Promise<TransactionDetailDto> => {
@@ -1143,6 +1219,10 @@ export const updateTransaction = createServerFn({ method: 'POST' })
     if (!existing) {
       throw new Error('Transaction not found.')
     }
+
+    assertCanMutateReconciliationStatus(existing.reconciliationStatus)
+
+    const nextDate = data.date ? parseDate(data.date) : existing.date
 
     const isTransfer = existing.type === 'TRANSFER'
     const magnitude = parsePositiveAmount(data.amount)
@@ -1186,6 +1266,7 @@ export const updateTransaction = createServerFn({ method: 'POST' })
       payeeId: string | null
       categoryId: string | null
       transferGroupId: string | null
+      reconciliationStatus: ReconciliationStatus
       financialAccount: {
         name: string
         isGlobal: boolean
@@ -1230,6 +1311,7 @@ export const updateTransaction = createServerFn({ method: 'POST' })
       transferGroupId: existing.transferGroupId,
       tagIds: existing.tags.map((tag) => tag.id),
       attachmentIds: existing.attachments.map((item) => item.id),
+      reconciliationStatus: existing.reconciliationStatus,
     })
 
     const counterpartBeforeSnapshot = counterpart
@@ -1244,6 +1326,7 @@ export const updateTransaction = createServerFn({ method: 'POST' })
           transferGroupId: counterpart.transferGroupId,
           tagIds: counterpart.tags.map((tag) => tag.id),
           attachmentIds: counterpart.attachments.map((item) => item.id),
+          reconciliationStatus: counterpart.reconciliationStatus,
         })
       : null
 
@@ -1261,6 +1344,7 @@ export const updateTransaction = createServerFn({ method: 'POST' })
         data: {
           amount: signedAmount,
           description: data.description,
+          date: nextDate,
           ...(isTransfer
             ? {}
             : {
@@ -1272,11 +1356,13 @@ export const updateTransaction = createServerFn({ method: 'POST' })
       })
 
       if (counterpart && counterpartSignedAmount !== null) {
+        assertCanMutateReconciliationStatus(counterpart.reconciliationStatus)
         await tx.transaction.update({
           where: { id: counterpart.id },
           data: {
             amount: counterpartSignedAmount,
             description: data.description,
+            date: nextDate,
           },
         })
       }
@@ -1346,6 +1432,7 @@ export const updateTransaction = createServerFn({ method: 'POST' })
       transferGroupId: updated.transferGroupId,
       tagIds: updated.tags.map((tag) => tag.id),
       attachmentIds: updated.attachments.map((item) => item.id),
+      reconciliationStatus: updated.reconciliationStatus,
     })
 
     const changes = diffChanges(
@@ -1356,16 +1443,22 @@ export const updateTransaction = createServerFn({ method: 'POST' })
 
     if (Object.keys(changes).length > 0) {
       const amountLabel = Math.abs(Number(updated.amount.toString())).toFixed(2)
+      const baseSummary = `Updated ${updated.type.toLowerCase().replaceAll('_', ' ')} of $${amountLabel} on ${updated.financialAccount.name}`
       await logActivity({
         actorUserId: userId,
         action: 'UPDATE',
         entityType: ACTIVITY_ENTITY_TYPES.transaction,
         entityId: updated.id,
-        summary: `Updated ${updated.type.toLowerCase().replaceAll('_', ' ')} of $${amountLabel} on ${updated.financialAccount.name}`,
+        summary: data.duringReconciliation
+          ? `${baseSummary} during reconciliation`
+          : baseSummary,
         changes,
         linkMeta: {
           isGlobal: updated.financialAccount.isGlobal,
           accountName: updated.financialAccount.name,
+          ...(data.duringReconciliation
+            ? { duringReconciliation: true }
+            : {}),
         },
         visibilityUserId: updated.financialAccount.userId,
       })
@@ -1393,6 +1486,7 @@ export const updateTransaction = createServerFn({ method: 'POST' })
         transferGroupId: updatedCounterpart.transferGroupId,
         tagIds: updatedCounterpart.tags.map((tag) => tag.id),
         attachmentIds: updatedCounterpart.attachments.map((item) => item.id),
+        reconciliationStatus: updatedCounterpart.reconciliationStatus,
       })
       const counterpartChanges = diffChanges(
         counterpartBeforeSnapshot,
@@ -1403,16 +1497,22 @@ export const updateTransaction = createServerFn({ method: 'POST' })
         const amountLabel = Math.abs(
           Number(updatedCounterpart.amount.toString()),
         ).toFixed(2)
+        const baseSummary = `Updated transfer of $${amountLabel} on ${updatedCounterpart.financialAccount.name}`
         await logActivity({
           actorUserId: userId,
           action: 'UPDATE',
           entityType: ACTIVITY_ENTITY_TYPES.transaction,
           entityId: updatedCounterpart.id,
-          summary: `Updated transfer of $${amountLabel} on ${updatedCounterpart.financialAccount.name}`,
+          summary: data.duringReconciliation
+            ? `${baseSummary} during reconciliation`
+            : baseSummary,
           changes: counterpartChanges,
           linkMeta: {
             isGlobal: updatedCounterpart.financialAccount.isGlobal,
             accountName: updatedCounterpart.financialAccount.name,
+            ...(data.duringReconciliation
+              ? { duringReconciliation: true }
+              : {}),
           },
           visibilityUserId: updatedCounterpart.financialAccount.userId,
         })
@@ -1456,3 +1556,165 @@ export const updateTransaction = createServerFn({ method: 'POST' })
 
     return toTransactionDetailDto(updated, transferCounterpart)
   })
+
+export const setTransactionReconciliationStatus = createServerFn({
+  method: 'POST',
+})
+  .validator((data: unknown) => {
+    if (!data || typeof data !== 'object') {
+      throw new Error('Invalid payload.')
+    }
+    const input = data as Record<string, unknown>
+    const id = typeof input.id === 'string' ? input.id.trim() : ''
+    if (!id) {
+      throw new Error('Transaction id is required.')
+    }
+    if (!isMutableReconciliationStatus(input.status)) {
+      throw new Error('Invalid reconciliation status.')
+    }
+    return {
+      id,
+      status: input.status as MutableReconciliationStatus,
+    }
+  })
+  .handler(async ({ data }): Promise<TransactionListItem> => {
+    const userId = await requireUserId()
+
+    const existing = await prisma.transaction.findFirst({
+      where: {
+        id: data.id,
+        financialAccount: { userId },
+      },
+      include: {
+        financialAccount: {
+          select: { id: true, name: true, isGlobal: true, userId: true },
+        },
+        payee: { select: { id: true, name: true } },
+        category: { select: { id: true, name: true } },
+        tags: { select: { id: true, name: true }, orderBy: { name: 'asc' } },
+        reconciliationUpdatedBy: { select: { id: true, name: true } },
+      },
+    })
+
+    if (!existing) {
+      throw new Error('Transaction not found.')
+    }
+
+    assertCanMutateReconciliationStatus(existing.reconciliationStatus)
+
+    if (existing.reconciliationStatus === data.status) {
+      return toTransactionListItem(existing)
+    }
+
+    const now = new Date()
+    const updated = await prisma.transaction.update({
+      where: { id: existing.id },
+      data: {
+        reconciliationStatus: data.status,
+        reconciliationUpdatedAt: now,
+        reconciliationUpdatedById: userId,
+      },
+      include: {
+        payee: { select: { id: true, name: true } },
+        category: { select: { id: true, name: true } },
+        tags: { select: { id: true, name: true }, orderBy: { name: 'asc' } },
+        reconciliationUpdatedBy: { select: { id: true, name: true } },
+      },
+    })
+
+    await logActivity({
+      actorUserId: userId,
+      action: 'UPDATE',
+      entityType: ACTIVITY_ENTITY_TYPES.transaction,
+      entityId: updated.id,
+      summary: reconciliationStatusActivitySummary(data.status),
+      changes: {
+        reconciliationStatus: {
+          before: existing.reconciliationStatus,
+          after: data.status,
+        },
+      },
+      linkMeta: {
+        isGlobal: existing.financialAccount.isGlobal,
+        accountName: existing.financialAccount.name,
+        duringReconciliation: true,
+      },
+      visibilityUserId: existing.financialAccount.userId,
+    })
+
+    return toTransactionListItem(updated)
+  })
+
+export const finishAccountReconciliation = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    if (!data || typeof data !== 'object') {
+      throw new Error('Invalid payload.')
+    }
+    const accountId =
+      typeof (data as { accountId?: unknown }).accountId === 'string'
+        ? (data as { accountId: string }).accountId.trim()
+        : ''
+    if (!accountId) {
+      throw new Error('Account id is required.')
+    }
+    return { accountId }
+  })
+  .handler(
+    async ({
+      data,
+    }): Promise<{ reconciledCount: number; transactionIds: string[] }> => {
+      const userId = await requireUserId()
+      const account = await assertAccountOwned(userId, data.accountId)
+
+      const cleared = await prisma.transaction.findMany({
+        where: {
+          financialAccountId: account.id,
+          reconciliationStatus: ReconciliationStatusEnum.CLEARED,
+        },
+        select: {
+          id: true,
+          reconciliationStatus: true,
+        },
+      })
+
+      if (cleared.length === 0) {
+        return { reconciledCount: 0, transactionIds: [] }
+      }
+
+      const now = new Date()
+      const ids = cleared.map((txn) => txn.id)
+
+      await prisma.transaction.updateMany({
+        where: { id: { in: ids } },
+        data: {
+          reconciliationStatus: ReconciliationStatusEnum.RECONCILED,
+          reconciliationUpdatedAt: now,
+          reconciliationUpdatedById: userId,
+        },
+      })
+
+      for (const txn of cleared) {
+        await logActivity({
+          actorUserId: userId,
+          action: 'UPDATE',
+          entityType: ACTIVITY_ENTITY_TYPES.transaction,
+          entityId: txn.id,
+          summary: reconciliationStatusActivitySummary('RECONCILED'),
+          changes: {
+            reconciliationStatus: {
+              before: txn.reconciliationStatus,
+              after: ReconciliationStatusEnum.RECONCILED,
+            },
+          },
+          linkMeta: {
+            isGlobal: account.isGlobal,
+            accountName: account.name,
+            duringReconciliation: true,
+          },
+          visibilityUserId: account.userId,
+        })
+      }
+
+      return { reconciledCount: ids.length, transactionIds: ids }
+    },
+  )

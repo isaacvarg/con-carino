@@ -302,6 +302,7 @@ export function TransactionDetailPanel({
   const attachmentsRef = useRef<AttachmentsZoneHandle>(null)
 
   const isTransfer = transaction.type === 'TRANSFER'
+  const isReconciled = transaction.reconciliationStatus === 'RECONCILED'
   const amount = Number(transaction.amount)
   const amountTone =
     amount < 0 ? 'text-error' : amount > 0 ? 'text-success' : 'text-base-content'
@@ -385,10 +386,13 @@ export function TransactionDetailPanel({
           <p className="text-sm text-base-content/60">
             {formatTransactionDate(transaction.date)} ·{' '}
             {transactionTypeLabel(transaction.type)}
+            {transaction.reconciliationStatus !== 'UNCLEARED'
+              ? ` · ${transaction.reconciliationStatus === 'CLEARED' ? 'Cleared' : transaction.reconciliationStatus === 'NEEDS_REVIEW' ? 'Needs review' : 'Reconciled'}`
+              : null}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {!editing ? (
+          {!editing && !isReconciled ? (
             <button
               type="button"
               className="btn btn-outline btn-sm gap-1.5"
