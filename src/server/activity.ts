@@ -4,11 +4,16 @@ import { getSession } from 'start-authjs'
 import type { ActivityAction } from '#/generated/prisma/enums'
 import type { Prisma } from '#/generated/prisma/client'
 import {
+  ACTIVITY_ENTITY_TYPES,
   type ActivityChanges,
   type ActivityLinkMeta,
   entityTypeLabel,
 } from '#/lib/activity'
 import { prisma } from '#/lib/prisma'
+import {
+  resolveActivityChanges,
+  type ResolvedActivityChange,
+} from '#/server/activity-labels'
 import { authConfig } from '#/utils/auth'
 
 async function requireUserId() {
@@ -69,6 +74,8 @@ export type ActivityListItem = {
 
 export type ActivityDetail = ActivityListItem & {
   changes: ActivityChanges | null
+  /** `changes` with human field labels and ids resolved to names, for display. */
+  resolvedChanges: ResolvedActivityChange[] | null
 }
 
 function toListItem(row: {
@@ -195,8 +202,58 @@ export const getActivity = createServerFn({ method: 'GET' })
     if (!row) {
       throw new Error('Activity not found.')
     }
+    const changes = parseChanges(row.changes)
+    const [resolvedChanges] = await resolveActivityChanges([changes])
     return {
       ...toListItem(row),
-      changes: parseChanges(row.changes),
+      changes,
+      resolvedChanges,
     }
+  })
+
+export const listTransactionActivity = createServerFn({ method: 'GET' })
+  .validator((data: unknown) => {
+    if (!data || typeof data !== 'object') {
+      throw new Error('Invalid payload.')
+    }
+    const transactionId =
+      typeof (data as { transactionId?: unknown }).transactionId === 'string'
+        ? (data as { transactionId: string }).transactionId.trim()
+        : ''
+    if (!transactionId) {
+      throw new Error('Transaction id is required.')
+    }
+    const takeRaw = (data as { take?: unknown }).take
+    const takeParsed =
+      typeof takeRaw === 'number'
+        ? takeRaw
+        : typeof takeRaw === 'string'
+          ? Number(takeRaw)
+          : 50
+    const take = Number.isFinite(takeParsed)
+      ? Math.min(Math.max(Math.floor(takeParsed), 1), 100)
+      : 50
+    return { transactionId, take }
+  })
+  .handler(async ({ data }): Promise<ActivityDetail[]> => {
+    const userId = await requireUserId()
+    const rows = await prisma.activityLog.findMany({
+      where: {
+        entityType: ACTIVITY_ENTITY_TYPES.transaction,
+        entityId: data.transactionId,
+        AND: [visibilityFilter(userId)],
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: data.take,
+      include: {
+        actor: { select: actorSelect },
+      },
+    })
+    const changeSets = rows.map((row) => parseChanges(row.changes))
+    const resolved = await resolveActivityChanges(changeSets)
+    return rows.map((row, index) => ({
+      ...toListItem(row),
+      changes: changeSets[index],
+      resolvedChanges: resolved[index],
+    }))
   })

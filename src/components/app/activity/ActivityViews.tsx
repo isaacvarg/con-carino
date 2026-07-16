@@ -1,12 +1,14 @@
 import { Link, useNavigate } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 import { HiOutlineExternalLink, HiOutlineSearch } from 'react-icons/hi'
+import { TaxonomyBadge } from '#/components/app/transactions/TaxonomyBadge'
 import {
   formatActivityAction,
   resolveActivityHref,
   type ActivityHref,
 } from '#/lib/activity'
 import type { ActivityListItem } from '#/server/activity'
+import type { ActivityDisplayValue } from '#/server/activity-labels'
 
 function actorLabel(actor: ActivityListItem['actor']): string {
   if (!actor) return 'System'
@@ -240,9 +242,7 @@ export function ActivityDetailView({
   activity: import('#/server/activity').ActivityDetail
 }) {
   const href = resolveActivityHref(activity)
-  const changes = activity.changes
-    ? Object.entries(activity.changes).sort(([a], [b]) => a.localeCompare(b))
-    : []
+  const changes = activity.resolvedChanges ?? []
 
   return (
     <div className="flex flex-col gap-4">
@@ -283,14 +283,14 @@ export function ActivityDetailView({
                 </tr>
               </thead>
               <tbody>
-                {changes.map(([field, change]) => (
-                  <tr key={field}>
-                    <td className="font-mono text-xs">{field}</td>
-                    <td className="max-w-xs break-all text-sm text-base-content/70">
-                      {formatChangeValue(change.before)}
+                {changes.map((change) => (
+                  <tr key={change.field}>
+                    <td className="text-sm font-medium">{change.label}</td>
+                    <td className="max-w-xs text-sm text-base-content/70">
+                      <ActivityValue values={change.before} />
                     </td>
-                    <td className="max-w-xs break-all text-sm">
-                      {formatChangeValue(change.after)}
+                    <td className="max-w-xs text-sm">
+                      <ActivityValue values={change.after} />
                     </td>
                   </tr>
                 ))}
@@ -303,10 +303,26 @@ export function ActivityDetailView({
   )
 }
 
-function formatChangeValue(value: string | number | boolean | null): string {
-  if (value === null) return '—'
-  if (typeof value === 'boolean') return value ? 'true' : 'false'
-  return String(value)
+/** Renders one side of an audit change: colored badges for taxonomies, text otherwise. */
+function ActivityValue({ values }: { values: ActivityDisplayValue[] }) {
+  return (
+    <span className="flex flex-wrap items-center gap-1">
+      {values.map((value, index) =>
+        value.kind === 'taxonomy' ? (
+          <TaxonomyBadge
+            key={index}
+            name={value.name}
+            bgColor={value.bgColor}
+            textColor={value.textColor}
+          />
+        ) : (
+          <span key={index} className="break-all">
+            {value.text}
+          </span>
+        ),
+      )}
+    </span>
+  )
 }
 
 export function DashboardRecentActivity({ items }: { items: ActivityListItem[] }) {

@@ -2,16 +2,18 @@ import { createServerFn } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
 import { getSession } from 'start-authjs'
 import { prisma } from '#/lib/prisma'
-import type {
-  CategoryRecord,
-  PayeeRecord,
-  TagRecord,
-  TaxonomyListItem,
+import {
+  TAXONOMY_COLOR_SELECT,
+  type CategoryRecord,
+  type ColoredTaxonomyRef,
+  type PayeeRecord,
+  type TagRecord,
 } from '#/lib/taxonomy-types'
 import { authConfig } from '#/utils/auth'
 
 export type {
   CategoryRecord,
+  ColoredTaxonomyRef,
   PayeeRecord,
   TagRecord,
   TaxonomyListItem,
@@ -42,10 +44,10 @@ async function requireUserId() {
 }
 
 export const listPayees = createServerFn({ method: 'GET' }).handler(
-  async (): Promise<TaxonomyListItem[]> => {
+  async (): Promise<ColoredTaxonomyRef[]> => {
     await requireUserId()
     const payees = await prisma.payee.findMany({
-      select: { id: true, name: true },
+      select: TAXONOMY_COLOR_SELECT,
       orderBy: { name: 'asc' },
     })
     return payees
@@ -53,10 +55,10 @@ export const listPayees = createServerFn({ method: 'GET' }).handler(
 )
 
 export const listCategories = createServerFn({ method: 'GET' }).handler(
-  async (): Promise<TaxonomyListItem[]> => {
+  async (): Promise<ColoredTaxonomyRef[]> => {
     await requireUserId()
     const categories = await prisma.category.findMany({
-      select: { id: true, name: true },
+      select: TAXONOMY_COLOR_SELECT,
       orderBy: { name: 'asc' },
     })
     return categories
@@ -64,10 +66,10 @@ export const listCategories = createServerFn({ method: 'GET' }).handler(
 )
 
 export const listTags = createServerFn({ method: 'GET' }).handler(
-  async (): Promise<TaxonomyListItem[]> => {
+  async (): Promise<ColoredTaxonomyRef[]> => {
     await requireUserId()
     const tags = await prisma.tag.findMany({
-      select: { id: true, name: true },
+      select: TAXONOMY_COLOR_SELECT,
       orderBy: { name: 'asc' },
     })
     return tags

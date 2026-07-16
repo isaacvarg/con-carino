@@ -4,17 +4,19 @@ import {
   useRef,
   useState,
 } from 'react'
-import { HiOutlineTrash, HiPaperClip } from 'react-icons/hi'
+import { HiOutlineDocument, HiOutlineTrash, HiPaperClip } from 'react-icons/hi'
 import {
   ALLOWED_CONTENT_TYPES,
   isAllowedContentType,
   MAX_ATTACHMENTS_PER_TXN,
   MAX_UPLOAD_BYTES,
+  type AttachmentListItem,
   type AttachmentUploadMeta,
 } from '#/lib/attachment-types'
 
 export type AttachmentsZoneHandle = {
   uploadAll: () => Promise<AttachmentUploadMeta[]>
+  getKeepAttachmentIds: () => string[]
 }
 
 type PendingFile = {
@@ -25,6 +27,7 @@ type PendingFile = {
 type AttachmentsZoneProps = {
   disabled?: boolean
   onUploadingChange?: (uploading: boolean) => void
+  existingAttachments?: AttachmentListItem[]
 }
 
 const ACCEPT = ALLOWED_CONTENT_TYPES.join(',')
@@ -38,15 +41,29 @@ function formatBytes(bytes: number): string {
 export const AttachmentsZone = forwardRef<
   AttachmentsZoneHandle,
   AttachmentsZoneProps
->(function AttachmentsZone({ disabled = false, onUploadingChange }, ref) {
+>(function AttachmentsZone(
+  {
+    disabled = false,
+    onUploadingChange,
+    existingAttachments = [],
+  },
+  ref,
+) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [pending, setPending] = useState<PendingFile[]>([])
+  const [removedIds, setRemovedIds] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const [progress, setProgress] = useState<{
     done: number
     total: number
   } | null>(null)
+
+  const retained = existingAttachments.filter(
+    (item) => !removedIds.includes(item.id),
+  )
+  const totalCount = retained.length + pending.length
+  const atLimit = totalCount >= MAX_ATTACHMENTS_PER_TXN
 
   function setUploadingState(next: boolean) {
     setUploading(next)
@@ -59,9 +76,10 @@ export const AttachmentsZone = forwardRef<
     setError(null)
     const next = [...pending]
     const messages: string[] = []
+    let currentTotal = retained.length + next.length
 
     for (const file of Array.from(fileList)) {
-      if (next.length >= MAX_ATTACHMENTS_PER_TXN) {
+      if (currentTotal >= MAX_ATTACHMENTS_PER_TXN) {
         messages.push(
           `You can attach at most ${MAX_ATTACHMENTS_PER_TXN} files.`,
         )
@@ -80,6 +98,7 @@ export const AttachmentsZone = forwardRef<
         continue
       }
       next.push({ id: crypto.randomUUID(), file })
+      currentTotal += 1
     }
 
     setPending(next)
@@ -91,12 +110,18 @@ export const AttachmentsZone = forwardRef<
     }
   }
 
-  function removeFile(id: string) {
+  function removePending(id: string) {
     setPending((prev) => prev.filter((item) => item.id !== id))
     setError(null)
   }
 
+  function removeExisting(id: string) {
+    setRemovedIds((prev) => (prev.includes(id) ? prev : [...prev, id]))
+    setError(null)
+  }
+
   useImperativeHandle(ref, () => ({
+    getKeepAttachmentIds: () => retained.map((item) => item.id),
     uploadAll: async () => {
       if (pending.length === 0) {
         return []
@@ -160,6 +185,45 @@ export const AttachmentsZone = forwardRef<
         files, {MAX_UPLOAD_BYTES / (1024 * 1024)} MiB each.
       </p>
 
+      {retained.length > 0 ? (
+        <ul className="mb-3 flex flex-col gap-2">
+          {retained.map((item) => (
+            <li
+              key={item.id}
+              className="flex items-center gap-3 rounded-box border border-base-200 bg-base-200/40 px-3 py-2"
+            >
+              {item.thumbnailUrl ? (
+                <img
+                  src={item.thumbnailUrl}
+                  alt=""
+                  className="size-10 rounded object-cover"
+                />
+              ) : (
+                <HiOutlineDocument
+                  className="size-5 shrink-0 text-base-content/50"
+                  aria-hidden
+                />
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">{item.fileName}</p>
+                <p className="text-xs text-base-content/50">
+                  {formatBytes(item.byteSize)}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn btn-ghost btn-square btn-sm"
+                aria-label={`Remove ${item.fileName}`}
+                disabled={disabled || uploading}
+                onClick={() => removeExisting(item.id)}
+              >
+                <HiOutlineTrash className="size-4" aria-hidden />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
       <input
         ref={inputRef}
         id="attachments-input"
@@ -167,7 +231,7 @@ export const AttachmentsZone = forwardRef<
         className="file-input file-input-bordered w-full"
         accept={ACCEPT}
         multiple
-        disabled={disabled || uploading || pending.length >= MAX_ATTACHMENTS_PER_TXN}
+        disabled={disabled || uploading || atLimit}
         onChange={(event) => addFiles(event.target.files)}
       />
 
@@ -185,7 +249,7 @@ export const AttachmentsZone = forwardRef<
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{item.file.name}</p>
                 <p className="text-xs text-base-content/50">
-                  {formatBytes(item.file.size)}
+                  {formatBytes(item.file.size)} · new
                 </p>
               </div>
               <button
@@ -193,7 +257,7 @@ export const AttachmentsZone = forwardRef<
                 className="btn btn-ghost btn-square btn-sm"
                 aria-label={`Remove ${item.file.name}`}
                 disabled={disabled || uploading}
-                onClick={() => removeFile(item.id)}
+                onClick={() => removePending(item.id)}
               >
                 <HiOutlineTrash className="size-4" aria-hidden />
               </button>

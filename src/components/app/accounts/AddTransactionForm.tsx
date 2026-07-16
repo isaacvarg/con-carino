@@ -1,7 +1,8 @@
 import { useForm } from '@tanstack/react-form'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useRef, useState } from 'react'
-import { HiPlus } from 'react-icons/hi'
+import { TagSelectField } from '#/components/app/transactions/TagSelectField'
+import { TaxonomySelectField } from '#/components/app/transactions/TaxonomySelectField'
 import {
   FORM_INPUT_CLASS,
   FORM_SELECT_CLASS,
@@ -13,7 +14,7 @@ import {
   FormShell,
 } from '#/components/app/ui/form'
 import type { TransactionType } from '#/generated/prisma/enums'
-import type { TaxonomyListItem } from '#/lib/taxonomy-types'
+import { sortByName, type ColoredTaxonomyRef } from '#/lib/taxonomy-types'
 import type { AccountListItem } from '#/server/accounts'
 import { createTransaction } from '#/server/transactions'
 import {
@@ -48,13 +49,9 @@ type AddTransactionFormValues = {
 
 type AddTransactionFormProps = {
   account: AccountListItem
-  payees: TaxonomyListItem[]
-  categories: TaxonomyListItem[]
-  tags: TaxonomyListItem[]
-}
-
-function sortByName<T extends { name: string }>(items: T[]): T[] {
-  return [...items].sort((a, b) => a.name.localeCompare(b.name))
+  payees: ColoredTaxonomyRef[]
+  categories: ColoredTaxonomyRef[]
+  tags: ColoredTaxonomyRef[]
 }
 
 export function AddTransactionForm({
@@ -290,112 +287,47 @@ export function AddTransactionForm({
 
         <form.Field name="payeeId">
           {(field) => (
-            <FormField label="Payee" htmlFor={field.name}>
-              <div className="flex items-center gap-2">
-                <select
-                  id={field.name}
-                  name={field.name}
-                  className={`${FORM_SELECT_CLASS} min-w-0 flex-1`}
-                  value={field.state.value}
-                  onBlur={field.handleBlur}
-                  onChange={(event) => field.handleChange(event.target.value)}
-                >
-                  <option value="">None</option>
-                  {payeeOptions.map((payee) => (
-                    <option key={payee.id} value={payee.id}>
-                      {payee.name}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  className="btn btn-square btn-outline"
-                  aria-label="Add payee"
-                  onClick={() => payeeDialogRef.current?.showModal()}
-                >
-                  <HiPlus className="size-5" aria-hidden />
-                </button>
-              </div>
+            <FormField label="Payee">
+              <TaxonomySelectField
+                title="Select payee"
+                options={payeeOptions}
+                value={field.state.value}
+                onChange={field.handleChange}
+                onRequestCreate={() => payeeDialogRef.current?.showModal()}
+                createLabel="New payee"
+                emptyLabel="No payees yet — create one to get started."
+                placeholder="None — click to select"
+              />
             </FormField>
           )}
         </form.Field>
 
         <form.Field name="categoryId">
           {(field) => (
-            <FormField label="Category" htmlFor={field.name}>
-              <div className="flex items-center gap-2">
-                <select
-                  id={field.name}
-                  name={field.name}
-                  className={`${FORM_SELECT_CLASS} min-w-0 flex-1`}
-                  value={field.state.value}
-                  onBlur={field.handleBlur}
-                  onChange={(event) => field.handleChange(event.target.value)}
-                >
-                  <option value="">None</option>
-                  {categoryOptions.map((category) => (
-                    <option key={category.id} value={category.id}>
-                      {category.name}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  className="btn btn-square btn-outline"
-                  aria-label="Add category"
-                  onClick={() => categoryDialogRef.current?.showModal()}
-                >
-                  <HiPlus className="size-5" aria-hidden />
-                </button>
-              </div>
+            <FormField label="Category">
+              <TaxonomySelectField
+                title="Select category"
+                options={categoryOptions}
+                value={field.state.value}
+                onChange={field.handleChange}
+                onRequestCreate={() => categoryDialogRef.current?.showModal()}
+                createLabel="New category"
+                emptyLabel="No categories yet — create one to get started."
+                placeholder="None — click to select"
+              />
             </FormField>
           )}
         </form.Field>
 
         <form.Field name="tagIds">
           {(field) => (
-            <FormField
-              label="Tags"
-              htmlFor={field.name}
-              hint="Hold Ctrl/Cmd to select multiple tags."
-            >
-              <div className="flex items-start gap-2">
-                <select
-                  id={field.name}
-                  name={field.name}
-                  className={`${FORM_SELECT_CLASS} h-auto min-h-24 min-w-0 flex-1 py-2`}
-                  multiple
-                  value={field.state.value}
-                  onBlur={field.handleBlur}
-                  onChange={(event) => {
-                    const selected = Array.from(
-                      event.target.selectedOptions,
-                      (option) => option.value,
-                    )
-                    field.handleChange(selected)
-                  }}
-                >
-                  {tagOptions.length === 0 ? (
-                    <option value="" disabled>
-                      No tags yet — use + to add
-                    </option>
-                  ) : (
-                    tagOptions.map((tag) => (
-                      <option key={tag.id} value={tag.id}>
-                        {tag.name}
-                      </option>
-                    ))
-                  )}
-                </select>
-                <button
-                  type="button"
-                  className="btn btn-square btn-outline"
-                  aria-label="Add tag"
-                  onClick={() => tagDialogRef.current?.showModal()}
-                >
-                  <HiPlus className="size-5" aria-hidden />
-                </button>
-              </div>
+            <FormField label="Tags">
+              <TagSelectField
+                options={tagOptions}
+                value={field.state.value}
+                onChange={field.handleChange}
+                onRequestCreate={() => tagDialogRef.current?.showModal()}
+              />
             </FormField>
           )}
         </form.Field>
@@ -457,7 +389,15 @@ export function AddTransactionForm({
               sortByName(
                 prev.some((item) => item.id === payee.id)
                   ? prev
-                  : [...prev, { id: payee.id, name: payee.name }],
+                  : [
+                      ...prev,
+                      {
+                        id: payee.id,
+                        name: payee.name,
+                        bgColor: payee.bgColor,
+                        textColor: payee.textColor,
+                      },
+                    ],
               ),
             )
             form.setFieldValue('payeeId', payee.id)
@@ -473,7 +413,15 @@ export function AddTransactionForm({
               sortByName(
                 prev.some((item) => item.id === category.id)
                   ? prev
-                  : [...prev, { id: category.id, name: category.name }],
+                  : [
+                      ...prev,
+                      {
+                        id: category.id,
+                        name: category.name,
+                        bgColor: category.bgColor,
+                        textColor: category.textColor,
+                      },
+                    ],
               ),
             )
             form.setFieldValue('categoryId', category.id)
@@ -489,7 +437,15 @@ export function AddTransactionForm({
               sortByName(
                 prev.some((item) => item.id === tag.id)
                   ? prev
-                  : [...prev, { id: tag.id, name: tag.name }],
+                  : [
+                      ...prev,
+                      {
+                        id: tag.id,
+                        name: tag.name,
+                        bgColor: tag.bgColor,
+                        textColor: tag.textColor,
+                      },
+                    ],
               ),
             )
             const current = form.getFieldValue('tagIds')

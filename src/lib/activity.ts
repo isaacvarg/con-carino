@@ -93,6 +93,9 @@ function serializeValue(value: unknown): ActivityChangeValue {
   if (typeof value === 'number') return value
   if (typeof value === 'string') return value
   if (value instanceof Date) return value.toISOString()
+  if (Array.isArray(value)) {
+    return JSON.stringify(value)
+  }
   if (
     typeof value === 'object' &&
     value !== null &&
@@ -101,9 +104,6 @@ function serializeValue(value: unknown): ActivityChangeValue {
   ) {
     // Prisma Decimal and similar
     return (value as { toString: () => string }).toString()
-  }
-  if (Array.isArray(value)) {
-    return JSON.stringify(value)
   }
   return JSON.stringify(value)
 }
@@ -227,6 +227,24 @@ export function resolveActivityHref(entry: ResolveActivityInput): ActivityHref {
     default:
       return null
   }
+}
+
+/** Human labels for audit snapshot field keys. */
+export const ACTIVITY_FIELD_LABELS: Record<string, string> = {
+  financialAccountId: 'Account',
+  type: 'Type',
+  amount: 'Amount',
+  description: 'Description',
+  date: 'Date',
+  payeeId: 'Payee',
+  categoryId: 'Category',
+  transferGroupId: 'Transfer group',
+  tagIds: 'Tags',
+  attachmentIds: 'Attachments',
+}
+
+export function formatActivityField(field: string): string {
+  return ACTIVITY_FIELD_LABELS[field] ?? field
 }
 
 export function formatActivityAction(action: ActivityAction | string): string {

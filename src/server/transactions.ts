@@ -6,6 +6,7 @@ import type { TransactionType } from '#/generated/prisma/enums'
 import {
   ACTIVITY_ENTITY_TYPES,
   createChanges,
+  diffChanges,
 } from '#/lib/activity'
 import {
   assertAllowedContentType,
@@ -17,12 +18,26 @@ import {
 } from '#/lib/attachment-types'
 import { buildSignedFileUrl } from '#/lib/file-tokens'
 import { prisma } from '#/lib/prisma'
-import { assertObjectKeyOwnedByUser, getBucketName } from '#/lib/storage'
+import {
+  assertObjectKeyOwnedByUser,
+  deleteObject,
+  getBucketName,
+} from '#/lib/storage'
+import {
+  TAXONOMY_COLOR_SELECT,
+  type ColoredTaxonomyRef,
+} from '#/lib/taxonomy-types'
 import {
   toSignedTransactionAmount,
   transactionTypeNeedsDirection,
   type TransactionDirection,
 } from '#/lib/transaction-amount'
+import {
+  buildTransactionActivitySnapshot,
+  directionFromSignedAmount,
+  planAttachmentChanges,
+  TRANSACTION_UPDATE_ACTIVITY_FIELDS,
+} from '#/lib/transaction-edit'
 import { logActivity } from '#/server/activity-log'
 import { authConfig } from '#/utils/auth'
 
@@ -43,6 +58,17 @@ type TaxonomyRef = {
   id: string
   name: string
 }
+
+export type { ColoredTaxonomyRef } from '#/lib/taxonomy-types'
+
+const ATTACHMENT_SELECT = {
+  id: true,
+  fileName: true,
+  contentType: true,
+  byteSize: true,
+  storageKey: true,
+  thumbnailKey: true,
+} as const
 
 export type TransactionListItem = {
   id: string
@@ -179,7 +205,13 @@ export type VisibleTransactionListItem = TransactionListItem & {
   }
 }
 
-export type TransactionDetailDto = VisibleTransactionListItem & {
+export type TransactionDetailDto = Omit<
+  VisibleTransactionListItem,
+  'payee' | 'category' | 'tags'
+> & {
+  payee: ColoredTaxonomyRef | null
+  category: ColoredTaxonomyRef | null
+  tags: ColoredTaxonomyRef[]
   transferGroupId: string | null
   createdAt: string
   updatedAt: string
@@ -531,20 +563,13 @@ export const getTransaction = createServerFn({ method: 'GET' })
       },
       include: {
         financialAccount: {
-          select: { id: true, name: true, isGlobal: true },
+          select: { id: true, name: true, isGlobal: true, userId: true },
         },
-        payee: { select: { id: true, name: true } },
-        category: { select: { id: true, name: true } },
-        tags: { select: { id: true, name: true }, orderBy: { name: 'asc' } },
+        payee: { select: TAXONOMY_COLOR_SELECT },
+        category: { select: TAXONOMY_COLOR_SELECT },
+        tags: { select: TAXONOMY_COLOR_SELECT, orderBy: { name: 'asc' } },
         attachments: {
-          select: {
-            id: true,
-            fileName: true,
-            contentType: true,
-            byteSize: true,
-            storageKey: true,
-            thumbnailKey: true,
-          },
+          select: ATTACHMENT_SELECT,
           orderBy: { createdAt: 'asc' },
         },
         careInvoice: { select: { id: true, status: true } },
@@ -580,17 +605,74 @@ export const getTransaction = createServerFn({ method: 'GET' })
       }
     }
 
-    return {
-      ...toVisibleTransactionListItem(txn),
-      transferGroupId: txn.transferGroupId,
-      createdAt: txn.createdAt.toISOString(),
-      updatedAt: txn.updatedAt.toISOString(),
-      transferCounterpart,
-      careInvoice: txn.careInvoice
-        ? { id: txn.careInvoice.id, status: txn.careInvoice.status }
-        : null,
-    }
+    return toTransactionDetailDto(txn, transferCounterpart)
   })
+
+function toColoredTaxonomyRef(
+  value: ColoredTaxonomyRef | null | undefined,
+): ColoredTaxonomyRef | null {
+  if (!value) return null
+  return {
+    id: value.id,
+    name: value.name,
+    bgColor: value.bgColor,
+    textColor: value.textColor,
+  }
+}
+
+function toTransactionDetailDto(
+  txn: {
+    id: string
+    userId: string
+    financialAccountId: string
+    type: TransactionType
+    amount: { toString(): string }
+    description: string | null
+    date: Date
+    transferGroupId: string | null
+    createdAt: Date
+    updatedAt: Date
+    payee: ColoredTaxonomyRef | null
+    category: ColoredTaxonomyRef | null
+    tags: ColoredTaxonomyRef[]
+    attachments: AttachmentRef[]
+    financialAccount: {
+      id: string
+      name: string
+      isGlobal: boolean
+    }
+    careInvoice: { id: string; status: string } | null
+  },
+  transferCounterpart: TransactionDetailDto['transferCounterpart'],
+): TransactionDetailDto {
+  return {
+    id: txn.id,
+    userId: txn.userId,
+    financialAccountId: txn.financialAccountId,
+    type: txn.type,
+    amount: txn.amount.toString(),
+    description: txn.description,
+    date: txn.date.toISOString(),
+    payee: toColoredTaxonomyRef(txn.payee),
+    category: toColoredTaxonomyRef(txn.category),
+    tags: txn.tags.map(
+      (tag) => toColoredTaxonomyRef(tag) as ColoredTaxonomyRef,
+    ),
+    attachments: txn.attachments.map(toAttachmentListItem),
+    account: {
+      id: txn.financialAccount.id,
+      name: txn.financialAccount.name,
+      isGlobal: txn.financialAccount.isGlobal,
+    },
+    transferGroupId: txn.transferGroupId,
+    createdAt: txn.createdAt.toISOString(),
+    updatedAt: txn.updatedAt.toISOString(),
+    transferCounterpart,
+    careInvoice: txn.careInvoice
+      ? { id: txn.careInvoice.id, status: txn.careInvoice.status }
+      : null,
+  }
+}
 
 export const getAccountCurrentBalance = createServerFn({ method: 'GET' })
   .validator((data: unknown) => {
@@ -924,4 +1006,453 @@ export const createTransfer = createServerFn({ method: 'POST' })
         attachments,
       },
     }
+  })
+
+function parseKeepAttachmentIds(value: unknown): string[] {
+  if (value === undefined || value === null) return []
+  if (!Array.isArray(value)) {
+    throw new Error('keepAttachmentIds must be an array.')
+  }
+  const ids: string[] = []
+  const seen = new Set<string>()
+  for (const item of value) {
+    if (typeof item !== 'string' || !item.trim()) continue
+    const id = item.trim()
+    if (seen.has(id)) continue
+    seen.add(id)
+    ids.push(id)
+  }
+  return ids
+}
+
+async function deleteUnreferencedAttachments(
+  attachmentIds: string[],
+): Promise<string[]> {
+  const cleanupErrors: string[] = []
+  for (const id of attachmentIds) {
+    const attachment = await prisma.attachment.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        storageKey: true,
+        thumbnailKey: true,
+        _count: { select: { transactions: true } },
+      },
+    })
+    if (!attachment || attachment._count.transactions > 0) continue
+
+    await prisma.attachment.delete({ where: { id: attachment.id } })
+
+    try {
+      await deleteObject(attachment.storageKey)
+      if (attachment.thumbnailKey) {
+        await deleteObject(attachment.thumbnailKey)
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Unknown storage error'
+      cleanupErrors.push(
+        `Failed to delete stored file for attachment ${attachment.id}: ${message}`,
+      )
+    }
+  }
+  return cleanupErrors
+}
+
+const detailInclude = {
+  financialAccount: {
+    select: { id: true, name: true, isGlobal: true, userId: true },
+  },
+  payee: { select: TAXONOMY_COLOR_SELECT },
+  category: { select: TAXONOMY_COLOR_SELECT },
+  tags: { select: TAXONOMY_COLOR_SELECT, orderBy: { name: 'asc' as const } },
+  attachments: {
+    select: ATTACHMENT_SELECT,
+    orderBy: { createdAt: 'asc' as const },
+  },
+  careInvoice: { select: { id: true, status: true } },
+} as const
+
+export const updateTransaction = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    if (!data || typeof data !== 'object') {
+      throw new Error('Invalid payload.')
+    }
+    const input = data as Record<string, unknown>
+    const id = typeof input.id === 'string' ? input.id.trim() : ''
+    if (!id) {
+      throw new Error('Transaction id is required.')
+    }
+
+    const amount = typeof input.amount === 'string' ? input.amount : ''
+    parsePositiveAmount(amount)
+
+    const description =
+      typeof input.description === 'string' ? input.description.trim() : ''
+
+    const direction = parseDirection(input.direction)
+
+    const payee =
+      typeof input.payee === 'string'
+        ? input.payee
+        : input.payee === null
+          ? null
+          : ''
+    const category =
+      typeof input.category === 'string'
+        ? input.category
+        : input.category === null
+          ? null
+          : ''
+    const tags = Array.isArray(input.tags)
+      ? input.tags.filter((tag): tag is string => typeof tag === 'string')
+      : []
+    const keepAttachmentIds = parseKeepAttachmentIds(input.keepAttachmentIds)
+    const attachments = parseAttachments(input.attachments)
+
+    return {
+      id,
+      amount,
+      description: description || null,
+      direction,
+      payee,
+      category,
+      tags,
+      keepAttachmentIds,
+      attachments,
+    }
+  })
+  .handler(async ({ data }): Promise<TransactionDetailDto> => {
+    const userId = await requireUserId()
+
+    const existing = await prisma.transaction.findFirst({
+      where: {
+        id: data.id,
+        financialAccount: ownOrGlobal(userId),
+      },
+      include: {
+        financialAccount: {
+          select: { id: true, name: true, isGlobal: true, userId: true },
+        },
+        tags: { select: { id: true } },
+        attachments: { select: ATTACHMENT_SELECT },
+        careInvoice: { select: { id: true, status: true } },
+      },
+    })
+
+    if (!existing) {
+      throw new Error('Transaction not found.')
+    }
+
+    const isTransfer = existing.type === 'TRANSFER'
+    const magnitude = parsePositiveAmount(data.amount)
+    const direction =
+      data.direction ??
+      (transactionTypeNeedsDirection(existing.type)
+        ? directionFromSignedAmount(existing.amount.toString())
+        : undefined)
+
+    if (transactionTypeNeedsDirection(existing.type) && !direction) {
+      throw new Error('Direction is required for this transaction type.')
+    }
+
+    const signedAmount = toSignedTransactionAmount(
+      existing.type,
+      magnitude,
+      direction,
+    )
+
+    const [payeeId, categoryId, tagIds] = isTransfer
+      ? [null, null, [] as string[]]
+      : await Promise.all([
+          resolvePayeeId(data.payee),
+          resolveCategoryId(data.category),
+          resolveTagIds(data.tags),
+        ])
+
+    const attachmentPlan = planAttachmentChanges({
+      existingIds: existing.attachments.map((item) => item.id),
+      keepIds: data.keepAttachmentIds,
+      newCount: data.attachments.length,
+    })
+
+    let counterpart: {
+      id: string
+      financialAccountId: string
+      amount: { toString(): string }
+      description: string | null
+      date: Date
+      type: TransactionType
+      payeeId: string | null
+      categoryId: string | null
+      transferGroupId: string | null
+      financialAccount: {
+        name: string
+        isGlobal: boolean
+        userId: string
+      }
+      tags: { id: string }[]
+      attachments: AttachmentRef[]
+    } | null = null
+
+    if (isTransfer && existing.transferGroupId) {
+      counterpart = await prisma.transaction.findFirst({
+        where: {
+          transferGroupId: existing.transferGroupId,
+          id: { not: existing.id },
+          financialAccount: ownOrGlobal(userId),
+        },
+        include: {
+          financialAccount: {
+            select: { name: true, isGlobal: true, userId: true },
+          },
+          tags: { select: { id: true } },
+          attachments: { select: ATTACHMENT_SELECT },
+        },
+      })
+      if (!counterpart) {
+        throw new Error('Transfer counterpart not found.')
+      }
+    }
+
+    const linkedTransactionIds = counterpart
+      ? [existing.id, counterpart.id]
+      : [existing.id]
+
+    const beforeSnapshot = buildTransactionActivitySnapshot({
+      financialAccountId: existing.financialAccountId,
+      type: existing.type,
+      amount: existing.amount,
+      description: existing.description,
+      date: existing.date,
+      payeeId: existing.payeeId,
+      categoryId: existing.categoryId,
+      transferGroupId: existing.transferGroupId,
+      tagIds: existing.tags.map((tag) => tag.id),
+      attachmentIds: existing.attachments.map((item) => item.id),
+    })
+
+    const counterpartBeforeSnapshot = counterpart
+      ? buildTransactionActivitySnapshot({
+          financialAccountId: counterpart.financialAccountId,
+          type: counterpart.type,
+          amount: counterpart.amount,
+          description: counterpart.description,
+          date: counterpart.date,
+          payeeId: counterpart.payeeId,
+          categoryId: counterpart.categoryId,
+          transferGroupId: counterpart.transferGroupId,
+          tagIds: counterpart.tags.map((tag) => tag.id),
+          attachmentIds: counterpart.attachments.map((item) => item.id),
+        })
+      : null
+
+    const counterpartSignedAmount = counterpart
+      ? toSignedTransactionAmount(
+          'TRANSFER',
+          magnitude,
+          directionFromSignedAmount(counterpart.amount.toString()),
+        )
+      : null
+
+    await prisma.$transaction(async (tx) => {
+      await tx.transaction.update({
+        where: { id: existing.id },
+        data: {
+          amount: signedAmount,
+          description: data.description,
+          ...(isTransfer
+            ? {}
+            : {
+                payeeId,
+                categoryId,
+                tags: { set: tagIds.map((id) => ({ id })) },
+              }),
+        },
+      })
+
+      if (counterpart && counterpartSignedAmount !== null) {
+        await tx.transaction.update({
+          where: { id: counterpart.id },
+          data: {
+            amount: counterpartSignedAmount,
+            description: data.description,
+          },
+        })
+      }
+
+      if (attachmentPlan.removeIds.length > 0) {
+        for (const attachmentId of attachmentPlan.removeIds) {
+          await tx.attachment.update({
+            where: { id: attachmentId },
+            data: {
+              transactions: {
+                disconnect: linkedTransactionIds.map((id) => ({ id })),
+              },
+            },
+          })
+        }
+      }
+
+      if (data.attachments.length > 0) {
+        for (const meta of data.attachments) {
+          assertObjectKeyOwnedByUser(meta.storageKey, userId)
+          assertAllowedContentType(meta.contentType)
+          assertUploadSize(meta.byteSize)
+          await tx.attachment.create({
+            data: {
+              userId,
+              storageKey: meta.storageKey,
+              thumbnailKey: meta.thumbnailKey,
+              fileName: meta.fileName,
+              contentType: meta.contentType,
+              byteSize: meta.byteSize,
+              transactions: {
+                connect: linkedTransactionIds.map((id) => ({ id })),
+              },
+            },
+          })
+        }
+      }
+
+      // Ensure retained attachments stay linked to both transfer legs.
+      if (counterpart && attachmentPlan.retainIds.length > 0) {
+        for (const attachmentId of attachmentPlan.retainIds) {
+          await tx.attachment.update({
+            where: { id: attachmentId },
+            data: {
+              transactions: {
+                connect: linkedTransactionIds.map((id) => ({ id })),
+              },
+            },
+          })
+        }
+      }
+    })
+
+    const updated = await prisma.transaction.findFirstOrThrow({
+      where: { id: existing.id },
+      include: detailInclude,
+    })
+
+    const afterSnapshot = buildTransactionActivitySnapshot({
+      financialAccountId: updated.financialAccountId,
+      type: updated.type,
+      amount: updated.amount,
+      description: updated.description,
+      date: updated.date,
+      payeeId: updated.payeeId,
+      categoryId: updated.categoryId,
+      transferGroupId: updated.transferGroupId,
+      tagIds: updated.tags.map((tag) => tag.id),
+      attachmentIds: updated.attachments.map((item) => item.id),
+    })
+
+    const changes = diffChanges(
+      beforeSnapshot,
+      afterSnapshot,
+      TRANSACTION_UPDATE_ACTIVITY_FIELDS,
+    )
+
+    if (Object.keys(changes).length > 0) {
+      const amountLabel = Math.abs(Number(updated.amount.toString())).toFixed(2)
+      await logActivity({
+        actorUserId: userId,
+        action: 'UPDATE',
+        entityType: ACTIVITY_ENTITY_TYPES.transaction,
+        entityId: updated.id,
+        summary: `Updated ${updated.type.toLowerCase().replaceAll('_', ' ')} of $${amountLabel} on ${updated.financialAccount.name}`,
+        changes,
+        linkMeta: {
+          isGlobal: updated.financialAccount.isGlobal,
+          accountName: updated.financialAccount.name,
+        },
+        visibilityUserId: updated.financialAccount.userId,
+      })
+    }
+
+    if (counterpart && counterpartBeforeSnapshot) {
+      const updatedCounterpart = await prisma.transaction.findFirstOrThrow({
+        where: { id: counterpart.id },
+        include: {
+          financialAccount: {
+            select: { name: true, isGlobal: true, userId: true },
+          },
+          tags: { select: { id: true } },
+          attachments: { select: { id: true } },
+        },
+      })
+      const counterpartAfter = buildTransactionActivitySnapshot({
+        financialAccountId: updatedCounterpart.financialAccountId,
+        type: updatedCounterpart.type,
+        amount: updatedCounterpart.amount,
+        description: updatedCounterpart.description,
+        date: updatedCounterpart.date,
+        payeeId: updatedCounterpart.payeeId,
+        categoryId: updatedCounterpart.categoryId,
+        transferGroupId: updatedCounterpart.transferGroupId,
+        tagIds: updatedCounterpart.tags.map((tag) => tag.id),
+        attachmentIds: updatedCounterpart.attachments.map((item) => item.id),
+      })
+      const counterpartChanges = diffChanges(
+        counterpartBeforeSnapshot,
+        counterpartAfter,
+        TRANSACTION_UPDATE_ACTIVITY_FIELDS,
+      )
+      if (Object.keys(counterpartChanges).length > 0) {
+        const amountLabel = Math.abs(
+          Number(updatedCounterpart.amount.toString()),
+        ).toFixed(2)
+        await logActivity({
+          actorUserId: userId,
+          action: 'UPDATE',
+          entityType: ACTIVITY_ENTITY_TYPES.transaction,
+          entityId: updatedCounterpart.id,
+          summary: `Updated transfer of $${amountLabel} on ${updatedCounterpart.financialAccount.name}`,
+          changes: counterpartChanges,
+          linkMeta: {
+            isGlobal: updatedCounterpart.financialAccount.isGlobal,
+            accountName: updatedCounterpart.financialAccount.name,
+          },
+          visibilityUserId: updatedCounterpart.financialAccount.userId,
+        })
+      }
+    }
+
+    const cleanupErrors = await deleteUnreferencedAttachments(
+      attachmentPlan.removeIds,
+    )
+    if (cleanupErrors.length > 0) {
+      console.error(
+        '[updateTransaction] attachment cleanup warnings:',
+        cleanupErrors.join('; '),
+      )
+    }
+
+    let transferCounterpart: TransactionDetailDto['transferCounterpart'] = null
+    if (updated.transferGroupId) {
+      const other = await prisma.transaction.findFirst({
+        where: {
+          transferGroupId: updated.transferGroupId,
+          id: { not: updated.id },
+          financialAccount: ownOrGlobal(userId),
+        },
+        select: {
+          id: true,
+          financialAccountId: true,
+          amount: true,
+          financialAccount: { select: { name: true } },
+        },
+      })
+      if (other) {
+        transferCounterpart = {
+          id: other.id,
+          financialAccountId: other.financialAccountId,
+          accountName: other.financialAccount.name,
+          amount: other.amount.toString(),
+        }
+      }
+    }
+
+    return toTransactionDetailDto(updated, transferCounterpart)
   })
