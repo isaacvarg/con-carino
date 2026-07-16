@@ -2,20 +2,31 @@ import { Link, useNavigate } from '@tanstack/react-router'
 import {
   flexRender,
   getCoreRowModel,
+  getFacetedRowModel,
+  getFacetedUniqueValues,
   getFilteredRowModel,
   getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
   type ColumnDef,
   type ColumnFiltersState,
+  type FilterFn,
   type PaginationState,
-  type RowSelectionState,
   type SortingState,
   type VisibilityState,
 } from '@tanstack/react-table'
-import { useMemo, useState } from 'react'
-import { HiPlus, HiSwitchHorizontal } from 'react-icons/hi'
+import { useMemo } from 'react'
+import { HiOutlineSearch, HiPlus, HiSwitchHorizontal } from 'react-icons/hi'
 import type { TransactionListItem } from '#/server/transactions'
+import {
+  searchTransactionIds,
+  type TransactionSearchKey,
+} from '#/lib/transaction-search'
+import { FacetFilter } from '#/components/app/transactions/FacetFilter'
+import {
+  parseCsvValues,
+  serializeCsvValues,
+} from '#/components/app/transactions/transactions-search'
 import {
   formatAccountCurrency,
   formatTransactionDate,
@@ -34,8 +45,9 @@ type TransactionsTableProps = {
   search: TransactionsTableSearch
 }
 
+const NONE_FACET = '__none__'
+
 const COLUMN_IDS = [
-  'select',
   'date',
   'type',
   'payee',
@@ -45,11 +57,25 @@ const COLUMN_IDS = [
   'amount',
 ] as const
 
+const multiValueFilter: FilterFn<TransactionListItem> = (
+  row,
+  columnId,
+  filterValue,
+) => {
+  const selected = filterValue as string[] | undefined
+  if (!selected?.length) return true
+  const value = row.getValue(columnId)
+  if (Array.isArray(value)) {
+    return selected.some((item) => value.includes(item))
+  }
+  return selected.includes(String(value ?? ''))
+}
+
 function parseSort(sort: string): SortingState {
   if (!sort) return [{ id: 'date', desc: true }]
   const desc = sort.startsWith('-')
   const id = desc ? sort.slice(1) : sort
-  if (!COLUMN_IDS.includes(id as (typeof COLUMN_IDS)[number]) || id === 'select') {
+  if (!COLUMN_IDS.includes(id as (typeof COLUMN_IDS)[number])) {
     return [{ id: 'date', desc: true }]
   }
   return [{ id, desc }]
@@ -66,16 +92,28 @@ function parseCols(cols: string): VisibilityState {
   const hidden = new Set(cols.split(',').filter(Boolean))
   const visibility: VisibilityState = {}
   for (const id of COLUMN_IDS) {
-    if (id === 'select') continue
     if (hidden.has(id)) visibility[id] = false
   }
   return visibility
 }
 
 function serializeCols(visibility: VisibilityState): string {
-  return COLUMN_IDS.filter(
-    (id) => id !== 'select' && visibility[id] === false,
-  ).join(',')
+  return COLUMN_IDS.filter((id) => visibility[id] === false).join(',')
+}
+
+function searchToColumnFilters(
+  search: TransactionsTableSearch,
+): ColumnFiltersState {
+  const filters: ColumnFiltersState = []
+  const type = parseCsvValues(search.type)
+  const category = parseCsvValues(search.category)
+  const payee = parseCsvValues(search.payee)
+  const tags = parseCsvValues(search.tags)
+  if (type.length) filters.push({ id: 'type', value: type })
+  if (category.length) filters.push({ id: 'category', value: category })
+  if (payee.length) filters.push({ id: 'payee', value: payee })
+  if (tags.length) filters.push({ id: 'tags', value: tags })
+  return filters
 }
 
 export function TransactionsTable({
@@ -86,7 +124,6 @@ export function TransactionsTable({
   search,
 }: TransactionsTableProps) {
   const navigate = useNavigate({ from: '/accounts/$accountId/' })
-  const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
 
   const sorting = useMemo(() => parseSort(search.sort), [search.sort])
   const pagination = useMemo<PaginationState>(
@@ -98,40 +135,69 @@ export function TransactionsTable({
   )
   const globalFilter = search.q
   const columnVisibility = useMemo(() => parseCols(search.cols), [search.cols])
-  const columnFilters = useMemo<ColumnFiltersState>(() => [], [])
+  const columnFilters = useMemo(
+    () => searchToColumnFilters(search),
+    [search.type, search.category, search.payee, search.tags],
+  )
 
-  function updateSearch(
-    patch: Partial<TransactionsTableSearch>,
-    source: string,
-  ) {
+  const visibleSearchKeys = useMemo(
+    () =>
+      COLUMN_IDS.filter(
+        (id) => columnVisibility[id] !== false,
+      ) as TransactionSearchKey[],
+    [columnVisibility],
+  )
+  const matchingIds = useMemo(
+    () => searchTransactionIds(transactions, visibleSearchKeys, globalFilter),
+    [transactions, visibleSearchKeys, globalFilter],
+  )
+
+  const facetOptions = useMemo(() => {
+    const types = new Map<string, string>()
+    const categories = new Map<string, string>()
+    const payees = new Map<string, string>()
+    const tags = new Map<string, string>()
+
+    for (const txn of transactions) {
+      types.set(txn.type, transactionTypeLabel(txn.type))
+      if (txn.category) {
+        categories.set(txn.category.id, txn.category.name)
+      } else {
+        categories.set(NONE_FACET, '—')
+      }
+      if (txn.payee) {
+        payees.set(txn.payee.id, txn.payee.name)
+      } else {
+        payees.set(NONE_FACET, '—')
+      }
+      for (const tag of txn.tags) {
+        tags.set(tag.id, tag.name)
+      }
+    }
+
+    return {
+      type: [...types.entries()].map(([value, label]) => ({ value, label })),
+      category: [...categories.entries()].map(([value, label]) => ({
+        value,
+        label,
+      })),
+      payee: [...payees.entries()].map(([value, label]) => ({ value, label })),
+      tags: [...tags.entries()].map(([value, label]) => ({ value, label })),
+    }
+  }, [transactions])
+
+  function updateSearch(patch: Partial<TransactionsTableSearch>) {
     const next = { ...search, ...patch }
     const unchanged =
       next.page === search.page &&
       next.pageSize === search.pageSize &&
       next.sort === search.sort &&
       next.q === search.q &&
-      next.cols === search.cols
-
-    // #region agent log
-    fetch('http://127.0.0.1:7370/ingest/1b862042-6039-4f52-970e-ddff822b37a8', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Debug-Session-Id': 'd29c5e',
-      },
-      body: JSON.stringify({
-        sessionId: 'd29c5e',
-        runId: 'post-fix',
-        hypothesisId: 'H6',
-        location: 'TransactionsTable.tsx:updateSearch',
-        message: unchanged
-          ? 'updateSearch skipped (unchanged)'
-          : 'updateSearch navigating',
-        data: { source, unchanged, patch, search },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {})
-    // #endregion
+      next.cols === search.cols &&
+      next.type === search.type &&
+      next.category === search.category &&
+      next.payee === search.payee &&
+      next.tags === search.tags
 
     if (unchanged) return
 
@@ -144,37 +210,15 @@ export function TransactionsTable({
     })
   }
 
+  function setFacetFilter(
+    key: 'type' | 'category' | 'payee' | 'tags',
+    values: string[],
+  ) {
+    updateSearch({ [key]: serializeCsvValues(values), page: 1 })
+  }
+
   const columns = useMemo<ColumnDef<TransactionListItem>[]>(
     () => [
-      {
-        id: 'select',
-        header: ({ table }) => (
-          <input
-            type="checkbox"
-            className="checkbox checkbox-sm"
-            checked={table.getIsAllPageRowsSelected()}
-            ref={(element) => {
-              if (element) {
-                element.indeterminate = table.getIsSomePageRowsSelected()
-              }
-            }}
-            onChange={table.getToggleAllPageRowsSelectedHandler()}
-            aria-label="Select all rows on this page"
-          />
-        ),
-        cell: ({ row }) => (
-          <input
-            type="checkbox"
-            className="checkbox checkbox-sm"
-            checked={row.getIsSelected()}
-            disabled={!row.getCanSelect()}
-            onChange={row.getToggleSelectedHandler()}
-            aria-label={`Select transaction ${row.original.id}`}
-          />
-        ),
-        enableSorting: false,
-        enableHiding: false,
-      },
       {
         accessorKey: 'date',
         header: 'Date',
@@ -184,46 +228,39 @@ export function TransactionsTable({
           const b = new Date(String(rowB.getValue(columnId))).getTime()
           return a === b ? 0 : a > b ? 1 : -1
         },
+        enableColumnFilter: false,
       },
       {
-        accessorKey: 'type',
+        id: 'type',
+        accessorFn: (row) => row.type,
         header: 'Type',
-        cell: ({ getValue }) =>
-          transactionTypeLabel(
-            getValue() as TransactionListItem['type'],
-          ),
-        filterFn: 'includesString',
+        cell: ({ row }) => transactionTypeLabel(row.original.type),
+        filterFn: multiValueFilter,
       },
       {
         id: 'payee',
-        accessorFn: (row) => row.payee?.name ?? '',
+        accessorFn: (row) => row.payee?.id ?? NONE_FACET,
         header: 'Payee',
-        cell: ({ getValue }) => {
-          const value = String(getValue())
-          return value.trim() ? value : '—'
-        },
-        filterFn: 'includesString',
+        cell: ({ row }) => row.original.payee?.name?.trim() || '—',
+        filterFn: multiValueFilter,
       },
       {
         id: 'category',
-        accessorFn: (row) => row.category?.name ?? '',
+        accessorFn: (row) => row.category?.id ?? NONE_FACET,
         header: 'Category',
-        cell: ({ getValue }) => {
-          const value = String(getValue())
-          return value.trim() ? value : '—'
-        },
-        filterFn: 'includesString',
+        cell: ({ row }) => row.original.category?.name?.trim() || '—',
+        filterFn: multiValueFilter,
       },
       {
         id: 'tags',
-        accessorFn: (row) =>
-          row.tags.map((tag) => tag.name).join(', '),
+        accessorFn: (row) => row.tags.map((tag) => tag.id),
+        getUniqueValues: (row) => row.tags.map((tag) => tag.id),
         header: 'Tags',
-        cell: ({ getValue }) => {
-          const value = String(getValue())
-          return value.trim() ? value : '—'
+        cell: ({ row }) => {
+          const names = row.original.tags.map((tag) => tag.name).join(', ')
+          return names.trim() ? names : '—'
         },
-        filterFn: 'includesString',
+        filterFn: multiValueFilter,
       },
       {
         accessorKey: 'description',
@@ -232,6 +269,7 @@ export function TransactionsTable({
           const value = getValue() as string | null
           return value?.trim() ? value : '—'
         },
+        enableColumnFilter: false,
       },
       {
         accessorKey: 'amount',
@@ -256,6 +294,7 @@ export function TransactionsTable({
           const b = Number(rowB.getValue(columnId))
           return a === b ? 0 : a > b ? 1 : -1
         },
+        enableColumnFilter: false,
       },
     ],
     [],
@@ -270,41 +309,54 @@ export function TransactionsTable({
       globalFilter,
       columnVisibility,
       columnFilters,
-      rowSelection,
     },
-    enableRowSelection: true,
-    // Pagination is URL-controlled; disabling auto-reset prevents no-op
-    // onPaginationChange → navigate(replace) loops when `data` gets a new ref.
     autoResetPageIndex: false,
-    onRowSelectionChange: setRowSelection,
     onSortingChange: (updater) => {
       const next = typeof updater === 'function' ? updater(sorting) : updater
-      updateSearch({ sort: serializeSort(next), page: 1 }, 'sorting')
+      updateSearch({ sort: serializeSort(next), page: 1 })
     },
     onPaginationChange: (updater) => {
       const next =
         typeof updater === 'function' ? updater(pagination) : updater
-      updateSearch(
-        {
-          page: next.pageIndex + 1,
-          pageSize: next.pageSize,
-        },
-        'pagination',
-      )
+      updateSearch({
+        page: next.pageIndex + 1,
+        pageSize: next.pageSize,
+      })
     },
     onGlobalFilterChange: (value) => {
-      updateSearch({ q: String(value ?? ''), page: 1 }, 'filter')
+      updateSearch({ q: String(value ?? ''), page: 1 })
     },
     onColumnVisibilityChange: (updater) => {
       const next =
         typeof updater === 'function' ? updater(columnVisibility) : updater
-      updateSearch({ cols: serializeCols(next) }, 'columns')
+      updateSearch({ cols: serializeCols(next) })
+    },
+    onColumnFiltersChange: (updater) => {
+      const next =
+        typeof updater === 'function' ? updater(columnFilters) : updater
+      const read = (id: string) => {
+        const filter = next.find((item) => item.id === id)
+        const value = filter?.value
+        return Array.isArray(value)
+          ? serializeCsvValues(value.map(String))
+          : ''
+      }
+      updateSearch({
+        type: read('type'),
+        category: read('category'),
+        payee: read('payee'),
+        tags: read('tags'),
+        page: 1,
+      })
     },
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
+    getFacetedRowModel: getFacetedRowModel(),
+    getFacetedUniqueValues: getFacetedUniqueValues(),
     getPaginationRowModel: getPaginationRowModel(),
-    globalFilterFn: 'includesString',
+    globalFilterFn: (row) =>
+      matchingIds === null || matchingIds.has(row.original.id),
     getRowId: (row) => row.id,
   })
 
@@ -360,17 +412,54 @@ export function TransactionsTable({
         </div>
       </div>
 
-      <div className="flex flex-wrap items-end gap-3 rounded-box bg-base-100 p-4 shadow-sm">
-        <label className="form-control min-w-56 flex-1">
-          <span className="label-text mb-1 text-sm">Filter</span>
-          <input
-            type="search"
-            className="input input-bordered w-full"
-            value={globalFilter}
-            onChange={(event) => table.setGlobalFilter(event.target.value)}
-            placeholder="Search description, type…"
-          />
-        </label>
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-box bg-base-100 p-4 shadow-sm">
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="input input-bordered flex min-w-56 items-center gap-2">
+            <HiOutlineSearch
+              className="size-4 shrink-0 text-base-content/60"
+              aria-hidden
+            />
+            <input
+              type="search"
+              className="grow placeholder:text-base-content/50"
+              value={globalFilter}
+              onChange={(event) => table.setGlobalFilter(event.target.value)}
+              placeholder="Search description, type…"
+              aria-label="Search transactions"
+            />
+          </label>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <FacetFilter
+              column={table.getColumn('type')!}
+              label="Type"
+              options={facetOptions.type}
+              selected={parseCsvValues(search.type)}
+              onChange={(next) => setFacetFilter('type', next)}
+            />
+            <FacetFilter
+              column={table.getColumn('category')!}
+              label="Category"
+              options={facetOptions.category}
+              selected={parseCsvValues(search.category)}
+              onChange={(next) => setFacetFilter('category', next)}
+            />
+            <FacetFilter
+              column={table.getColumn('payee')!}
+              label="Payee"
+              options={facetOptions.payee}
+              selected={parseCsvValues(search.payee)}
+              onChange={(next) => setFacetFilter('payee', next)}
+            />
+            <FacetFilter
+              column={table.getColumn('tags')!}
+              label="Tags"
+              options={facetOptions.tags}
+              selected={parseCsvValues(search.tags)}
+              onChange={(next) => setFacetFilter('tags', next)}
+            />
+          </div>
+        </div>
 
         <div className="dropdown dropdown-end">
           <button type="button" tabIndex={0} className="btn btn-outline">
@@ -440,14 +529,15 @@ export function TransactionsTable({
                   colSpan={table.getVisibleLeafColumns().length}
                   className="py-10 text-center text-base-content/60"
                 >
-                  No transactions yet. Add one to get started.
+                  {transactions.length === 0
+                    ? 'No transactions yet. Add one to get started.'
+                    : 'No transactions match the current filters.'}
                 </td>
               </tr>
             ) : (
               table.getRowModel().rows.map((row) => (
                 <tr
                   key={row.id}
-                  data-selected={row.getIsSelected()}
                   className="cursor-pointer hover:bg-base-200/70"
                   onClick={() => {
                     void navigate({
@@ -457,14 +547,7 @@ export function TransactionsTable({
                   }}
                 >
                   {row.getVisibleCells().map((cell) => (
-                    <td
-                      key={cell.id}
-                      onClick={
-                        cell.column.id === 'select'
-                          ? (event) => event.stopPropagation()
-                          : undefined
-                      }
-                    >
+                    <td key={cell.id}>
                       {flexRender(
                         cell.column.columnDef.cell,
                         cell.getContext(),
@@ -500,11 +583,6 @@ export function TransactionsTable({
               ))}
             </select>
           </div>
-          {Object.keys(rowSelection).length > 0 ? (
-            <span className="text-base-content/70">
-              {Object.keys(rowSelection).length} selected
-            </span>
-          ) : null}
         </div>
         <div className="join rounded-full border border-base-300 bg-base-100">
           <button

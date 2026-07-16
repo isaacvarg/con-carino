@@ -99,6 +99,26 @@ export function crumbsForPath(
     ]
   }
 
+  if (path === '/transactions/new') {
+    return [
+      {
+        label: 'transactions',
+        href: { to: '/transactions', search: transactionsSearchDefaults },
+      },
+      { label: 'add transaction' },
+    ]
+  }
+
+  if (path === '/transactions/transfers/new') {
+    return [
+      {
+        label: 'transactions',
+        href: { to: '/transactions', search: transactionsSearchDefaults },
+      },
+      { label: 'transfer' },
+    ]
+  }
+
   const transactionDetail = path.match(/^\/transactions\/([^/]+)$/)
   if (transactionDetail) {
     return [

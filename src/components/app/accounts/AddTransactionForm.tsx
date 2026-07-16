@@ -3,6 +3,7 @@ import { Link, useNavigate } from '@tanstack/react-router'
 import { useRef, useState } from 'react'
 import { TagSelectField } from '#/components/app/transactions/TagSelectField'
 import { TaxonomySelectField } from '#/components/app/transactions/TaxonomySelectField'
+import { transactionsSearchDefaults } from '#/components/app/transactions/transactions-search'
 import {
   FORM_INPUT_CLASS,
   FORM_SELECT_CLASS,
@@ -37,6 +38,7 @@ import { CreateTagForm } from './CreateTagForm'
 import { TaxonomyCreateDialog } from './TaxonomyCreateDialog'
 
 type AddTransactionFormValues = {
+  financialAccountId: string
   type: TransactionType
   direction: TransactionDirection
   amount: string
@@ -47,19 +49,97 @@ type AddTransactionFormValues = {
   description: string
 }
 
-type AddTransactionFormProps = {
-  account: AccountListItem
+type AddTransactionFormShared = {
   payees: ColoredTaxonomyRef[]
   categories: ColoredTaxonomyRef[]
   tags: ColoredTaxonomyRef[]
 }
 
-export function AddTransactionForm({
-  account,
-  payees: initialPayees,
-  categories: initialCategories,
-  tags: initialTags,
-}: AddTransactionFormProps) {
+export type AddTransactionFormProps = AddTransactionFormShared &
+  (
+    | { account: AccountListItem; accounts?: undefined }
+    | {
+        account?: undefined
+        accounts: AccountListItem[]
+        defaultAccountId?: string
+      }
+  )
+
+function accountOptionLabel(account: AccountListItem): string {
+  return account.isGlobal ? `${account.name} (Global)` : account.name
+}
+
+function CancelLink({
+  accountId,
+}: {
+  accountId: string | null
+}) {
+  if (accountId) {
+    return (
+      <Link
+        to="/accounts/$accountId"
+        params={{ accountId }}
+        search={accountDetailSearchDefaults}
+        className="btn btn-ghost btn-sm"
+      >
+        Cancel
+      </Link>
+    )
+  }
+
+  return (
+    <Link
+      to="/transactions"
+      search={transactionsSearchDefaults}
+      className="btn btn-ghost btn-sm"
+    >
+      Cancel
+    </Link>
+  )
+}
+
+function CancelAction({
+  accountId,
+}: {
+  accountId: string | null
+}) {
+  if (accountId) {
+    return (
+      <Link
+        to="/accounts/$accountId"
+        params={{ accountId }}
+        search={accountDetailSearchDefaults}
+        className="btn btn-ghost"
+      >
+        Cancel
+      </Link>
+    )
+  }
+
+  return (
+    <Link
+      to="/transactions"
+      search={transactionsSearchDefaults}
+      className="btn btn-ghost"
+    >
+      Cancel
+    </Link>
+  )
+}
+
+export function AddTransactionForm(props: AddTransactionFormProps) {
+  const { payees: initialPayees, categories: initialCategories, tags: initialTags } =
+    props
+  const isGlobal = props.accounts !== undefined
+  const accounts = isGlobal ? props.accounts : undefined
+  const lockedAccount = !isGlobal ? props.account : undefined
+  const returnAccountId = lockedAccount?.id ?? null
+  const defaultAccountId =
+    lockedAccount?.id ??
+    (isGlobal
+      ? (props.defaultAccountId ?? accounts?.[0]?.id ?? '')
+      : '')
+
   const navigate = useNavigate()
   const payeeDialogRef = useRef<HTMLDialogElement>(null)
   const categoryDialogRef = useRef<HTMLDialogElement>(null)
@@ -71,6 +151,7 @@ export function AddTransactionForm({
   const [attachmentsUploading, setAttachmentsUploading] = useState(false)
 
   const defaultValues: AddTransactionFormValues = {
+    financialAccountId: defaultAccountId,
     type: 'EXPENSE',
     direction: 'out',
     amount: '',
@@ -87,7 +168,7 @@ export function AddTransactionForm({
       const attachments = await attachmentsRef.current?.uploadAll()
       await createTransaction({
         data: {
-          financialAccountId: account.id,
+          financialAccountId: value.financialAccountId,
           type: value.type,
           amount: value.amount,
           date: value.date,
@@ -101,25 +182,25 @@ export function AddTransactionForm({
             : {}),
         },
       })
-      await navigate({
-        to: '/accounts/$accountId',
-        params: { accountId: account.id },
-        search: accountDetailSearchDefaults,
-      })
+      if (returnAccountId) {
+        await navigate({
+          to: '/accounts/$accountId',
+          params: { accountId: returnAccountId },
+          search: accountDetailSearchDefaults,
+        })
+      } else {
+        await navigate({
+          to: '/transactions',
+          search: transactionsSearchDefaults,
+        })
+      }
     },
   })
 
   return (
     <div className="mx-auto w-full max-w-xl">
       <div className="mb-4 flex items-center justify-end gap-3">
-        <Link
-          to="/accounts/$accountId"
-          params={{ accountId: account.id }}
-          search={accountDetailSearchDefaults}
-          className="btn btn-ghost btn-sm"
-        >
-          Cancel
-        </Link>
+        <CancelLink accountId={returnAccountId} />
       </div>
 
       <FormShell
@@ -129,6 +210,54 @@ export function AddTransactionForm({
           void form.handleSubmit()
         }}
       >
+        {isGlobal && accounts ? (
+          <form.Field
+            name="financialAccountId"
+            validators={{
+              onChange: ({ value }) =>
+                value ? undefined : 'Choose an account.',
+            }}
+          >
+            {(field) => {
+              const errorId = `${field.name}-error`
+              const hasError = field.state.meta.errors.length > 0
+              return (
+                <FormField
+                  label="Account"
+                  htmlFor={field.name}
+                  error={
+                    <FormFieldError
+                      id={errorId}
+                      errors={field.state.meta.errors}
+                    />
+                  }
+                >
+                  <select
+                    id={field.name}
+                    name={field.name}
+                    className={FORM_SELECT_CLASS}
+                    value={field.state.value}
+                    onBlur={field.handleBlur}
+                    onChange={(event) => field.handleChange(event.target.value)}
+                    aria-invalid={hasError}
+                    aria-describedby={hasError ? errorId : undefined}
+                  >
+                    {accounts.length === 0 ? (
+                      <option value="">No accounts available</option>
+                    ) : (
+                      accounts.map((account) => (
+                        <option key={account.id} value={account.id}>
+                          {accountOptionLabel(account)}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </FormField>
+              )
+            }}
+          </form.Field>
+        ) : null}
+
         <form.Field
           name="type"
           validators={{
@@ -359,14 +488,7 @@ export function AddTransactionForm({
         >
           {([canSubmit, isSubmitting]) => (
             <FormActions>
-              <Link
-                to="/accounts/$accountId"
-                params={{ accountId: account.id }}
-                search={accountDetailSearchDefaults}
-                className="btn btn-ghost"
-              >
-                Cancel
-              </Link>
+              <CancelAction accountId={returnAccountId} />
               <button
                 type="submit"
                 className="btn btn-primary"

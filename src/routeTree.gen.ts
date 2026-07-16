@@ -30,6 +30,7 @@ import { Route as AppSettingsIndexRouteImport } from './routes/_app/settings/ind
 import { Route as AppActivityIndexRouteImport } from './routes/_app/activity/index'
 import { Route as AppAccountsIndexRouteImport } from './routes/_app/accounts/index'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as AppTransactionsNewRouteImport } from './routes/_app/transactions/new'
 import { Route as AppTransactionsTransactionIdRouteImport } from './routes/_app/transactions/$transactionId'
 import { Route as AppSettingsScheduleRouteImport } from './routes/_app/settings/schedule'
 import { Route as AppSettingsPeopleRouteImport } from './routes/_app/settings/people'
@@ -38,6 +39,7 @@ import { Route as AppActivityActivityIdRouteImport } from './routes/_app/activit
 import { Route as AppAccountsNewRouteImport } from './routes/_app/accounts/new'
 import { Route as AppAccountsAccountIdRouteImport } from './routes/_app/accounts/$accountId'
 import { Route as AppAccountsAccountIdIndexRouteImport } from './routes/_app/accounts/$accountId/index'
+import { Route as AppTransactionsTransfersNewRouteImport } from './routes/_app/transactions/transfers/new'
 import { Route as AppAccountsAccountIdSettingsRouteImport } from './routes/_app/accounts/$accountId/settings'
 import { Route as AppAccountsAccountIdTransfersNewRouteImport } from './routes/_app/accounts/$accountId/transfers/new'
 import { Route as AppAccountsAccountIdTransactionsNewRouteImport } from './routes/_app/accounts/$accountId/transactions/new'
@@ -146,6 +148,11 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppTransactionsNewRoute = AppTransactionsNewRouteImport.update({
+  id: '/new',
+  path: '/new',
+  getParentRoute: () => AppTransactionsRoute,
+} as any)
 const AppTransactionsTransactionIdRoute =
   AppTransactionsTransactionIdRouteImport.update({
     id: '/$transactionId',
@@ -187,6 +194,12 @@ const AppAccountsAccountIdIndexRoute =
     id: '/',
     path: '/',
     getParentRoute: () => AppAccountsAccountIdRoute,
+  } as any)
+const AppTransactionsTransfersNewRoute =
+  AppTransactionsTransfersNewRouteImport.update({
+    id: '/transfers/new',
+    path: '/transfers/new',
+    getParentRoute: () => AppTransactionsRoute,
   } as any)
 const AppAccountsAccountIdSettingsRoute =
   AppAccountsAccountIdSettingsRouteImport.update({
@@ -230,12 +243,14 @@ export interface FileRoutesByFullPath {
   '/settings/people': typeof AppSettingsPeopleRoute
   '/settings/schedule': typeof AppSettingsScheduleRoute
   '/transactions/$transactionId': typeof AppTransactionsTransactionIdRoute
+  '/transactions/new': typeof AppTransactionsNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/accounts/': typeof AppAccountsIndexRoute
   '/activity/': typeof AppActivityIndexRoute
   '/settings/': typeof AppSettingsIndexRoute
   '/transactions/': typeof AppTransactionsIndexRoute
   '/accounts/$accountId/settings': typeof AppAccountsAccountIdSettingsRoute
+  '/transactions/transfers/new': typeof AppTransactionsTransfersNewRoute
   '/accounts/$accountId/': typeof AppAccountsAccountIdIndexRoute
   '/accounts/$accountId/transactions/new': typeof AppAccountsAccountIdTransactionsNewRoute
   '/accounts/$accountId/transfers/new': typeof AppAccountsAccountIdTransfersNewRoute
@@ -258,12 +273,14 @@ export interface FileRoutesByTo {
   '/settings/people': typeof AppSettingsPeopleRoute
   '/settings/schedule': typeof AppSettingsScheduleRoute
   '/transactions/$transactionId': typeof AppTransactionsTransactionIdRoute
+  '/transactions/new': typeof AppTransactionsNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/accounts': typeof AppAccountsIndexRoute
   '/activity': typeof AppActivityIndexRoute
   '/settings': typeof AppSettingsIndexRoute
   '/transactions': typeof AppTransactionsIndexRoute
   '/accounts/$accountId/settings': typeof AppAccountsAccountIdSettingsRoute
+  '/transactions/transfers/new': typeof AppTransactionsTransfersNewRoute
   '/accounts/$accountId': typeof AppAccountsAccountIdIndexRoute
   '/accounts/$accountId/transactions/new': typeof AppAccountsAccountIdTransactionsNewRoute
   '/accounts/$accountId/transfers/new': typeof AppAccountsAccountIdTransfersNewRoute
@@ -293,12 +310,14 @@ export interface FileRoutesById {
   '/_app/settings/people': typeof AppSettingsPeopleRoute
   '/_app/settings/schedule': typeof AppSettingsScheduleRoute
   '/_app/transactions/$transactionId': typeof AppTransactionsTransactionIdRoute
+  '/_app/transactions/new': typeof AppTransactionsNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/_app/accounts/': typeof AppAccountsIndexRoute
   '/_app/activity/': typeof AppActivityIndexRoute
   '/_app/settings/': typeof AppSettingsIndexRoute
   '/_app/transactions/': typeof AppTransactionsIndexRoute
   '/_app/accounts/$accountId/settings': typeof AppAccountsAccountIdSettingsRoute
+  '/_app/transactions/transfers/new': typeof AppTransactionsTransfersNewRoute
   '/_app/accounts/$accountId/': typeof AppAccountsAccountIdIndexRoute
   '/_app/accounts/$accountId/transactions/new': typeof AppAccountsAccountIdTransactionsNewRoute
   '/_app/accounts/$accountId/transfers/new': typeof AppAccountsAccountIdTransfersNewRoute
@@ -328,12 +347,14 @@ export interface FileRouteTypes {
     | '/settings/people'
     | '/settings/schedule'
     | '/transactions/$transactionId'
+    | '/transactions/new'
     | '/api/auth/$'
     | '/accounts/'
     | '/activity/'
     | '/settings/'
     | '/transactions/'
     | '/accounts/$accountId/settings'
+    | '/transactions/transfers/new'
     | '/accounts/$accountId/'
     | '/accounts/$accountId/transactions/new'
     | '/accounts/$accountId/transfers/new'
@@ -356,12 +377,14 @@ export interface FileRouteTypes {
     | '/settings/people'
     | '/settings/schedule'
     | '/transactions/$transactionId'
+    | '/transactions/new'
     | '/api/auth/$'
     | '/accounts'
     | '/activity'
     | '/settings'
     | '/transactions'
     | '/accounts/$accountId/settings'
+    | '/transactions/transfers/new'
     | '/accounts/$accountId'
     | '/accounts/$accountId/transactions/new'
     | '/accounts/$accountId/transfers/new'
@@ -390,12 +413,14 @@ export interface FileRouteTypes {
     | '/_app/settings/people'
     | '/_app/settings/schedule'
     | '/_app/transactions/$transactionId'
+    | '/_app/transactions/new'
     | '/api/auth/$'
     | '/_app/accounts/'
     | '/_app/activity/'
     | '/_app/settings/'
     | '/_app/transactions/'
     | '/_app/accounts/$accountId/settings'
+    | '/_app/transactions/transfers/new'
     | '/_app/accounts/$accountId/'
     | '/_app/accounts/$accountId/transactions/new'
     | '/_app/accounts/$accountId/transfers/new'
@@ -559,6 +584,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_app/transactions/new': {
+      id: '/_app/transactions/new'
+      path: '/new'
+      fullPath: '/transactions/new'
+      preLoaderRoute: typeof AppTransactionsNewRouteImport
+      parentRoute: typeof AppTransactionsRoute
+    }
     '/_app/transactions/$transactionId': {
       id: '/_app/transactions/$transactionId'
       path: '/$transactionId'
@@ -614,6 +646,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/accounts/$accountId/'
       preLoaderRoute: typeof AppAccountsAccountIdIndexRouteImport
       parentRoute: typeof AppAccountsAccountIdRoute
+    }
+    '/_app/transactions/transfers/new': {
+      id: '/_app/transactions/transfers/new'
+      path: '/transfers/new'
+      fullPath: '/transactions/transfers/new'
+      preLoaderRoute: typeof AppTransactionsTransfersNewRouteImport
+      parentRoute: typeof AppTransactionsRoute
     }
     '/_app/accounts/$accountId/settings': {
       id: '/_app/accounts/$accountId/settings'
@@ -707,12 +746,16 @@ const AppSettingsRouteWithChildren = AppSettingsRoute._addFileChildren(
 
 interface AppTransactionsRouteChildren {
   AppTransactionsTransactionIdRoute: typeof AppTransactionsTransactionIdRoute
+  AppTransactionsNewRoute: typeof AppTransactionsNewRoute
   AppTransactionsIndexRoute: typeof AppTransactionsIndexRoute
+  AppTransactionsTransfersNewRoute: typeof AppTransactionsTransfersNewRoute
 }
 
 const AppTransactionsRouteChildren: AppTransactionsRouteChildren = {
   AppTransactionsTransactionIdRoute: AppTransactionsTransactionIdRoute,
+  AppTransactionsNewRoute: AppTransactionsNewRoute,
   AppTransactionsIndexRoute: AppTransactionsIndexRoute,
+  AppTransactionsTransfersNewRoute: AppTransactionsTransfersNewRoute,
 }
 
 const AppTransactionsRouteWithChildren = AppTransactionsRoute._addFileChildren(

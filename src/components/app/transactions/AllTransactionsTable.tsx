@@ -12,11 +12,11 @@ import {
   type ColumnFiltersState,
   type FilterFn,
   type PaginationState,
-  type RowSelectionState,
   type SortingState,
   type VisibilityState,
 } from '@tanstack/react-table'
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
+import { HiOutlineSearch, HiPlus } from 'react-icons/hi'
 import { accountDetailSearchDefaults } from '#/components/app/accounts/account-detail-search'
 import {
   formatAccountCurrency,
@@ -24,7 +24,12 @@ import {
   transactionTypeLabel,
 } from '#/components/app/accounts/account-utils'
 import type { VisibleTransactionListItem } from '#/server/transactions'
+import {
+  searchTransactionIds,
+  type TransactionSearchKey,
+} from '#/lib/transaction-search'
 import { FacetFilter } from './FacetFilter'
+import { TransactionsSpeedDial } from './TransactionsSpeedDial'
 import {
   parseCsvValues,
   serializeCsvValues,
@@ -39,7 +44,6 @@ type AllTransactionsTableProps = {
 const NONE_FACET = '__none__'
 
 const COLUMN_IDS = [
-  'select',
   'date',
   'account',
   'type',
@@ -68,7 +72,7 @@ function parseSort(sort: string): SortingState {
   if (!sort) return [{ id: 'date', desc: true }]
   const desc = sort.startsWith('-')
   const id = desc ? sort.slice(1) : sort
-  if (!COLUMN_IDS.includes(id as (typeof COLUMN_IDS)[number]) || id === 'select') {
+  if (!COLUMN_IDS.includes(id as (typeof COLUMN_IDS)[number])) {
     return [{ id: 'date', desc: true }]
   }
   return [{ id, desc }]
@@ -85,16 +89,13 @@ function parseCols(cols: string): VisibilityState {
   const hidden = new Set(cols.split(',').filter(Boolean))
   const visibility: VisibilityState = {}
   for (const id of COLUMN_IDS) {
-    if (id === 'select') continue
     if (hidden.has(id)) visibility[id] = false
   }
   return visibility
 }
 
 function serializeCols(visibility: VisibilityState): string {
-  return COLUMN_IDS.filter(
-    (id) => id !== 'select' && visibility[id] === false,
-  ).join(',')
+  return COLUMN_IDS.filter((id) => visibility[id] === false).join(',')
 }
 
 function searchToColumnFilters(search: TransactionsSearch): ColumnFiltersState {
@@ -117,7 +118,6 @@ export function AllTransactionsTable({
   search,
 }: AllTransactionsTableProps) {
   const navigate = useNavigate({ from: '/transactions/' })
-  const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
 
   const sorting = useMemo(() => parseSort(search.sort), [search.sort])
   const pagination = useMemo<PaginationState>(
@@ -132,6 +132,18 @@ export function AllTransactionsTable({
   const columnFilters = useMemo(
     () => searchToColumnFilters(search),
     [search.account, search.type, search.category, search.payee, search.tags],
+  )
+
+  const visibleSearchKeys = useMemo(
+    () =>
+      COLUMN_IDS.filter(
+        (id): id is TransactionSearchKey => columnVisibility[id] !== false,
+      ),
+    [columnVisibility],
+  )
+  const matchingIds = useMemo(
+    () => searchTransactionIds(transactions, visibleSearchKeys, globalFilter),
+    [transactions, visibleSearchKeys, globalFilter],
   )
 
   const facetOptions = useMemo(() => {
@@ -211,36 +223,6 @@ export function AllTransactionsTable({
 
   const columns = useMemo<ColumnDef<VisibleTransactionListItem>[]>(
     () => [
-      {
-        id: 'select',
-        header: ({ table }) => (
-          <input
-            type="checkbox"
-            className="checkbox checkbox-sm"
-            checked={table.getIsAllPageRowsSelected()}
-            ref={(element) => {
-              if (element) {
-                element.indeterminate = table.getIsSomePageRowsSelected()
-              }
-            }}
-            onChange={table.getToggleAllPageRowsSelectedHandler()}
-            aria-label="Select all rows on this page"
-          />
-        ),
-        cell: ({ row }) => (
-          <input
-            type="checkbox"
-            className="checkbox checkbox-sm"
-            checked={row.getIsSelected()}
-            disabled={!row.getCanSelect()}
-            onChange={row.getToggleSelectedHandler()}
-            aria-label={`Select transaction ${row.original.id}`}
-          />
-        ),
-        enableSorting: false,
-        enableHiding: false,
-        enableColumnFilter: false,
-      },
       {
         accessorKey: 'date',
         header: 'Date',
@@ -359,11 +341,8 @@ export function AllTransactionsTable({
       globalFilter,
       columnVisibility,
       columnFilters,
-      rowSelection,
     },
-    enableRowSelection: true,
     autoResetPageIndex: false,
-    onRowSelectionChange: setRowSelection,
     onSortingChange: (updater) => {
       const next = typeof updater === 'function' ? updater(sorting) : updater
       updateSearch({ sort: serializeSort(next), page: 1 })
@@ -409,7 +388,8 @@ export function AllTransactionsTable({
     getFacetedRowModel: getFacetedRowModel(),
     getFacetedUniqueValues: getFacetedUniqueValues(),
     getPaginationRowModel: getPaginationRowModel(),
-    globalFilterFn: 'includesString',
+    globalFilterFn: (row) =>
+      matchingIds === null || matchingIds.has(row.original.id),
     getRowId: (row) => row.id,
   })
 
@@ -417,81 +397,93 @@ export function AllTransactionsTable({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-end gap-3 rounded-box bg-base-100 p-4 shadow-sm">
-        <label className="form-control min-w-56 flex-1">
-          <span className="label-text mb-1 text-sm">Filter</span>
-          <input
-            type="search"
-            className="input input-bordered w-full"
-            value={globalFilter}
-            onChange={(event) => table.setGlobalFilter(event.target.value)}
-            placeholder="Search description, type…"
-          />
-        </label>
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-box bg-base-100 p-4 shadow-sm">
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="input input-bordered flex min-w-56 items-center gap-2">
+            <HiOutlineSearch
+              className="size-4 shrink-0 text-base-content/60"
+              aria-hidden
+            />
+            <input
+              type="search"
+              className="grow placeholder:text-base-content/50"
+              value={globalFilter}
+              onChange={(event) => table.setGlobalFilter(event.target.value)}
+              placeholder="Search description, type…"
+              aria-label="Search transactions"
+            />
+          </label>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <FacetFilter
-            column={table.getColumn('account')!}
-            label="Account"
-            options={facetOptions.account}
-            selected={parseCsvValues(search.account)}
-            onChange={(next) => setFacetFilter('account', next)}
-          />
-          <FacetFilter
-            column={table.getColumn('type')!}
-            label="Type"
-            options={facetOptions.type}
-            selected={parseCsvValues(search.type)}
-            onChange={(next) => setFacetFilter('type', next)}
-          />
-          <FacetFilter
-            column={table.getColumn('category')!}
-            label="Category"
-            options={facetOptions.category}
-            selected={parseCsvValues(search.category)}
-            onChange={(next) => setFacetFilter('category', next)}
-          />
-          <FacetFilter
-            column={table.getColumn('payee')!}
-            label="Payee"
-            options={facetOptions.payee}
-            selected={parseCsvValues(search.payee)}
-            onChange={(next) => setFacetFilter('payee', next)}
-          />
-          <FacetFilter
-            column={table.getColumn('tags')!}
-            label="Tags"
-            options={facetOptions.tags}
-            selected={parseCsvValues(search.tags)}
-            onChange={(next) => setFacetFilter('tags', next)}
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <FacetFilter
+              column={table.getColumn('account')!}
+              label="Account"
+              options={facetOptions.account}
+              selected={parseCsvValues(search.account)}
+              onChange={(next) => setFacetFilter('account', next)}
+            />
+            <FacetFilter
+              column={table.getColumn('type')!}
+              label="Type"
+              options={facetOptions.type}
+              selected={parseCsvValues(search.type)}
+              onChange={(next) => setFacetFilter('type', next)}
+            />
+            <FacetFilter
+              column={table.getColumn('category')!}
+              label="Category"
+              options={facetOptions.category}
+              selected={parseCsvValues(search.category)}
+              onChange={(next) => setFacetFilter('category', next)}
+            />
+            <FacetFilter
+              column={table.getColumn('payee')!}
+              label="Payee"
+              options={facetOptions.payee}
+              selected={parseCsvValues(search.payee)}
+              onChange={(next) => setFacetFilter('payee', next)}
+            />
+            <FacetFilter
+              column={table.getColumn('tags')!}
+              label="Tags"
+              options={facetOptions.tags}
+              selected={parseCsvValues(search.tags)}
+              onChange={(next) => setFacetFilter('tags', next)}
+            />
+          </div>
         </div>
 
-        <div className="dropdown dropdown-end">
-          <button type="button" tabIndex={0} className="btn btn-outline">
-            Columns
-          </button>
-          <ul
-            tabIndex={0}
-            className="dropdown-content menu z-20 mt-2 w-52 rounded-box border border-base-200 bg-base-100 p-2 shadow"
-          >
-            {table
-              .getAllColumns()
-              .filter((column) => column.getCanHide())
-              .map((column) => (
-                <li key={column.id}>
-                  <label className="flex cursor-pointer items-center gap-2">
-                    <input
-                      type="checkbox"
-                      className="checkbox checkbox-sm"
-                      checked={column.getIsVisible()}
-                      onChange={column.getToggleVisibilityHandler()}
-                    />
-                    <span className="capitalize">{column.id}</span>
-                  </label>
-                </li>
-              ))}
-          </ul>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="dropdown dropdown-end">
+            <button type="button" tabIndex={0} className="btn btn-outline">
+              Columns
+            </button>
+            <ul
+              tabIndex={0}
+              className="dropdown-content menu z-20 mt-2 w-52 rounded-box border border-base-200 bg-base-100 p-2 shadow"
+            >
+              {table
+                .getAllColumns()
+                .filter((column) => column.getCanHide())
+                .map((column) => (
+                  <li key={column.id}>
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        className="checkbox checkbox-sm"
+                        checked={column.getIsVisible()}
+                        onChange={column.getToggleVisibilityHandler()}
+                      />
+                      <span className="capitalize">{column.id}</span>
+                    </label>
+                  </li>
+                ))}
+            </ul>
+          </div>
+          <Link to="/transactions/new" className="btn btn-primary gap-2">
+            <HiPlus className="size-4" aria-hidden />
+            Add transaction
+          </Link>
         </div>
       </div>
 
@@ -544,7 +536,6 @@ export function AllTransactionsTable({
               table.getRowModel().rows.map((row) => (
                 <tr
                   key={row.id}
-                  data-selected={row.getIsSelected()}
                   className="cursor-pointer hover:bg-base-200/70"
                   onClick={() => {
                     void navigate({
@@ -557,7 +548,6 @@ export function AllTransactionsTable({
                     <td
                       key={cell.id}
                       onClick={
-                        cell.column.id === 'select' ||
                         cell.column.id === 'account'
                           ? (event) => event.stopPropagation()
                           : undefined
@@ -598,11 +588,6 @@ export function AllTransactionsTable({
               ))}
             </select>
           </div>
-          {Object.keys(rowSelection).length > 0 ? (
-            <span className="text-base-content/70">
-              {Object.keys(rowSelection).length} selected
-            </span>
-          ) : null}
         </div>
         <div className="join rounded-full border border-base-300 bg-base-100">
           <button
@@ -623,6 +608,8 @@ export function AllTransactionsTable({
           </button>
         </div>
       </div>
+
+      <TransactionsSpeedDial />
     </div>
   )
 }

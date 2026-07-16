@@ -149,13 +149,13 @@ function DetailCard({
 }) {
   return (
     <section
-      className={`rounded-box bg-base-100 p-5 shadow-sm sm:p-6 ${className}`}
+      className={`flex h-full flex-col rounded-box bg-base-100 p-5 shadow-sm sm:p-6 ${className}`}
     >
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h3 className="font-semibold text-base-content">{title}</h3>
         {actions}
       </div>
-      {children}
+      <div className="flex min-h-0 flex-1 flex-col">{children}</div>
     </section>
   )
 }
@@ -415,7 +415,7 @@ export function TransactionDetailPanel({
       {editing ? (
         <>
         <form
-          className="grid items-start gap-4 lg:grid-cols-2"
+          className="grid gap-6 lg:grid-cols-2"
           onSubmit={(event) => {
             event.preventDefault()
             event.stopPropagation()
@@ -713,7 +713,7 @@ export function TransactionDetailPanel({
           </TaxonomyCreateDialog>
         </>
       ) : (
-        <div className="grid items-start gap-4 lg:grid-cols-2">
+        <div className="grid gap-6 lg:grid-cols-2">
           <DetailCard title="Summary">
             <div className="grid gap-4 sm:grid-cols-2">
               <DetailField label="Date">
@@ -782,7 +782,7 @@ export function TransactionDetailPanel({
             </DetailCard>
           ) : null}
 
-          <DetailCard title="Attachments">
+          <DetailCard title="Attachments" className="lg:col-span-2">
             {transaction.attachments.length === 0 ? (
               <p className="text-sm text-base-content/60">No attachments.</p>
             ) : (

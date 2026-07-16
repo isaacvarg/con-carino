@@ -41,7 +41,7 @@ export function FacetFilter<TData>({
 
   return (
     <div className="dropdown">
-      <button type="button" tabIndex={0} className="btn btn-outline btn-sm">
+      <button type="button" tabIndex={0} className="btn btn-outline">
         {buttonLabel}
       </button>
       <div

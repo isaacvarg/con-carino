@@ -4,6 +4,10 @@ export const accountDetailSearchDefaults = {
   sort: '-date',
   q: '',
   cols: '',
+  type: '',
+  category: '',
+  payee: '',
+  tags: '',
   mode: '',
   reconView: 'list',
 } as const
@@ -16,6 +20,10 @@ export type AccountTransactionsSearch = {
   sort: string
   q: string
   cols: string
+  type: string
+  category: string
+  payee: string
+  tags: string
   mode: '' | 'reconcile'
   reconView: AccountReconView
 }
@@ -32,6 +40,15 @@ function parseMode(value: unknown): '' | 'reconcile' {
 
 function parseReconView(value: unknown): AccountReconView {
   return value === 'review' ? 'review' : 'list'
+}
+
+function parseCsvParam(value: unknown): string {
+  if (typeof value !== 'string' || !value.trim()) return ''
+  return value
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(',')
 }
 
 export function validateAccountTransactionsSearch(
@@ -52,6 +69,10 @@ export function validateAccountTransactionsSearch(
       typeof search.cols === 'string'
         ? search.cols
         : accountDetailSearchDefaults.cols,
+    type: parseCsvParam(search.type),
+    category: parseCsvParam(search.category),
+    payee: parseCsvParam(search.payee),
+    tags: parseCsvParam(search.tags),
     mode: parseMode(search.mode),
     reconView: parseReconView(search.reconView),
   }

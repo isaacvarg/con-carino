@@ -1,4 +1,8 @@
 import type { ActivityAction } from '#/generated/prisma/enums'
+import {
+  accountDetailSearchDefaults,
+  type AccountTransactionsSearch,
+} from '#/components/app/accounts/account-detail-search'
 
 /** Stable entity type keys for activity log rows. Add new keys as features land. */
 export const ACTIVITY_ENTITY_TYPES = {
@@ -49,15 +53,7 @@ export type ActivityHref =
   | {
       to: '/accounts/$accountId'
       params: { accountId: string }
-      search: {
-        page: number
-        pageSize: number
-        sort: string
-        q: string
-        cols: string
-        mode: '' | 'reconcile'
-        reconView: 'list' | 'review'
-      }
+      search: AccountTransactionsSearch
     }
   | {
       to: '/invoices'
@@ -182,15 +178,7 @@ export function resolveActivityHref(entry: ResolveActivityInput): ActivityHref {
       return {
         to: '/accounts/$accountId',
         params: { accountId: id },
-        search: {
-          page: 1,
-          pageSize: 10,
-          sort: '-date',
-          q: '',
-          cols: '',
-          mode: '',
-          reconView: 'list',
-        },
+        search: accountDetailSearchDefaults,
       }
     case ACTIVITY_ENTITY_TYPES.invoice:
       return {

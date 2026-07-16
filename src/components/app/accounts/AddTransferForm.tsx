@@ -1,6 +1,7 @@
 import { useForm } from '@tanstack/react-form'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useRef, useState } from 'react'
+import { transactionsSearchDefaults } from '#/components/app/transactions/transactions-search'
 import {
   FORM_INPUT_CLASS,
   FORM_SELECT_CLASS,
@@ -30,13 +31,63 @@ type AddTransferFormValues = {
 
 type AddTransferFormProps = {
   /** Account page the user started from (navigation target after save). */
-  returnAccountId: string
+  returnAccountId?: string
   accounts: AccountListItem[]
   defaultFromAccountId: string
 }
 
 function accountOptionLabel(account: AccountListItem): string {
   return account.isGlobal ? `${account.name} (Global)` : account.name
+}
+
+function CancelLink({ returnAccountId }: { returnAccountId?: string }) {
+  if (returnAccountId) {
+    return (
+      <Link
+        to="/accounts/$accountId"
+        params={{ accountId: returnAccountId }}
+        search={accountDetailSearchDefaults}
+        className="btn btn-ghost btn-sm"
+      >
+        Cancel
+      </Link>
+    )
+  }
+
+  return (
+    <Link
+      to="/transactions"
+      search={transactionsSearchDefaults}
+      className="btn btn-ghost btn-sm"
+    >
+      Cancel
+    </Link>
+  )
+}
+
+function CancelAction({ returnAccountId }: { returnAccountId?: string }) {
+  if (returnAccountId) {
+    return (
+      <Link
+        to="/accounts/$accountId"
+        params={{ accountId: returnAccountId }}
+        search={accountDetailSearchDefaults}
+        className="btn btn-ghost"
+      >
+        Cancel
+      </Link>
+    )
+  }
+
+  return (
+    <Link
+      to="/transactions"
+      search={transactionsSearchDefaults}
+      className="btn btn-ghost"
+    >
+      Cancel
+    </Link>
+  )
 }
 
 export function AddTransferForm({
@@ -73,25 +124,25 @@ export function AddTransferForm({
           attachments: attachments ?? [],
         },
       })
-      await navigate({
-        to: '/accounts/$accountId',
-        params: { accountId: returnAccountId },
-        search: accountDetailSearchDefaults,
-      })
+      if (returnAccountId) {
+        await navigate({
+          to: '/accounts/$accountId',
+          params: { accountId: returnAccountId },
+          search: accountDetailSearchDefaults,
+        })
+      } else {
+        await navigate({
+          to: '/transactions',
+          search: transactionsSearchDefaults,
+        })
+      }
     },
   })
 
   return (
     <div className="mx-auto w-full max-w-xl">
       <div className="mb-4 flex items-center justify-end gap-3">
-        <Link
-          to="/accounts/$accountId"
-          params={{ accountId: returnAccountId }}
-          search={accountDetailSearchDefaults}
-          className="btn btn-ghost btn-sm"
-        >
-          Cancel
-        </Link>
+        <CancelLink returnAccountId={returnAccountId} />
       </div>
 
       <FormShell
@@ -326,14 +377,7 @@ export function AddTransferForm({
         >
           {([canSubmit, isSubmitting]) => (
             <FormActions>
-              <Link
-                to="/accounts/$accountId"
-                params={{ accountId: returnAccountId }}
-                search={accountDetailSearchDefaults}
-                className="btn btn-ghost"
-              >
-                Cancel
-              </Link>
+              <CancelAction returnAccountId={returnAccountId} />
               <button
                 type="submit"
                 className="btn btn-primary"
