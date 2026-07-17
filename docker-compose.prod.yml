@@ -1,23 +1,22 @@
 # Production deployment.
 #
-# Topology:
-#   - `edge` is an external, pre-created network shared with the cloudflared
-#     Zero Trust tunnel container: docker network create edge
-#     The tunnel's public hostname should point at http://app:3000.
-#   - `backend` is internal-only: RustFS is reachable from the app but never
-#     from the host or the tunnel. Browsers get files through the app's
-#     signed /api/files proxy, never from RustFS directly.
+# Deploy:
+#   docker network create edge                                    # once
+#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml run --rm migrate
+#   docker compose -f docker-compose.prod.yml up -d
 #
-# Apply migrations: docker compose -f docker-compose.prod.yml run --rm migrate
-# Then:             docker compose -f docker-compose.prod.yml up -d
+# `migrate` sits behind the `tools` profile so `up -d` never starts it, but it
+# is still a required step of every deploy that carries a new migration.
 
 services:
   app:
-    build: .
+    image: ghcr.io/isaacvarg/con-carino:${IMAGE_TAG:-latest}
+    pull_policy: always
     container_name: con-carino-app
     restart: unless-stopped
     environment:
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-con_carino}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-con_carino}?schema=public
       AUTH_SECRET: ${AUTH_SECRET}
       AUTH_TRUST_HOST: 'true'
       AUTH_GOOGLE_ID: ${AUTH_GOOGLE_ID}
@@ -34,7 +33,32 @@ services:
       - edge
       - backend
     depends_on:
-      - rustfs
+      rustfs:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:18-alpine
+    container_name: con-carino-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-con_carino}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-con_carino}
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    networks:
+      - backend
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U ${POSTGRES_USER:-con_carino} -d ${POSTGRES_DB:-con_carino}',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   rustfs:
     image: rustfs/rustfs:latest
@@ -51,13 +75,15 @@ services:
       - backend
 
   migrate:
-    build:
-      context: .
-      target: migrate
+    image: ghcr.io/isaacvarg/con-carino-migrate:${IMAGE_TAG:-latest}
+    pull_policy: always
     environment:
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-con_carino}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-con_carino}?schema=public
     networks:
       - backend
+    depends_on:
+      postgres:
+        condition: service_healthy
     profiles:
       - tools
 
@@ -69,3 +95,4 @@ networks:
 
 volumes:
   rustfs_data:
+  postgres_data:
