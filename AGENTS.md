@@ -11,49 +11,33 @@ Before editing files for a substantial task:
 
 # con-carino
 
-Blank TanStack Start (React) app. No partner add-ons or feature scaffolding beyond the CLI default starter.
+Private, self-hosted family app: a shared household ledger (accounts, transactions, reconciliation) plus care coordination for a single loved one (coverage schedule, shift swaps, caregiver invoices) and a document library. Single-family by design — care settings are a singleton and auth is OAuth-only.
 
-## Scaffold commands
+See `README.md` for the product overview, setup, and deploy flow.
 
-Exact CLI command used (run from a scratch directory, then merged into this project root):
-
-```bash
-npx @tanstack/cli@latest create my-tanstack-app --agent --package-manager pnpm --tailwind
-```
-
-Notes from that run:
-- `--tailwind` is deprecated/ignored; Tailwind is always enabled in TanStack Start scaffolds.
-- Scaffold directory was `my-tanstack-app`; contents were merged into `con-carino` and `package.json` / `.cta.json` renamed to `con-carino`.
-- Host bootstrap was an empty git repo via Cursor `create_project`; the TanStack CLI output is the source of truth for app files.
-
-Follow-up Intent commands:
-
-```bash
-npx @tanstack/intent@latest install
-npx @tanstack/intent@latest list
-```
-
-Intent result at scaffold time: 9 intent-enabled packages, 31 skills (Start, Router, Devtools, etc.). Prefer `pnpm dlx @tanstack/intent@latest load …` over guessing patterns.
-
-## Chosen stack and integrations
+## Stack and integrations
 
 | Choice | Value |
 | --- | --- |
-| Framework | React + TanStack Start |
-| Starter | Blank (file router); `chosenAddOns: []` |
+| Framework | React 19 + TanStack Start (SSR, `createServerFn`) |
 | Router | TanStack Router file-based (`src/routes`) |
-| Styling | Tailwind CSS v4 via `@tailwindcss/vite` |
-| Package manager | pnpm |
-| Toolchain | Vite (default CLI toolchain), TypeScript, Vitest |
-| Partner integrations | None requested; none installed |
+| Database | PostgreSQL via Prisma 7 + `@prisma/adapter-pg` driver adapter |
+| Auth | Auth.js (`@auth/core`, `start-authjs`, Prisma adapter) — Google + Discord, database sessions |
+| Object storage | RustFS (S3-compatible) via `@aws-sdk/client-s3` |
+| Styling | Tailwind CSS v4 via `@tailwindcss/vite` + daisyUI; Catppuccin Latte/Macchiato themes in `src/styles.css` |
+| Package manager | pnpm 11 |
+| Toolchain | Vite, TypeScript, Vitest |
+| Lint/format | None configured |
 
-Default starter still includes ThemeToggle, Home + About routes, and TanStack Devtools — not partner add-ons.
+Prefer `pnpm dlx @tanstack/intent@latest load …` over guessing TanStack patterns.
 
 ## Environment variables
 
-No env vars are required for the blank starter (`.cta.json` `envVarValues` is empty).
+Required — see `.env.example` for the full list and comments. `DATABASE_URL`, `AUTH_SECRET`, the Google/Discord OAuth pairs, and `S3_ENDPOINT` / `S3_BUCKET` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` (hard-required via `requireEnv` in `src/lib/storage.ts`).
 
-When adding secrets later (per Intent `start-core/execution-model`):
+`AUTH_SECRET` also signs file-link HMACs (`src/lib/file-tokens.ts`), not just sessions.
+
+Handling (per Intent `start-core/execution-model`):
 - Server secrets: `process.env.*` **inside** `createServerFn` handlers (or other per-request server code), never at module scope — and never with a `VITE_` prefix.
 - Client-exposed values: only `VITE_*` (bundled into the client).
 - Do not put secrets in `VITE_*` variables.
@@ -61,27 +45,27 @@ When adding secrets later (per Intent `start-core/execution-model`):
 ## Scripts
 
 ```bash
-pnpm install   # if deps are missing
-pnpm dev       # http://localhost:3000
+pnpm install          # if deps are missing
+pnpm prisma generate  # required before first dev/typecheck; src/generated/prisma is gitignored
+pnpm dev              # http://localhost:3000
 pnpm build
 pnpm preview
 pnpm test
 pnpm generate-routes
+pnpm exec tsc --noEmit  # typecheck; no script for it
 ```
+
+Dev needs a Postgres you supply — `docker-compose.yml` starts RustFS only, no database.
 
 ## Deployment
 
-No host adapter was selected at scaffold time. Per Intent `start-core/deployment`, common paths are:
-- Cloudflare Workers (`@cloudflare/vite-plugin` + wrangler)
-- Netlify (`@netlify/vite-plugin-tanstack-start`)
-- Nitro targets (Vercel, Node, Docker, Railway, Bun)
-
-Default local production flow: `pnpm build` then `pnpm preview` until a host plugin is added.
+Docker images built and pushed to GHCR by `.github/workflows/build.yml` (app = Dockerfile `runner` stage, migrations = `migrate` stage), deployed via `docker-compose.prod.yml` behind a reverse proxy on an external `edge` network. Migrations run as a separate `tools`-profile service before `up -d`. See `README.md` for the exact flow and network topology.
 
 ## Architecture decisions
 
-- Keep the generated Vite + `tanstackStart()` + React + Tailwind plugin order unless Intent skills say otherwise (`devtools()` should stay first).
-- Code is isomorphic by default; use `createServerFn` for server-only work (DB, secrets).
+- Keep the Vite plugin order in `vite.config.ts`: `[tailwindcss(), tanstackStart(), viteReact()]`.
+- Code is isomorphic by default; use `createServerFn` for server-only work (DB, secrets). Server functions live in `src/server/`.
+- Files are served through same-origin `/api/files` and `/api/uploads` with HMAC-signed links, never browser-facing presigned S3 URLs — the object store is unreachable from the browser in production.
 - Do not introduce Next.js patterns (`"use server"`, `app/` router, etc.).
 - Preserve file-based routes under `src/routes` and `#/*` import alias to `./src/*`.
 - `routeTree.gen.ts` is generated; prefer `pnpm generate-routes` / Vite plugin regeneration over hand-edits.
@@ -89,15 +73,10 @@ Default local production flow: `pnpm build` then `pnpm preview` until a host plu
 
 ## Known gotchas
 
-- Tailwind CLI flag `--tailwind` is ignored; Tailwind is on by default.
-- pnpm 11 no longer reads `package.json#pnpm.onlyBuiltDependencies`; allowlist lives in `pnpm-workspace.yaml` (`esbuild`, `lightningcss`).
+- pnpm 11 no longer reads `package.json#pnpm.onlyBuiltDependencies`; allowlist lives in `pnpm-workspace.yaml` (`esbuild`, `lightningcss`, `@prisma/engines`, `prisma`).
+- Prisma uses directory mode (`schema: 'prisma'` in `prisma.config.ts`), so models are split across `prisma/models/*.prisma`; `prisma/schema.prisma` holds only the datasource and generator.
+- `sharp`, `@napi-rs/canvas`, and `pdfjs-dist` are native/ESM-awkward — they stay in `ssr.external` and `optimizeDeps.exclude` in `vite.config.ts`.
+- Theme and accent names are duplicated in the pre-paint `THEME_INIT_SCRIPT` in `src/routes/__root.tsx`; keep them in sync with `src/lib/themes.ts` and `src/lib/accents.ts`.
+- `src/routes/about.tsx` is leftover starter content, not product.
 - Intent `install` keeps a short skill-loading block at the top of this file — keep project context **below** `<!-- intent-skills:end -->`.
 - A future Intent version may require an explicit `intent.skills` allowlist; currently all discovered skills are surfaced.
-
-## Next steps
-
-1. Run `pnpm dev` and confirm Home/About.
-2. Replace remaining starter chrome (theme) as product UI takes shape.
-3. Add routes under `src/routes` as needed.
-4. Load Intent skills before introducing server functions, auth, or a deploy adapter.
-5. Optionally add a host plugin when deployment target is known.

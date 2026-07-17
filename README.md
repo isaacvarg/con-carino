@@ -1,193 +1,142 @@
-Welcome to your new TanStack Start app! 
+# con-carino
 
-# Getting Started
+_Con cariño_ — "with love."
 
-To run this application:
+A self-hosted app for coordinating the care of one loved one alongside the household finances that surround it. It keeps the shared family ledger, the caregiver coverage calendar, invoices for paid caregivers, and the document library in one place.
+
+This is built for a single family on their own hardware. There is no tenancy model and no invite flow: care settings are a singleton, sign-in is OAuth-only against providers you configure, and anyone who can sign in is family.
+
+## Features
+
+**[Suggest Features](https://feedback.isaacvargas.dev)**
+
+**Family ledger**
+
+- Accounts — checking, credit card, savings, loan, cash, and investment — organized into groups, each either shared with the family or private to you.
+- Transactions covering expenses, income, transfers, balance adjustments, refunds, and reimbursements. Transfers are written as two paired rows so both accounts stay honest.
+- Reconciliation mode for working an account against a statement, tracking each row as uncleared, cleared, needs review, or reconciled, with an audit trail of who changed what.
+- Payees, categories, and tags as colored, icon-bearing badges you manage yourself.
+- Receipt attachments on transactions (up to 5 each).
+
+**Care**
+
+- Loved-one coverage settings: full or partial days, all-day or specific shifts, and which days of the week need covering.
+- Caregivers, both paid and family, with hourly rates, pay intervals, and their own calendar colors.
+- Recurring weekly or biweekly coverage series that materialize into individual scheduled shifts.
+- Shift swaps — one caregiver relinquishes an occurrence, another claims it, and a reviewer approves or rejects.
+- A care calendar with event types you define.
+
+**Invoices** — accrued caregiver hours roll into invoices whose lines snapshot the rate and hours at billing time, so later rate changes never rewrite history. Paying an invoice links it to a ledger transaction.
+
+**Documents** — a typed, colored document library with thumbnails (images, plus the first page of PDFs) and fuzzy search.
+
+**Activity** — a field-level audit log across the app recording what changed, from what, to what, and by whom.
+
+**Appearance** — per-user Catppuccin theming: Latte or Macchiato, with 14 accent colors.
+
+> Insights, Meds, Meals, Notes, and Shopping appear in the nav but are placeholders today.
+
+## Tech stack
+
+| Area | Choice |
+| --- | --- |
+| Framework | [TanStack Start](https://tanstack.com/start) |
+| Routing | TanStack Router 1.170, file-based (`src/routes`) |
+| Forms & tables | TanStack Form, TanStack Table |
+| Language | TypeScript 6 (strict) |
+| Build | Vite 8 |
+| Styling | Tailwind CSS v4 + daisyUI 5; Catppuccin Latte/Macchiato themes |
+| Database | PostgreSQL via Prisma 7  |
+| Auth | Auth.js |
+| Object storage | [RustFS](https://rustfs.com/)|
+| Charts & Search | Chart.js, Fuse.js |
+| Tests | Vitest + Testing Library |
+| Package manager | pnpm 11 |
+
+
+## Local development
+
+You need Node 24, pnpm, Docker, and **a PostgreSQL you supply yourself** — `docker-compose.yml` starts RustFS only, not a database. Point `DATABASE_URL` at whatever Postgres you have.
 
 ```bash
 pnpm install
-pnpm dev
+docker compose up -d      # RustFS: API on :9000, console on :9001
+cp .env.example .env      # then fill in DATABASE_URL, AUTH_SECRET, OAuth credentials
+pnpm prisma generate      # required — src/generated/prisma is gitignored
+pnpm prisma migrate dev
+pnpm prisma db seed       # care settings + Family/Employee caregiver types
+pnpm dev                  # http://localhost:3000
 ```
 
-# Building For Production
+`pnpm prisma generate` has to run before the first dev server or typecheck, since the generated client is not committed.
 
-To build this application for production:
+| Command | Purpose |
+| --- | --- |
+| `pnpm dev` | Dev server on port 3000 |
+| `pnpm build` | Production build |
+| `pnpm preview` | Serve the build locally |
+| `pnpm start` | Run the production server (`server.prod.mjs`) |
+| `pnpm test` | Vitest run |
+| `pnpm generate-routes` | Regenerate `routeTree.gen.ts` |
+| `pnpm exec tsc --noEmit` | Typecheck (no script for this) |
+
+## Configuration
+
+All of these live in `.env` locally; see `.env.example`. In production they are read from the environment by `docker-compose.prod.yml`.
+
+| Variable | Notes |
+| --- | --- |
+| `DATABASE_URL` | Postgres connection string. Used in dev and by `prisma.config.ts`. Production composes its own from the `POSTGRES_*` vars below and ignores this. |
+| `POSTGRES_USER` | Defaults to `con_carino`. Production compose only. |
+| `POSTGRES_PASSWORD` | **Required in production** — compose refuses to start without it. Keep it alphanumeric: it is interpolated into `DATABASE_URL` unescaped, so `@ / :` or `#` would corrupt the connection string. |
+| `POSTGRES_DB` | Defaults to `con_carino`. |
+| `AUTH_SECRET` | `npx auth secret`, or `openssl rand -base64 33`. Signs Auth.js sessions **and** the HMAC on file links — rotating it invalidates both. |
+| `AUTH_TRUST_HOST` | `true` when running behind a proxy. |
+| `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | [Google credentials](https://console.cloud.google.com/apis/credentials). |
+| `AUTH_DISCORD_ID` / `AUTH_DISCORD_SECRET` | [Discord application](https://discord.com/developers/applications). |
+| `S3_ENDPOINT` | `http://127.0.0.1:9000` in dev; `http://rustfs:9000` in production. |
+| `S3_REGION` | Defaults to `us-east-1`. |
+| `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | Compose feeds these to RustFS as its admin keys, so both sides must match. |
+| `S3_BUCKET` | Defaults to `con-carino`. Created automatically if missing. |
+| `S3_FORCE_PATH_STYLE` | `true` for RustFS. |
+| `PORT` | Read by `server.prod.mjs` only; defaults to `3000`. |
+
+`S3_BUCKET`, `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, and `S3_SECRET_ACCESS_KEY` are hard requirements — the app throws at startup without them.
+
+## Deployment
+
+Pushes to `main` and `v*` tags build two `linux/amd64` images and push them to GHCR (`.github/workflows/build.yml`):
+
+- `ghcr.io/isaacvarg/con-carino` — the app (Dockerfile `runner` stage)
+- `ghcr.io/isaacvarg/con-carino-migrate` — a one-shot `prisma migrate deploy` (Dockerfile `migrate` stage)
+
+Both are tagged with the branch, the short SHA, the semver version on tags, and `latest` on the default branch. `docker-compose.prod.yml` pins them with `IMAGE_TAG` (defaults to `latest`).
+
+To deploy:
 
 ```bash
-pnpm build
+docker network create edge                                    # once
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml run --rm migrate
+docker compose -f docker-compose.prod.yml up -d
 ```
 
-## Testing
+`migrate` sits behind the `tools` profile, so `up -d` never starts it — but it is a required step of any deploy carrying a new migration.
 
-This project uses [Vitest](https://vitest.dev/) for testing. You can run the tests with:
 
-```bash
-pnpm test
+## Project structure
+
+```
+prisma/
+  models/         # schema split by domain: account, care, transaction, document, …
+  migrations/
+  seed.ts
+src/
+  routes/         # file-based routes; _app.tsx is the authenticated layout
+  server/         # server functions and API handlers — DB access, storage, auth
+  lib/            # isomorphic logic: care recurrence, invoicing, reconciliation, search, theming
+  components/app/ # UI, grouped by feature area
+  styles.css      # Tailwind + daisyUI + the two Catppuccin themes
 ```
 
-## Styling
-
-This project uses [Tailwind CSS](https://tailwindcss.com/) for styling.
-
-### Removing Tailwind CSS
-
-If you prefer not to use Tailwind CSS:
-
-1. Remove the demo pages in `src/routes/demo/`
-2. Replace the Tailwind import in `src/styles.css` with your own styles
-3. Remove `tailwindcss()` from the plugins array in `vite.config.ts`
-4. Uninstall the packages: `pnpm add @tailwindcss/vite tailwindcss --dev`
-
-
-
-## Routing
-
-This project uses [TanStack Router](https://tanstack.com/router) with file-based routing. Routes are managed as files in `src/routes`.
-
-### Adding A Route
-
-To add a new route to your application just add a new file in the `./src/routes` directory.
-
-TanStack will automatically generate the content of the route file for you.
-
-Now that you have two routes you can use a `Link` component to navigate between them.
-
-### Adding Links
-
-To use SPA (Single Page Application) navigation you will need to import the `Link` component from `@tanstack/react-router`.
-
-```tsx
-import { Link } from "@tanstack/react-router";
-```
-
-Then anywhere in your JSX you can use it like so:
-
-```tsx
-<Link to="/about">About</Link>
-```
-
-This will create a link that will navigate to the `/about` route.
-
-More information on the `Link` component can be found in the [Link documentation](https://tanstack.com/router/v1/docs/framework/react/api/router/linkComponent).
-
-### Using A Layout
-
-In the File Based Routing setup the layout is located in `src/routes/__root.tsx`. Anything you add to the root route will appear in all the routes. The route content will appear in the JSX where you render `{children}` in the `shellComponent`.
-
-Here is an example layout that includes a header:
-
-```tsx
-import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
-
-export const Route = createRootRoute({
-  head: () => ({
-    meta: [
-      { charSet: 'utf-8' },
-      { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-      { title: 'My App' },
-    ],
-  }),
-  shellComponent: ({ children }) => (
-    <html lang="en">
-      <head>
-        <HeadContent />
-      </head>
-      <body>
-        <header>
-          <nav>
-            <Link to="/">Home</Link>
-            <Link to="/about">About</Link>
-          </nav>
-        </header>
-        {children}
-        <Scripts />
-      </body>
-    </html>
-  ),
-})
-```
-
-More information on layouts can be found in the [Layouts documentation](https://tanstack.com/router/latest/docs/framework/react/guide/routing-concepts#layouts).
-
-## Server Functions
-
-TanStack Start provides server functions that allow you to write server-side code that seamlessly integrates with your client components.
-
-```tsx
-import { createServerFn } from '@tanstack/react-start'
-
-const getServerTime = createServerFn({
-  method: 'GET',
-}).handler(async () => {
-  return new Date().toISOString()
-})
-
-// Use in a component
-function MyComponent() {
-  const [time, setTime] = useState('')
-  
-  useEffect(() => {
-    getServerTime().then(setTime)
-  }, [])
-  
-  return <div>Server time: {time}</div>
-}
-```
-
-## API Routes
-
-You can create API routes by using the `server` property in your route definitions:
-
-```tsx
-import { createFileRoute } from '@tanstack/react-router'
-import { json } from '@tanstack/react-start'
-
-export const Route = createFileRoute('/api/hello')({
-  server: {
-    handlers: {
-      GET: () => json({ message: 'Hello, World!' }),
-    },
-  },
-})
-```
-
-## Data Fetching
-
-There are multiple ways to fetch data in your application. You can use TanStack Query to fetch data from a server. But you can also use the `loader` functionality built into TanStack Router to load the data for a route before it's rendered.
-
-For example:
-
-```tsx
-import { createFileRoute } from '@tanstack/react-router'
-
-export const Route = createFileRoute('/people')({
-  loader: async () => {
-    const response = await fetch('https://swapi.dev/api/people')
-    return response.json()
-  },
-  component: PeopleComponent,
-})
-
-function PeopleComponent() {
-  const data = Route.useLoaderData()
-  return (
-    <ul>
-      {data.results.map((person) => (
-        <li key={person.name}>{person.name}</li>
-      ))}
-    </ul>
-  )
-}
-```
-
-Loaders simplify your data fetching logic dramatically. Check out more information in the [Loader documentation](https://tanstack.com/router/latest/docs/framework/react/guide/data-loading#loader-parameters).
-
-# Demo files
-
-Files prefixed with `demo` can be safely deleted. They are there to provide a starting point for you to play around with the features you've installed.
-
-# Learn More
-
-You can learn more about all of the offerings from TanStack in the [TanStack documentation](https://tanstack.com).
-
-For TanStack Start specific documentation, visit [TanStack Start](https://tanstack.com/start).
+`src/generated/prisma` and `src/routeTree.gen.ts` are generated — don't edit them by hand.
