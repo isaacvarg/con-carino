@@ -41,7 +41,7 @@ export default function DashboardPage({
   recentActivity: ActivityListItem[]
 }) {
   return (
-    <div className="grid items-start gap-4 xl:grid-cols-[17.5rem_minmax(0,1fr)_22rem]">
+    <div className="grid items-start gap-4 xl:grid-cols-[17.5rem_minmax(0,1fr)_22rem] xl:grid-rows-[auto_1fr]">
       <div className="order-1 xl:order-none xl:col-start-1 xl:row-start-1">
         <QuickActions />
       </div>
@@ -55,8 +55,8 @@ export default function DashboardPage({
       </div>
 
       <div className="order-3 flex flex-col gap-4 xl:order-none xl:col-start-1 xl:row-start-2">
-        <OpenCoverageSlotsCard slots={openCoverageSlots} />
         <DashboardFeedbackCard />
+        <OpenCoverageSlotsCard slots={openCoverageSlots} />
       </div>
 
       <aside className="order-4 flex w-full min-w-0 flex-col gap-4 xl:order-none xl:col-start-3 xl:row-start-1 xl:row-span-2 xl:sticky xl:top-4 xl:max-h-[calc(100vh-6rem)] xl:overflow-y-auto">

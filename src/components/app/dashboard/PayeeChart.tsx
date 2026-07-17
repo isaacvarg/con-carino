@@ -8,22 +8,70 @@ import {
 } from 'chart.js'
 import { useEffect, useMemo, useState } from 'react'
 import { Doughnut } from 'react-chartjs-2'
+import type { AccentName } from '#/lib/accents'
 import type { CoverageAssigneeStat } from '#/server/care'
 import type { TaxonomyTransactionStat } from '#/server/transactions'
 
 ChartJS.register(ArcElement, Tooltip, Legend)
 
-const CHART_COLORS = [
-  'oklch(55% 0.15 250)',
-  'oklch(60% 0.14 160)',
-  'oklch(65% 0.12 50)',
-  'oklch(58% 0.16 20)',
-  'oklch(62% 0.12 300)',
-  'oklch(70% 0.1 90)',
-  'oklch(50% 0.1 200)',
-  'oklch(55% 0.08 140)',
-  'oklch(48% 0.06 280)',
+/**
+ * Catppuccin accents ordered so consecutive slices sit in different hue
+ * families — palette order (rosewater, flamingo, pink, …) puts near-identical
+ * pastels next to each other and slices become indistinguishable.
+ */
+const CHART_ACCENT_ORDER: AccentName[] = [
+  'blue',
+  'peach',
+  'green',
+  'mauve',
+  'red',
+  'teal',
+  'yellow',
+  'pink',
+  'sapphire',
+  'maroon',
+  'sky',
+  'lavender',
+  'flamingo',
+  'rosewater',
 ]
+
+const CHART_COLOR_FALLBACKS = CHART_ACCENT_ORDER.map(
+  (accent) => `var(--ctp-${accent})`,
+)
+
+function resolveChartColors() {
+  if (typeof window === 'undefined') {
+    return CHART_COLOR_FALLBACKS
+  }
+
+  const styles = window.getComputedStyle(document.documentElement)
+  return CHART_ACCENT_ORDER.map((accent, index) => {
+    const color = styles.getPropertyValue(`--ctp-${accent}`).trim()
+    return color || CHART_COLOR_FALLBACKS[index]
+  })
+}
+
+function useCatppuccinChartColors() {
+  const [colors, setColors] = useState(CHART_COLOR_FALLBACKS)
+
+  useEffect(() => {
+    const root = document.documentElement
+    const refreshColors = () => setColors(resolveChartColors())
+
+    refreshColors()
+
+    const observer = new MutationObserver(refreshColors)
+    observer.observe(root, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    })
+
+    return () => observer.disconnect()
+  }, [])
+
+  return colors
+}
 
 export function StatisticDoughnutCard({
   title,
@@ -36,6 +84,7 @@ export function StatisticDoughnutCard({
   emptyMessage: string
   centerLabel?: string
 }) {
+  const chartColors = useCatppuccinChartColors()
   const [mounted, setMounted] = useState(false)
   useEffect(() => {
     setMounted(true)
@@ -53,14 +102,14 @@ export function StatisticDoughnutCard({
         {
           data: stats.map((s) => s.count),
           backgroundColor: stats.map(
-            (_, i) => CHART_COLORS[i % CHART_COLORS.length],
+            (_, i) => chartColors[i % chartColors.length],
           ),
           borderWidth: 0,
           hoverOffset: 4,
         },
       ],
     }),
-    [stats],
+    [chartColors, stats],
   )
 
   const options: ChartOptions<'doughnut'> = useMemo(
@@ -116,8 +165,7 @@ export function StatisticDoughnutCard({
                   <span
                     className="size-2.5 shrink-0 rounded-sm"
                     style={{
-                      backgroundColor:
-                        CHART_COLORS[index % CHART_COLORS.length],
+                      backgroundColor: chartColors[index % chartColors.length],
                     }}
                   />
                   <span className="truncate">{item.name}</span>
