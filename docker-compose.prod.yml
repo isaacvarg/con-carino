@@ -1,13 +1,12 @@
 # Production deployment.
 #
-# Deploy:
+# Deploy (CLI or Arcane redeploy — both are just pull + up):
 #   docker network create edge                                    # once
 #   docker compose -f docker-compose.prod.yml pull
-#   docker compose -f docker-compose.prod.yml run --rm migrate
 #   docker compose -f docker-compose.prod.yml up -d
 #
-# `migrate` sits behind the `tools` profile so `up -d` never starts it, but it
-# is still a required step of every deploy that carries a new migration.
+# Migrations run automatically: `app` waits on the one-shot `migrate` service
+# completing successfully before starting.
 
 services:
   app:
@@ -40,6 +39,8 @@ services:
         condition: service_started
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   postgres:
     image: postgres:18-alpine
@@ -77,9 +78,13 @@ services:
     networks:
       - backend
 
+  # One-shot: runs `prisma migrate deploy` on every stack up (idempotent —
+  # exits immediately when no migrations are pending). The app waits for it
+  # to succeed, so a plain redeploy from Arcane always migrates first.
   migrate:
     image: ghcr.io/isaacvarg/con-carino-migrate:${IMAGE_TAG:-latest}
     pull_policy: always
+    restart: 'no'
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-con_carino}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-con_carino}?schema=public
     networks:
@@ -87,8 +92,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    profiles:
-      - tools
 
 networks:
   edge:
