@@ -12,6 +12,7 @@ import type {
   CareSwapStatus,
 } from '#/generated/prisma/enums'
 import {
+  CareAssignmentScope as CareAssignmentScopeEnum,
   CareCoverageFrequency as CareCoverageFrequencyEnum,
   CareCoverageNeed as CareCoverageNeedEnum,
   CareCoverageWindowKind as CareCoverageWindowKindEnum,
@@ -24,10 +25,8 @@ import {
   lastClosedPayPeriodEnd,
   payPeriodStart,
 } from '#/lib/care-invoice'
-import {
-  buildRequiredCoverageWindows,
-  type RequiredShiftInput,
-} from '#/lib/care-required'
+import { occurrenceMatchesRule } from '#/lib/care-assignment'
+import { buildRequiredCoverageWindows } from '#/lib/care-required'
 import {
   expandSeriesOccurrences,
   hoursBetween,
@@ -48,6 +47,7 @@ import { authConfig } from '#/utils/auth'
 const FREQUENCIES = Object.values(CareCoverageFrequencyEnum)
 const COVERAGE_NEEDS = Object.values(CareCoverageNeedEnum)
 const COVERAGE_WINDOW_KINDS = Object.values(CareCoverageWindowKindEnum)
+const ASSIGNMENT_SCOPES = Object.values(CareAssignmentScopeEnum)
 
 async function requireUserId() {
   const request = getRequest()
@@ -249,6 +249,27 @@ export type CareCoverageSeriesDto = {
   notes: string | null
   isRequired: boolean
   occurrenceCount: number
+}
+
+export type CareAssignmentScope = 'ALL_SHIFTS' | 'SPECIFIC_SHIFTS'
+
+export type CareCoverageAssignmentRuleDto = {
+  id: string
+  assigneeId: string
+  assigneeName: string | null
+  startsOn: string
+  endsOn: string | null
+  daysOfWeek: number[]
+  scope: CareAssignmentScope
+  shiftIds: string[]
+  notes: string | null
+  filledCount: number
+}
+
+export type CreateAssignmentRuleResult = {
+  rule: CareCoverageAssignmentRuleDto
+  assigned: number
+  skipped: number
 }
 
 export type CarePersonTypeDto = {
@@ -1098,6 +1119,7 @@ async function syncRequiredCoverageSeries() {
     coverageWindowKind: settings.coverageWindowKind,
     partialDaysOfWeek: settings.partialDaysOfWeek,
     shifts: settings.shifts.map((s) => ({
+      id: s.id,
       label: s.label,
       startTime: s.startTime,
       endTime: s.endTime,
@@ -1143,6 +1165,7 @@ async function syncRequiredCoverageSeries() {
           notes: window.notes,
           isRequired: true,
           requiredKey: window.requiredKey,
+          requiredShiftId: window.requiredShiftId,
         },
       })
       if (daysChanged || timesChanged) {
@@ -1161,6 +1184,7 @@ async function syncRequiredCoverageSeries() {
           notes: window.notes,
           isRequired: true,
           requiredKey: window.requiredKey,
+          requiredShiftId: window.requiredShiftId,
         },
       })
     }
@@ -1172,6 +1196,117 @@ async function syncRequiredCoverageSeries() {
   const rangeEnd = new Date(now)
   rangeEnd.setDate(rangeEnd.getDate() + 90)
   await materializeSeriesInRange(rangeStart, rangeEnd)
+}
+
+/** Recover the local midnight of a Prisma @db.Date value (stored at UTC midnight). */
+function dateOnlyToLocalMidnight(d: Date): Date {
+  return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())
+}
+
+type AssignmentApplyResult = {
+  assigned: number
+  skippedOverlap: number
+  alreadyCovered: number
+}
+
+/**
+ * Assign open required occurrences to the person named by each active
+ * assignment rule, for occurrences within [rangeStart, rangeEnd]. Fills only
+ * genuinely open (unassigned, SCHEDULED, not-yet-elapsed) slots that match the
+ * rule's days and shift scope, skipping any where the person already has
+ * overlapping coverage. Idempotent: assigned slots carry assignedByRuleId and
+ * are skipped on later passes.
+ */
+async function applyAssignmentRules(
+  rangeStart: Date,
+  rangeEnd: Date,
+  onlyRuleId?: string,
+): Promise<AssignmentApplyResult> {
+  const result: AssignmentApplyResult = {
+    assigned: 0,
+    skippedOverlap: 0,
+    alreadyCovered: 0,
+  }
+  const rules = await prisma.careCoverageAssignmentRule.findMany({
+    where: onlyRuleId ? { id: onlyRuleId } : {},
+  })
+  if (rules.length === 0) return result
+
+  const now = new Date()
+
+  for (const rule of rules) {
+    const person = await prisma.carePerson.findUnique({
+      where: { id: rule.assigneeId },
+    })
+    if (!person || !person.isActive) continue
+
+    const startsOn = dateOnlyToLocalMidnight(rule.startsOn)
+    const endsOn = rule.endsOn ? dateOnlyToLocalMidnight(rule.endsOn) : null
+    const lowerBound =
+      startsOn.getTime() > rangeStart.getTime() ? startsOn : rangeStart
+    let upperBound = rangeEnd
+    if (endsOn) {
+      const end = new Date(endsOn)
+      end.setDate(end.getDate() + 1) // include the whole end date
+      if (end.getTime() < upperBound.getTime()) upperBound = end
+    }
+    if (lowerBound.getTime() > upperBound.getTime()) continue
+
+    const ruleShape = {
+      daysOfWeek: rule.daysOfWeek,
+      startsOn,
+      endsOn,
+      scope: rule.scope,
+      shiftIds: rule.shiftIds,
+    }
+
+    const candidates = await prisma.careCoverageOccurrence.findMany({
+      where: {
+        status: 'SCHEDULED',
+        endsAt: { gt: now },
+        startsAt: { gte: lowerBound, lte: upperBound },
+        series: { isRequired: true },
+      },
+      include: { series: { select: { requiredShiftId: true } } },
+      orderBy: { startsAt: 'asc' },
+    })
+
+    const billingStatus = await billingStatusForAssigneeId(rule.assigneeId)
+
+    for (const occ of candidates) {
+      const matches = occurrenceMatchesRule(
+        ruleShape,
+        {
+          startsAt: occ.startsAt,
+          endsAt: occ.endsAt,
+          requiredShiftId: occ.series?.requiredShiftId ?? null,
+        },
+        now,
+      )
+      if (!matches) continue
+      if (occ.assigneeId) {
+        if (occ.assigneeId !== rule.assigneeId) result.alreadyCovered += 1
+        continue
+      }
+      if (
+        await occurrencesOverlap(rule.assigneeId, occ.startsAt, occ.endsAt)
+      ) {
+        result.skippedOverlap += 1
+        continue
+      }
+      await prisma.careCoverageOccurrence.update({
+        where: { id: occ.id },
+        data: {
+          assigneeId: rule.assigneeId,
+          assignedByRuleId: rule.id,
+          billingStatus,
+        },
+      })
+      result.assigned += 1
+    }
+  }
+
+  return result
 }
 
 // --- Settings ---
@@ -1214,7 +1349,12 @@ export const upsertCareSettings = createServerFn({ method: 'POST' })
       partialDaysOfWeek = parseDaysOfWeek(input.partialDaysOfWeek)
     }
 
-    const shifts: RequiredShiftInput[] = []
+    const shifts: Array<{
+      label: string | null
+      startTime: string
+      endTime: string
+      sortOrder: number
+    }> = []
     if (coverageWindowKind === 'SHIFTS') {
       if (!Array.isArray(input.shifts) || input.shifts.length === 0) {
         throw new Error('Add at least one shift for shift-based coverage.')
@@ -1778,6 +1918,7 @@ async function ensureCalendarMaintenance(padStart: Date, padEnd: Date) {
     await ensureDefaultTypes()
     await syncRequiredCoverageSeries()
     await materializeSeriesInRange(padStart, padEnd)
+    await applyAssignmentRules(padStart, padEnd)
     await ensureDueShiftsCompleted()
     calendarMaintenanceCache = {
       padStartMs,
@@ -2377,6 +2518,228 @@ export const deleteCoverageSeries = createServerFn({ method: 'POST' })
         'notes',
       ]),
       linkMeta: { day: toDayKey(series.startsOn), tab: 'calendar' },
+      visibilityUserId: null,
+    })
+    return { id: data.id }
+  })
+
+// --- Recurring assignment rules ---
+
+function toAssignmentRuleDto(row: {
+  id: string
+  assigneeId: string
+  startsOn: Date
+  endsOn: Date | null
+  daysOfWeek: number[]
+  scope: CareAssignmentScope
+  shiftIds: string[]
+  notes: string | null
+  assignee: { name: string } | null
+  _count?: { occurrences: number }
+}): CareCoverageAssignmentRuleDto {
+  return {
+    id: row.id,
+    assigneeId: row.assigneeId,
+    assigneeName: row.assignee?.name ?? null,
+    startsOn: row.startsOn.toISOString().slice(0, 10),
+    endsOn: row.endsOn ? row.endsOn.toISOString().slice(0, 10) : null,
+    daysOfWeek: row.daysOfWeek,
+    scope: row.scope,
+    shiftIds: row.shiftIds,
+    notes: row.notes,
+    filledCount: row._count?.occurrences ?? 0,
+  }
+}
+
+export const listCoverageAssignmentRules = createServerFn({
+  method: 'GET',
+}).handler(async (): Promise<CareCoverageAssignmentRuleDto[]> => {
+  await requireUserId()
+  const rows = await prisma.careCoverageAssignmentRule.findMany({
+    include: {
+      assignee: { select: { name: true } },
+      _count: { select: { occurrences: true } },
+    },
+    orderBy: { createdAt: 'desc' },
+  })
+  return rows.map(toAssignmentRuleDto)
+})
+
+export const createCoverageAssignmentRule = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    if (!data || typeof data !== 'object') throw new Error('Invalid payload.')
+    const input = data as Record<string, unknown>
+    const assigneeId =
+      typeof input.assigneeId === 'string' ? input.assigneeId.trim() : ''
+    if (!assigneeId) throw new Error('Assignee is required.')
+    const scopeRaw = input.scope
+    if (
+      typeof scopeRaw !== 'string' ||
+      !ASSIGNMENT_SCOPES.includes(scopeRaw as CareAssignmentScope)
+    ) {
+      throw new Error('Shift scope is invalid.')
+    }
+    const scope = scopeRaw as CareAssignmentScope
+    let shiftIds: string[] = []
+    if (scope === 'SPECIFIC_SHIFTS') {
+      if (!Array.isArray(input.shiftIds) || input.shiftIds.length === 0) {
+        throw new Error('Select at least one shift.')
+      }
+      shiftIds = [
+        ...new Set(
+          input.shiftIds.map((id) => {
+            if (typeof id !== 'string' || !id.trim()) {
+              throw new Error('Shift id is invalid.')
+            }
+            return id.trim()
+          }),
+        ),
+      ]
+    }
+    const endsOnRaw =
+      typeof input.endsOn === 'string' && input.endsOn.trim()
+        ? input.endsOn.trim()
+        : null
+    const notes =
+      typeof input.notes === 'string' && input.notes.trim()
+        ? input.notes.trim()
+        : null
+    return {
+      assigneeId,
+      startsOn: parseDateOnly(input.startsOn, 'Start date'),
+      endsOn: endsOnRaw ? parseDateOnly(endsOnRaw, 'End date') : null,
+      daysOfWeek: parseDaysOfWeek(input.daysOfWeek),
+      scope,
+      shiftIds,
+      notes,
+    }
+  })
+  .handler(async ({ data }): Promise<CreateAssignmentRuleResult> => {
+    const userId = await requireUserId()
+    const person = await prisma.carePerson.findUnique({
+      where: { id: data.assigneeId },
+    })
+    if (!person || !person.isActive) {
+      throw new Error('Assignee not found or inactive.')
+    }
+    if (data.endsOn && data.endsOn.getTime() < data.startsOn.getTime()) {
+      throw new Error('End date must be on or after the start date.')
+    }
+    if (data.scope === 'SPECIFIC_SHIFTS') {
+      const found = await prisma.careRequiredShift.findMany({
+        where: { id: { in: data.shiftIds } },
+        select: { id: true },
+      })
+      if (found.length !== data.shiftIds.length) {
+        throw new Error('One or more selected shifts no longer exist.')
+      }
+    }
+
+    const created = await prisma.careCoverageAssignmentRule.create({
+      data: {
+        assigneeId: data.assigneeId,
+        startsOn: data.startsOn,
+        endsOn: data.endsOn,
+        daysOfWeek: data.daysOfWeek,
+        scope: data.scope,
+        shiftIds: data.shiftIds,
+        notes: data.notes,
+      },
+    })
+
+    // Ensure the target window is materialized, then fill matching open slots.
+    const now = new Date()
+    const rangeStart = new Date(now)
+    rangeStart.setDate(rangeStart.getDate() - 7)
+    const rangeEnd = new Date(now)
+    rangeEnd.setDate(rangeEnd.getDate() + 90)
+    await materializeSeriesInRange(rangeStart, rangeEnd)
+    const applied = await applyAssignmentRules(rangeStart, rangeEnd, created.id)
+
+    await logActivity({
+      actorUserId: userId,
+      action: 'CREATE',
+      entityType: ACTIVITY_ENTITY_TYPES.coverage_assignment_rule,
+      entityId: created.id,
+      summary: `Assigned ${person.name} to recurring coverage`,
+      changes: createChanges(created, [
+        'assigneeId',
+        'startsOn',
+        'endsOn',
+        'daysOfWeek',
+        'scope',
+        'shiftIds',
+        'notes',
+      ]),
+      linkMeta: { day: toDayKey(created.startsOn), tab: 'calendar' },
+      visibilityUserId: null,
+    })
+
+    const dto = toAssignmentRuleDto({
+      ...created,
+      assignee: { name: person.name },
+      _count: { occurrences: applied.assigned },
+    })
+    return {
+      rule: dto,
+      assigned: applied.assigned,
+      skipped: applied.skippedOverlap + applied.alreadyCovered,
+    }
+  })
+
+export const deleteCoverageAssignmentRule = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    if (!data || typeof data !== 'object') throw new Error('Invalid payload.')
+    const input = data as Record<string, unknown>
+    const id = typeof input.id === 'string' ? input.id.trim() : ''
+    if (!id) throw new Error('Rule id is required.')
+    return { id }
+  })
+  .handler(async ({ data }): Promise<{ id: string }> => {
+    const userId = await requireUserId()
+    const rule = await prisma.careCoverageAssignmentRule.findUnique({
+      where: { id: data.id },
+      include: { assignee: { select: { name: true } } },
+    })
+    if (!rule) throw new Error('Recurring assignment not found.')
+
+    // Reopen upcoming, not-yet-completed slots this rule filled; preserve past,
+    // completed, invoiced, and pending-swap ones as-is.
+    await prisma.careCoverageOccurrence.updateMany({
+      where: {
+        assignedByRuleId: rule.id,
+        status: 'SCHEDULED',
+        startsAt: { gte: startOfLocalToday() },
+        invoiceLine: null,
+        swapRelinquish: { none: { status: 'PENDING' } },
+        swapClaim: { none: { status: 'PENDING' } },
+      },
+      data: {
+        assigneeId: null,
+        assignedByRuleId: null,
+        billingStatus: 'NOT_BILLABLE',
+      },
+    })
+
+    // Deleting the rule clears assignedByRuleId on any preserved occurrences.
+    await prisma.careCoverageAssignmentRule.delete({ where: { id: rule.id } })
+
+    await logActivity({
+      actorUserId: userId,
+      action: 'DELETE',
+      entityType: ACTIVITY_ENTITY_TYPES.coverage_assignment_rule,
+      entityId: rule.id,
+      summary: `Removed recurring coverage for ${rule.assignee?.name ?? 'assignee'}`,
+      changes: diffChanges(rule, null, [
+        'assigneeId',
+        'startsOn',
+        'endsOn',
+        'daysOfWeek',
+        'scope',
+        'shiftIds',
+        'notes',
+      ]),
+      linkMeta: { day: toDayKey(rule.startsOn), tab: 'calendar' },
       visibilityUserId: null,
     })
     return { id: data.id }

@@ -12,18 +12,22 @@ import {
 } from '#/components/app/ui/form'
 import type {
   CareCalendarEventDto,
+  CareCoverageAssignmentRuleDto,
   CareCoverageOccurrenceDto,
   CareCoverageSeriesDto,
   CareEventTypeDto,
   CarePersonDto,
+  CareSettingsDto,
 } from '#/server/care'
 import {
   claimOccurrences,
   createCalendarEvent,
+  createCoverageAssignmentRule,
   createCoverageOccurrence,
-  createCoverageSeries,
   createSwapRequest,
+  deleteCoverageAssignmentRule,
   deleteCoverageSeries,
+  listCoverageAssignmentRules,
   listCoverageSeries,
   updateOccurrence,
 } from '#/server/care'
@@ -40,6 +44,7 @@ import {
 
 type CareCalendarPanelProps = {
   lovedOneName: string
+  settings: CareSettingsDto
   year: number
   month: number
   selectedDay: string
@@ -53,7 +58,7 @@ type CareCalendarPanelProps = {
 
 type ModalKind =
   | 'coverage'
-  | 'series'
+  | 'assignRule'
   | 'event'
   | 'swap'
   | 'assign'
@@ -62,6 +67,7 @@ type ModalKind =
 
 export function CareCalendarPanel({
   lovedOneName,
+  settings,
   year,
   month,
   selectedDay,
@@ -96,18 +102,26 @@ export function CareCalendarPanel({
   const [selectMode, setSelectMode] = useState(false)
   const [selectedOpenIds, setSelectedOpenIds] = useState<string[]>([])
   const [bulkAssigneeId, setBulkAssigneeId] = useState('')
-  const [seriesList, setSeriesList] = useState<CareCoverageSeriesDto[]>([])
+  const [ruleList, setRuleList] = useState<CareCoverageAssignmentRuleDto[]>([])
+  const [legacySeries, setLegacySeries] = useState<CareCoverageSeriesDto[]>([])
   const [manageError, setManageError] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [confirmDeleteSeriesId, setConfirmDeleteSeriesId] = useState<
+    string | null
+  >(null)
   const [deleting, setDeleting] = useState(false)
+  const [ruleSummary, setRuleSummary] = useState<string | null>(null)
 
   const [assigneeId, setAssigneeId] = useState('')
   const [startDate, setStartDate] = useState(selectedDay)
   const [startTime, setStartTime] = useState('09:00')
   const [endTime, setEndTime] = useState('17:00')
   const [endDate, setEndDate] = useState('')
-  const [frequency, setFrequency] = useState<'WEEKLY' | 'BIWEEKLY'>('WEEKLY')
   const [daysOfWeek, setDaysOfWeek] = useState<number[]>([selectedDate.getDay()])
+  const [shiftScope, setShiftScope] = useState<'ALL_SHIFTS' | 'SPECIFIC_SHIFTS'>(
+    'ALL_SHIFTS',
+  )
+  const [selectedShiftIds, setSelectedShiftIds] = useState<string[]>([])
   const [notes, setNotes] = useState('')
   const [title, setTitle] = useState('')
   const [eventTypeId, setEventTypeId] = useState(eventTypes[0]?.id ?? '')
@@ -120,6 +134,24 @@ export function CareCalendarPanel({
     (o) => !o.assigneeId && o.status === 'SCHEDULED',
   )
   const activePeople = people.filter((p) => p.isActive)
+  const coveredDays = useMemo(
+    () =>
+      settings.coverageNeed === 'FULL'
+        ? [0, 1, 2, 3, 4, 5, 6]
+        : [...settings.partialDaysOfWeek].sort((a, b) => a - b),
+    [settings.coverageNeed, settings.partialDaysOfWeek],
+  )
+  const usesShifts = settings.coverageWindowKind === 'SHIFTS'
+  const shiftLabelById = useMemo(
+    () =>
+      new Map(
+        settings.shifts.map((s) => [
+          s.id,
+          s.label?.trim() ? s.label.trim() : `${s.startTime}–${s.endTime}`,
+        ]),
+      ),
+    [settings.shifts],
+  )
 
   function openModal(
     kind: ModalKind,
@@ -131,8 +163,13 @@ export function CareCalendarPanel({
     setStartTime('09:00')
     setEndTime('17:00')
     setEndDate('')
-    setFrequency('WEEKLY')
-    setDaysOfWeek([selectedDate.getDay()])
+    setDaysOfWeek(
+      kind === 'assignRule' && coveredDays.length > 0
+        ? coveredDays
+        : [selectedDate.getDay()],
+    )
+    setShiftScope('ALL_SHIFTS')
+    setSelectedShiftIds([])
     setNotes('')
     setTitle('')
     setEventTypeId(eventTypes[0]?.id ?? '')
@@ -148,8 +185,12 @@ export function CareCalendarPanel({
     setError(null)
     setModal('manage')
     try {
-      const rows = await listCoverageSeries()
-      setSeriesList(rows)
+      const [rules, series] = await Promise.all([
+        listCoverageAssignmentRules(),
+        listCoverageSeries(),
+      ])
+      setRuleList(rules)
+      setLegacySeries(series.filter((s) => !s.isRequired))
     } catch (err) {
       setManageError(
         err instanceof Error ? err.message : 'Could not load recurring coverage.',
@@ -170,6 +211,12 @@ export function CareCalendarPanel({
   function toggleDay(d: number) {
     setDaysOfWeek((prev) =>
       prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d].sort(),
+    )
+  }
+
+  function toggleShift(id: string) {
+    setSelectedShiftIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     )
   }
 
@@ -208,19 +255,37 @@ export function CareCalendarPanel({
     }
   }
 
-  async function deleteSeries(id: string) {
+  async function deleteRule(id: string) {
+    setManageError(null)
+    setDeleting(true)
+    try {
+      await deleteCoverageAssignmentRule({ data: { id } })
+      setRuleList((prev) => prev.filter((r) => r.id !== id))
+      setConfirmDeleteId(null)
+      await router.invalidate()
+    } catch (err) {
+      setManageError(
+        err instanceof Error ? err.message : 'Could not remove recurring coverage.',
+      )
+      setConfirmDeleteId(null)
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  async function deleteLegacySeries(id: string) {
     setManageError(null)
     setDeleting(true)
     try {
       await deleteCoverageSeries({ data: { id } })
-      setSeriesList((prev) => prev.filter((s) => s.id !== id))
-      setConfirmDeleteId(null)
+      setLegacySeries((prev) => prev.filter((s) => s.id !== id))
+      setConfirmDeleteSeriesId(null)
       await router.invalidate()
     } catch (err) {
       setManageError(
         err instanceof Error ? err.message : 'Could not delete series.',
       )
-      setConfirmDeleteId(null)
+      setConfirmDeleteSeriesId(null)
     } finally {
       setDeleting(false)
     }
@@ -240,19 +305,40 @@ export function CareCalendarPanel({
             notes: notes || null,
           },
         })
-      } else if (modal === 'series') {
-        await createCoverageSeries({
+      } else if (modal === 'assignRule') {
+        if (!assigneeId) {
+          throw new Error('Pick who will cover these slots.')
+        }
+        if (daysOfWeek.length === 0) {
+          throw new Error('Select at least one day.')
+        }
+        if (usesShifts && shiftScope === 'SPECIFIC_SHIFTS' && selectedShiftIds.length === 0) {
+          throw new Error('Select at least one shift.')
+        }
+        const scope =
+          usesShifts && shiftScope === 'SPECIFIC_SHIFTS'
+            ? 'SPECIFIC_SHIFTS'
+            : 'ALL_SHIFTS'
+        const res = await createCoverageAssignmentRule({
           data: {
-            assigneeId: assigneeId || null,
+            assigneeId,
             startsOn: startDate,
             endsOn: endDate || null,
-            startTime,
-            endTime,
-            frequency,
             daysOfWeek,
+            scope,
+            shiftIds: scope === 'SPECIFIC_SHIFTS' ? selectedShiftIds : [],
             notes: notes || null,
           },
         })
+        setModal(null)
+        setRuleSummary(
+          `Assigned ${res.assigned} slot${res.assigned === 1 ? '' : 's'}` +
+            (res.skipped > 0
+              ? ` · skipped ${res.skipped} already covered`
+              : ''),
+        )
+        await router.invalidate()
+        return
       } else if (modal === 'event') {
         await createCalendarEvent({
           data: {
@@ -303,8 +389,8 @@ export function CareCalendarPanel({
   const modalTitle =
     modal === 'coverage'
       ? 'Add coverage'
-      : modal === 'series'
-        ? 'Recurring coverage'
+      : modal === 'assignRule'
+        ? 'Assign recurring coverage'
         : modal === 'event'
           ? 'Add event'
           : modal === 'swap'
@@ -348,6 +434,18 @@ export function CareCalendarPanel({
             Manage recurring
           </button>
         </div>
+        {ruleSummary ? (
+          <div className="mb-3 alert alert-success py-2 text-sm">
+            <span>{ruleSummary}</span>
+            <button
+              type="button"
+              className="btn btn-ghost btn-xs"
+              onClick={() => setRuleSummary(null)}
+            >
+              Dismiss
+            </button>
+          </div>
+        ) : null}
         <div className="grid grid-cols-7 gap-1.5 text-center text-sm font-medium text-base-content/50">
           {DAY_NAMES.map((d) => (
             <div key={d} className="py-1.5">
@@ -446,7 +544,7 @@ export function CareCalendarPanel({
                 </button>
               </li>
               <li>
-                <button type="button" onClick={() => openModal('series')}>
+                <button type="button" onClick={() => openModal('assignRule')}>
                   Recurring coverage
                 </button>
               </li>
@@ -636,8 +734,8 @@ export function CareCalendarPanel({
           <div className="modal-box max-w-2xl">
             <h3 className="text-lg font-semibold">{modalTitle}</h3>
             <p className="mt-1 text-sm text-base-content/60">
-              Delete manually created recurring coverage. Required open slots are
-              managed in Loved one settings.
+              Remove a recurring assignment to reopen its upcoming slots. Past
+              and completed slots are kept.
             </p>
             {manageError ? (
               <p className="mt-2 text-sm text-error" role="alert">
@@ -645,56 +743,97 @@ export function CareCalendarPanel({
               </p>
             ) : null}
             <ul className="mt-4 max-h-96 space-y-2 overflow-y-auto">
-              {seriesList.length === 0 ? (
+              {ruleList.length === 0 ? (
                 <li className="text-sm text-base-content/50">
-                  No recurring coverage series.
+                  No recurring assignments yet.
                 </li>
               ) : (
-                seriesList.map((series) => (
-                  <li
-                    key={series.id}
-                    className="rounded-lg border border-base-300 p-3"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div>
-                        <p className="font-medium">
-                          {series.assigneeName ?? 'Open'}
-                          {series.isRequired ? (
-                            <span className="ml-2 badge badge-ghost badge-sm">
-                              Required
-                            </span>
-                          ) : null}
-                        </p>
-                        <p className="text-sm text-base-content/60">
-                          {series.frequency} · {series.startTime}–{series.endTime}{' '}
-                          ·{' '}
-                          {series.daysOfWeek
-                            .map((d) => DAY_NAMES[d])
-                            .join(', ')}
-                        </p>
-                        <p className="text-xs text-base-content/50">
-                          {series.occurrenceCount} slots
-                          {series.notes ? ` · ${series.notes}` : ''}
-                        </p>
-                      </div>
-                      {series.isRequired ? (
-                        <span className="text-xs text-base-content/50">
-                          Edit in settings
-                        </span>
-                      ) : (
+                ruleList.map((rule) => {
+                  const scopeLabel =
+                    rule.scope === 'ALL_SHIFTS'
+                      ? 'All shifts'
+                      : rule.shiftIds
+                          .map((id) => shiftLabelById.get(id) ?? 'Shift')
+                          .join(', ')
+                  return (
+                    <li
+                      key={rule.id}
+                      className="rounded-lg border border-base-300 p-3"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <p className="font-medium">
+                            {rule.assigneeName ?? 'Unknown'}
+                          </p>
+                          <p className="text-sm text-base-content/60">
+                            {scopeLabel} ·{' '}
+                            {rule.daysOfWeek
+                              .map((d) => DAY_NAMES[d])
+                              .join(', ')}
+                          </p>
+                          <p className="text-xs text-base-content/50">
+                            From {rule.startsOn}
+                            {rule.endsOn ? ` to ${rule.endsOn}` : ' · indefinite'}{' '}
+                            · {rule.filledCount} slots
+                            {rule.notes ? ` · ${rule.notes}` : ''}
+                          </p>
+                        </div>
                         <button
                           type="button"
                           className="btn btn-error btn-outline btn-xs"
-                          onClick={() => setConfirmDeleteId(series.id)}
+                          onClick={() => setConfirmDeleteId(rule.id)}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </li>
+                  )
+                })
+              )}
+            </ul>
+            {legacySeries.length > 0 ? (
+              <div className="mt-6">
+                <h4 className="text-sm font-semibold">Older recurring coverage</h4>
+                <p className="mt-1 text-xs text-base-content/60">
+                  Series created before recurring assignments. Delete any that
+                  duplicate required open slots.
+                </p>
+                <ul className="mt-3 max-h-56 space-y-2 overflow-y-auto">
+                  {legacySeries.map((series) => (
+                    <li
+                      key={series.id}
+                      className="rounded-lg border border-base-300 p-3"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <p className="font-medium">
+                            {series.assigneeName ?? 'Open'}
+                          </p>
+                          <p className="text-sm text-base-content/60">
+                            {series.frequency} · {series.startTime}–
+                            {series.endTime} ·{' '}
+                            {series.daysOfWeek
+                              .map((d) => DAY_NAMES[d])
+                              .join(', ')}
+                          </p>
+                          <p className="text-xs text-base-content/50">
+                            {series.occurrenceCount} slots
+                            {series.notes ? ` · ${series.notes}` : ''}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          className="btn btn-error btn-outline btn-xs"
+                          onClick={() => setConfirmDeleteSeriesId(series.id)}
                         >
                           Delete
                         </button>
-                      )}
-                    </div>
-                  </li>
-                ))
-              )}
-            </ul>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             <div className="modal-action">
               <button
                 type="button"
@@ -714,14 +853,27 @@ export function CareCalendarPanel({
       ) : null}
 
       <ConfirmDialog
-        open={confirmDeleteId !== null}
+        open={confirmDeleteSeriesId !== null}
         tone="danger"
         title="Delete recurring coverage"
-        message="This removes the recurring schedule and its upcoming, not-yet-completed slots. Past and completed slots are kept."
+        message="This removes the series and its upcoming, not-yet-completed slots. Past and completed slots are kept."
         confirmLabel="Delete"
         busy={deleting}
         onConfirm={() => {
-          if (confirmDeleteId) void deleteSeries(confirmDeleteId)
+          if (confirmDeleteSeriesId) void deleteLegacySeries(confirmDeleteSeriesId)
+        }}
+        onCancel={() => setConfirmDeleteSeriesId(null)}
+      />
+
+      <ConfirmDialog
+        open={confirmDeleteId !== null}
+        tone="danger"
+        title="Remove recurring coverage"
+        message="This reopens the assignment's upcoming, not-yet-completed slots. Past and completed slots keep their assignee."
+        confirmLabel="Remove"
+        busy={deleting}
+        onConfirm={() => {
+          if (confirmDeleteId) void deleteRule(confirmDeleteId)
         }}
         onCancel={() => setConfirmDeleteId(null)}
       />
@@ -831,7 +983,7 @@ export function CareCalendarPanel({
                 </>
               ) : null}
 
-              {modal === 'coverage' || modal === 'series' ? (
+              {modal === 'coverage' ? (
                 <FormField
                   label="Assignee (optional = open)"
                   htmlFor="coverage-assignee"
@@ -852,10 +1004,38 @@ export function CareCalendarPanel({
                 </FormField>
               ) : null}
 
-              {modal !== 'swap' && modal !== 'assign' ? (
+              {modal === 'assignRule' ? (
+                <>
+                  <p className="text-sm text-base-content/70">
+                    Assign a person to the loved one&apos;s required open slots on
+                    a recurring basis. Only open slots are filled — slots already
+                    covered by someone else are left as-is.
+                  </p>
+                  <FormField label="Assignee" htmlFor="rule-assignee">
+                    <select
+                      id="rule-assignee"
+                      className={FORM_SELECT_CLASS}
+                      value={assigneeId}
+                      onChange={(e) => setAssigneeId(e.target.value)}
+                      required
+                    >
+                      {activePeople.length === 0 ? (
+                        <option value="">No active people</option>
+                      ) : null}
+                      {activePeople.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
+                  </FormField>
+                </>
+              ) : null}
+
+              {modal === 'coverage' || modal === 'event' || modal === 'assignRule' ? (
                 <>
                   <FormField
-                    label={modal === 'series' ? 'Starts on' : 'Date'}
+                    label={modal === 'assignRule' ? 'Starts on' : 'Date'}
                     htmlFor="coverage-date"
                   >
                     <input
@@ -867,8 +1047,11 @@ export function CareCalendarPanel({
                       required
                     />
                   </FormField>
-                  {modal === 'series' ? (
-                    <FormField label="Ends on (optional)" htmlFor="coverage-ends">
+                  {modal === 'assignRule' ? (
+                    <FormField
+                      label="Ends on (blank = indefinite)"
+                      htmlFor="coverage-ends"
+                    >
                       <input
                         id="coverage-ends"
                         type="date"
@@ -878,47 +1061,36 @@ export function CareCalendarPanel({
                       />
                     </FormField>
                   ) : null}
-                  <FormRow>
-                    <FormField label="Start time" htmlFor="coverage-start-time">
-                      <input
-                        id="coverage-start-time"
-                        type="time"
-                        className={FORM_INPUT_CLASS}
-                        value={startTime}
-                        onChange={(e) => setStartTime(e.target.value)}
-                        required
-                      />
-                    </FormField>
-                    <FormField label="End time" htmlFor="coverage-end-time">
-                      <input
-                        id="coverage-end-time"
-                        type="time"
-                        className={FORM_INPUT_CLASS}
-                        value={endTime}
-                        onChange={(e) => setEndTime(e.target.value)}
-                        required
-                      />
-                    </FormField>
-                  </FormRow>
+                  {modal === 'coverage' || modal === 'event' ? (
+                    <FormRow>
+                      <FormField label="Start time" htmlFor="coverage-start-time">
+                        <input
+                          id="coverage-start-time"
+                          type="time"
+                          className={FORM_INPUT_CLASS}
+                          value={startTime}
+                          onChange={(e) => setStartTime(e.target.value)}
+                          required
+                        />
+                      </FormField>
+                      <FormField label="End time" htmlFor="coverage-end-time">
+                        <input
+                          id="coverage-end-time"
+                          type="time"
+                          className={FORM_INPUT_CLASS}
+                          value={endTime}
+                          onChange={(e) => setEndTime(e.target.value)}
+                          required
+                        />
+                      </FormField>
+                    </FormRow>
+                  ) : null}
                 </>
               ) : null}
 
-              {modal === 'series' ? (
+              {modal === 'assignRule' ? (
                 <>
-                  <FormField label="Frequency" htmlFor="coverage-freq">
-                    <select
-                      id="coverage-freq"
-                      className={FORM_SELECT_CLASS}
-                      value={frequency}
-                      onChange={(e) =>
-                        setFrequency(e.target.value as 'WEEKLY' | 'BIWEEKLY')
-                      }
-                    >
-                      <option value="WEEKLY">Weekly</option>
-                      <option value="BIWEEKLY">Every other week</option>
-                    </select>
-                  </FormField>
-                  <FormField label="Days">
+                  <FormField label="Applies on">
                     <div className="flex flex-wrap gap-2">
                       {DAY_NAMES.map((dayLabel, i) => (
                         <label
@@ -938,6 +1110,59 @@ export function CareCalendarPanel({
                       ))}
                     </div>
                   </FormField>
+                  {usesShifts ? (
+                    <FormField label="Shifts">
+                      <div className="flex flex-col gap-2">
+                        <label className="flex cursor-pointer items-center gap-1.5">
+                          <input
+                            type="radio"
+                            name="shift-scope"
+                            className="radio radio-sm"
+                            checked={shiftScope === 'ALL_SHIFTS'}
+                            onChange={() => setShiftScope('ALL_SHIFTS')}
+                          />
+                          <span className="text-sm font-medium">
+                            All shifts that day
+                          </span>
+                        </label>
+                        <label className="flex cursor-pointer items-center gap-1.5">
+                          <input
+                            type="radio"
+                            name="shift-scope"
+                            className="radio radio-sm"
+                            checked={shiftScope === 'SPECIFIC_SHIFTS'}
+                            onChange={() => setShiftScope('SPECIFIC_SHIFTS')}
+                          />
+                          <span className="text-sm font-medium">
+                            Specific shifts
+                          </span>
+                        </label>
+                        {shiftScope === 'SPECIFIC_SHIFTS' ? (
+                          <div className="ml-6 flex flex-col gap-1.5">
+                            {settings.shifts.map((s) => (
+                              <label
+                                key={s.id}
+                                className="flex cursor-pointer items-center gap-1.5"
+                              >
+                                <input
+                                  type="checkbox"
+                                  className="checkbox checkbox-sm"
+                                  checked={selectedShiftIds.includes(s.id)}
+                                  onChange={() => toggleShift(s.id)}
+                                />
+                                <span className="text-sm">
+                                  {shiftLabelById.get(s.id)}{' '}
+                                  <span className="text-base-content/50">
+                                    ({s.startTime}–{s.endTime})
+                                  </span>
+                                </span>
+                              </label>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    </FormField>
+                  ) : null}
                 </>
               ) : null}
 
@@ -974,7 +1199,7 @@ export function CareCalendarPanel({
                 >
                   {saving
                     ? 'Saving…'
-                    : modal === 'assign'
+                    : modal === 'assign' || modal === 'assignRule'
                       ? 'Assign'
                       : 'Save'}
                 </button>

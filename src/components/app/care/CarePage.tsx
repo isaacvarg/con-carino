@@ -68,6 +68,7 @@ export function CarePage({
       {tab === 'calendar' ? (
         <CareCalendarPanel
           lovedOneName={data.settings.lovedOneName}
+          settings={data.settings}
           year={data.year}
           month={data.month}
           selectedDay={data.selectedDay}

@@ -2,6 +2,7 @@ export type CareCoverageNeed = 'FULL' | 'PARTIAL'
 export type CareCoverageWindowKind = 'ALL_DAY' | 'SHIFTS'
 
 export type RequiredShiftInput = {
+  id: string
   label: string | null
   startTime: string
   endTime: string
@@ -10,6 +11,8 @@ export type RequiredShiftInput = {
 
 export type RequiredCoverageWindow = {
   requiredKey: string
+  /** Stable CareRequiredShift id for SHIFTS windows; null for ALL_DAY. */
+  requiredShiftId: string | null
   startTime: string
   endTime: string
   notes: string | null
@@ -51,6 +54,7 @@ export function buildRequiredCoverageWindows(input: {
       windows: [
         {
           requiredKey: 'required:all-day',
+          requiredShiftId: null,
           startTime: '00:00',
           endTime: '00:00',
           notes: 'Required coverage (all day)',
@@ -62,6 +66,7 @@ export function buildRequiredCoverageWindows(input: {
   const sorted = [...input.shifts].sort((a, b) => a.sortOrder - b.sortOrder)
   const windows = sorted.map((shift, index) => ({
     requiredKey: `required:shift:${index}:${shift.startTime}-${shift.endTime}`,
+    requiredShiftId: shift.id,
     startTime: shift.startTime,
     endTime: shift.endTime,
     notes: shift.label?.trim()

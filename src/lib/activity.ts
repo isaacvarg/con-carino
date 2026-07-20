@@ -11,6 +11,7 @@ export const ACTIVITY_ENTITY_TYPES = {
   invoice: 'invoice',
   coverage_occurrence: 'coverage_occurrence',
   coverage_series: 'coverage_series',
+  coverage_assignment_rule: 'coverage_assignment_rule',
   calendar_event: 'calendar_event',
   swap: 'swap',
   care_person: 'care_person',
@@ -81,6 +82,7 @@ export const ACTIVITY_ENTITY_LABELS: Record<string, string> = {
   invoice: 'Invoice',
   coverage_occurrence: 'Coverage',
   coverage_series: 'Coverage series',
+  coverage_assignment_rule: 'Recurring assignment',
   calendar_event: 'Calendar event',
   swap: 'Swap',
   care_person: 'Care person',
@@ -203,6 +205,7 @@ export function resolveActivityHref(entry: ResolveActivityInput): ActivityHref {
       }
     case ACTIVITY_ENTITY_TYPES.calendar_event:
     case ACTIVITY_ENTITY_TYPES.coverage_occurrence:
+    case ACTIVITY_ENTITY_TYPES.coverage_assignment_rule:
     case ACTIVITY_ENTITY_TYPES.coverage_series: {
       const day =
         meta?.day ?? new Date().toISOString().slice(0, 10)

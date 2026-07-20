@@ -45,6 +45,11 @@ enum CareBillingStatus {
   INVOICED
 }
 
+enum CareAssignmentScope {
+  ALL_SHIFTS
+  SPECIFIC_SHIFTS
+}
+
 /// Singleton settings for the one loved one on this app instance.
 model CareSettings {
   id                   String                 @id @default("default")
@@ -74,6 +79,7 @@ model CareRequiredShift {
   updatedAt  DateTime @updatedAt
 
   settings CareSettings @relation(fields: [settingsId], references: [id], onDelete: Cascade)
+  requiredSeries CareCoverageSeries[]
 
   @@index([settingsId, sortOrder])
   @@map("care_required_shifts")
@@ -116,6 +122,7 @@ model CarePerson {
   type          CarePersonType            @relation(fields: [typeId], references: [id], onDelete: Restrict)
   series        CareCoverageSeries[]
   occurrences   CareCoverageOccurrence[]
+  assignmentRules CareCoverageAssignmentRule[]
   swapClaims    CareSwapRequest[]         @relation("SwapClaimPerson")
   invoices      CareInvoice[]
 
@@ -139,14 +146,18 @@ model CareCoverageSeries {
   /// System series produced from loved-one required coverage settings
   isRequired       Boolean                @default(false)
   requiredKey      String?
+  /// Stable required-shift identity for SHIFTS windows; null for ALL_DAY/manual
+  requiredShiftId  String?
   createdAt        DateTime               @default(now())
   updatedAt        DateTime               @updatedAt
 
   assignee    CarePerson?              @relation(fields: [assigneeId], references: [id], onDelete: SetNull)
+  requiredShift CareRequiredShift?     @relation(fields: [requiredShiftId], references: [id], onDelete: SetNull)
   occurrences CareCoverageOccurrence[]
 
   @@index([assigneeId])
   @@index([isRequired])
+  @@index([requiredShiftId])
   @@unique([requiredKey])
   @@map("care_coverage_series")
 }
@@ -155,6 +166,8 @@ model CareCoverageOccurrence {
   id            String                @id @default(uuid())
   seriesId      String?
   assigneeId    String?
+  /// Set when an assignment rule auto-filled this slot; enables clean revert
+  assignedByRuleId String?
   startsAt      DateTime
   endsAt        DateTime
   status        CareOccurrenceStatus  @default(SCHEDULED)
@@ -165,6 +178,7 @@ model CareCoverageOccurrence {
 
   series           CareCoverageSeries? @relation(fields: [seriesId], references: [id], onDelete: Cascade)
   assignee         CarePerson?         @relation(fields: [assigneeId], references: [id], onDelete: SetNull)
+  assignedByRule   CareCoverageAssignmentRule? @relation(fields: [assignedByRuleId], references: [id], onDelete: SetNull)
   invoiceLine      CareInvoiceLine?
   swapRelinquish   CareSwapRequest[]   @relation("SwapRelinquish")
   swapClaim        CareSwapRequest[]   @relation("SwapClaim")
@@ -172,9 +186,35 @@ model CareCoverageOccurrence {
   @@unique([seriesId, startsAt])
   @@index([startsAt, endsAt])
   @@index([assigneeId])
+  @@index([assignedByRuleId])
   @@index([status])
   @@index([billingStatus])
   @@map("care_coverage_occurrences")
+}
+
+/// Persistent rule that assigns a person to required coverage on a recurring
+/// (weekly) basis. Fills open required occurrences matching its days and shift
+/// scope, at creation and as future occurrences materialize.
+model CareCoverageAssignmentRule {
+  id         String              @id @default(uuid())
+  assigneeId String
+  startsOn   DateTime            @db.Date
+  /// null = indefinite
+  endsOn     DateTime?           @db.Date
+  /// Days of week 0=Sun … 6=Sat
+  daysOfWeek Int[]
+  scope      CareAssignmentScope @default(ALL_SHIFTS)
+  /// Targeted CareRequiredShift ids when scope is SPECIFIC_SHIFTS
+  shiftIds   String[]            @default([])
+  notes      String?
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+
+  assignee    CarePerson               @relation(fields: [assigneeId], references: [id], onDelete: Cascade)
+  occurrences CareCoverageOccurrence[]
+
+  @@index([assigneeId])
+  @@map("care_coverage_assignment_rules")
 }
 
 /// User-managed category for calendar events, controlling how the event
