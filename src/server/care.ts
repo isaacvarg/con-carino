@@ -36,7 +36,14 @@ import {
   createChanges,
   diffChanges,
 } from '#/lib/activity'
+import { sendEmail } from '#/lib/email'
 import { prisma } from '#/lib/prisma'
+import {
+  buildSwapRequestEmail,
+  buildSwapScheduleUrl,
+  resolveAppOrigin,
+  shouldNotifyAssignee,
+} from '#/lib/swap-notify'
 import type { PrismaClient } from '#/generated/prisma/client'
 import { toSignedTransactionAmount } from '#/lib/transaction-amount'
 import { requireHexColor } from '#/lib/validators'
@@ -3018,6 +3025,14 @@ export const createSwapRequest = createServerFn({ method: 'POST' })
     const [relinquish, claim, person] = await Promise.all([
       prisma.careCoverageOccurrence.findUnique({
         where: { id: data.relinquishOccurrenceId },
+        include: {
+          assignee: {
+            select: {
+              userId: true,
+              user: { select: { id: true, email: true, name: true } },
+            },
+          },
+        },
       }),
       prisma.careCoverageOccurrence.findUnique({
         where: { id: data.claimOccurrenceId },
@@ -3094,6 +3109,46 @@ export const createSwapRequest = createServerFn({ method: 'POST' })
       },
       visibilityUserId: null,
     })
+
+    const assigneeEmail = relinquish.assignee?.user?.email ?? null
+    if (
+      shouldNotifyAssignee(
+        {
+          userId: relinquish.assignee?.userId ?? null,
+          email: assigneeEmail,
+        },
+        userId,
+      ) &&
+      assigneeEmail
+    ) {
+      try {
+        const day = toDayKey(created.relinquishOccurrence.startsAt)
+        const origin = resolveAppOrigin({
+          authUrl: process.env.AUTH_URL,
+          requestUrl: getRequest().url,
+        })
+        const scheduleUrl = origin ? buildSwapScheduleUrl(origin, day) : null
+        const email = buildSwapRequestEmail({
+          requesterName: created.requestedByUser.name,
+          relinquishStartsAt: created.relinquishOccurrence.startsAt,
+          relinquishEndsAt: created.relinquishOccurrence.endsAt,
+          claimStartsAt: created.claimOccurrence.startsAt,
+          claimEndsAt: created.claimOccurrence.endsAt,
+          claimForPersonName: created.claimForPerson.name,
+          notes: created.notes,
+          scheduleUrl,
+          dayLabel: day,
+        })
+        await sendEmail({
+          to: assigneeEmail,
+          subject: email.subject,
+          html: email.html,
+          text: email.text,
+        })
+      } catch (err) {
+        console.error('[care] Failed to send swap-request email:', err)
+      }
+    }
 
     return {
       id: created.id,
