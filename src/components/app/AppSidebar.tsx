@@ -30,8 +30,8 @@ function NavLinkItem({
         to={item.to}
         onClick={(event) => {
           onNavigate?.()
-          // Drop DaisyUI/browser :focus flash after navigation
-          ;(event.currentTarget as HTMLAnchorElement).blur()
+            // Drop DaisyUI/browser :focus flash after navigation
+            ; (event.currentTarget as HTMLAnchorElement).blur()
         }}
         activeOptions={{
           exact: item.to === '/',
@@ -99,7 +99,7 @@ function SidebarCredit() {
           <div className="mt-4 flex flex-col gap-3 text-sm text-base-content/80">
             <p className="m-0">
               This app was created to help all the family members organize care
-              for my lovely abuelo Enos.
+              for my lovely abuela Enos.
             </p>
             <p className="m-0">
               Inspired by my dad Bill Vargas&apos;s sweet spreadsheet skills.
