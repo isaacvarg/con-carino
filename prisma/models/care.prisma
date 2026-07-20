@@ -39,6 +39,11 @@ enum CarePayInterval {
   MONTHLY
 }
 
+enum CareRateType {
+  HOURLY
+  DAILY
+}
+
 enum CareBillingStatus {
   NOT_BILLABLE
   ACCRUED
@@ -86,12 +91,11 @@ model CareRequiredShift {
 }
 
 model CarePersonType {
-  id                 String   @id @default(uuid())
-  name               String   @unique
-  isPaid             Boolean  @default(false)
-  defaultHourlyRate  Decimal? @db.Decimal(19, 4)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  id         String   @id @default(uuid())
+  name       String   @unique
+  isPaid     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   people CarePerson[]
 
@@ -104,6 +108,8 @@ model CarePerson {
   userId        String?         @unique
   typeId        String
   hourlyRate    Decimal?        @db.Decimal(19, 4)
+  /// Whether hourlyRate is charged per hour or as a flat daily amount
+  rateType      CareRateType    @default(HOURLY)
   /// When to create period invoices; only applies when type.isPaid
   payInterval   CarePayInterval @default(PER_SHIFT)
   /// 0=Sun … 6=Sat; used for WEEKLY / BIWEEKLY
@@ -297,14 +303,17 @@ model CareInvoice {
 }
 
 model CareInvoiceLine {
-  id                 String   @id @default(uuid())
+  id                 String       @id @default(uuid())
   invoiceId          String
-  occurrenceId       String   @unique
-  amount             Decimal  @db.Decimal(19, 4)
-  hourlyRateSnapshot Decimal  @db.Decimal(19, 4)
-  hoursSnapshot      Decimal  @db.Decimal(19, 4)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  occurrenceId       String       @unique
+  amount             Decimal      @db.Decimal(19, 4)
+  /// The rate charged (per hour or per day, per rateType)
+  hourlyRateSnapshot Decimal      @db.Decimal(19, 4)
+  /// Billable quantity: hours when HOURLY, days when DAILY
+  hoursSnapshot      Decimal      @db.Decimal(19, 4)
+  rateType           CareRateType @default(HOURLY)
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
 
   invoice    CareInvoice            @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   occurrence CareCoverageOccurrence @relation(fields: [occurrenceId], references: [id], onDelete: Restrict)

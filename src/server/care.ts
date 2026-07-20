@@ -9,6 +9,7 @@ import type {
   CareInvoiceStatus,
   CareOccurrenceStatus,
   CarePayInterval,
+  CareRateType,
   CareSwapStatus,
 } from '#/generated/prisma/enums'
 import {
@@ -18,20 +19,18 @@ import {
   CareCoverageWindowKind as CareCoverageWindowKindEnum,
   CareOccurrenceStatus as CareOccurrenceStatusEnum,
   CarePayInterval as CarePayIntervalEnum,
+  CareRateType as CareRateTypeEnum,
 } from '#/generated/prisma/enums'
 import {
+  billableQuantity,
   computeInvoiceAmount,
-  effectiveHourlyRate,
+  effectiveRate,
   lastClosedPayPeriodEnd,
   payPeriodStart,
 } from '#/lib/care-invoice'
 import { occurrenceMatchesRule } from '#/lib/care-assignment'
 import { buildRequiredCoverageWindows } from '#/lib/care-required'
-import {
-  expandSeriesOccurrences,
-  hoursBetween,
-  parseHhMm,
-} from '#/lib/care-recurrence'
+import { expandSeriesOccurrences, parseHhMm } from '#/lib/care-recurrence'
 import {
   ACTIVITY_ENTITY_TYPES,
   createChanges,
@@ -48,6 +47,7 @@ const FREQUENCIES = Object.values(CareCoverageFrequencyEnum)
 const COVERAGE_NEEDS = Object.values(CareCoverageNeedEnum)
 const COVERAGE_WINDOW_KINDS = Object.values(CareCoverageWindowKindEnum)
 const ASSIGNMENT_SCOPES = Object.values(CareAssignmentScopeEnum)
+const RATE_TYPES = Object.values(CareRateTypeEnum)
 
 async function requireUserId() {
   const request = getRequest()
@@ -64,14 +64,37 @@ function decimalToString(value: { toString(): string } | null | undefined): stri
   return value.toString()
 }
 
+/** Build the effectiveRate input from a person joined with its type. */
+function personRateInput(person: {
+  hourlyRate: { toString(): string } | null
+  rateType: CareRateType
+  type: {
+    isPaid: boolean
+  }
+}) {
+  return {
+    personHourlyRate: decimalToString(person.hourlyRate),
+    personRateType: person.rateType,
+    typeIsPaid: person.type.isPaid,
+  }
+}
+
 function parseOptionalRate(value: unknown): string | null {
   if (value === null || value === undefined || value === '') return null
   const raw = typeof value === 'string' || typeof value === 'number' ? String(value) : ''
   const n = Number(raw.trim())
   if (!Number.isFinite(n) || n < 0) {
-    throw new Error('Hourly rate must be a non-negative number.')
+    throw new Error('Rate must be a non-negative number.')
   }
   return n.toFixed(4)
+}
+
+function parseRateType(value: unknown): CareRateType {
+  if (value === null || value === undefined || value === '') return 'HOURLY'
+  if (typeof value !== 'string' || !RATE_TYPES.includes(value as CareRateType)) {
+    throw new Error('Rate type is invalid.')
+  }
+  return value as CareRateType
 }
 
 function parsePaySchedule(
@@ -276,7 +299,6 @@ export type CarePersonTypeDto = {
   id: string
   name: string
   isPaid: boolean
-  defaultHourlyRate: string | null
 }
 
 export type CarePersonDto = {
@@ -287,7 +309,9 @@ export type CarePersonDto = {
   typeName: string
   isPaid: boolean
   hourlyRate: string | null
+  rateType: CareRateType
   effectiveHourlyRate: string | null
+  effectiveRateType: CareRateType
   payInterval: CarePayInterval
   payWeekday: number | null
   payAnchorDate: string | null
@@ -360,6 +384,7 @@ export type CareInvoiceLineDto = {
   amount: string
   hourlyRateSnapshot: string
   hoursSnapshot: string
+  rateType: CareRateType
   startsAt: string
   endsAt: string
 }
@@ -390,6 +415,7 @@ function toPersonDto(person: {
   userId: string | null
   typeId: string
   hourlyRate: { toString(): string } | null
+  rateType: CareRateType
   payInterval: CarePayInterval
   payWeekday: number | null
   payAnchorDate: Date | null
@@ -400,13 +426,12 @@ function toPersonDto(person: {
   type: {
     name: string
     isPaid: boolean
-    defaultHourlyRate: { toString(): string } | null
   }
   user: { name: string | null; email: string | null } | null
 }): CarePersonDto {
-  const rate = effectiveHourlyRate({
+  const rate = effectiveRate({
     personHourlyRate: decimalToString(person.hourlyRate),
-    typeDefaultHourlyRate: decimalToString(person.type.defaultHourlyRate),
+    personRateType: person.rateType,
     typeIsPaid: person.type.isPaid,
   })
   return {
@@ -417,7 +442,9 @@ function toPersonDto(person: {
     typeName: person.type.name,
     isPaid: person.type.isPaid,
     hourlyRate: decimalToString(person.hourlyRate),
-    effectiveHourlyRate: rate !== null ? rate.toFixed(4) : null,
+    rateType: person.rateType,
+    effectiveHourlyRate: rate !== null ? rate.amount.toFixed(4) : null,
+    effectiveRateType: rate?.rateType ?? 'HOURLY',
     payInterval: person.payInterval,
     payWeekday: person.payWeekday,
     payAnchorDate: person.payAnchorDate
@@ -481,6 +508,7 @@ function toInvoiceDto(row: {
     amount: { toString(): string }
     hourlyRateSnapshot: { toString(): string }
     hoursSnapshot: { toString(): string }
+    rateType: CareRateType
     occurrence: { startsAt: Date; endsAt: Date }
   }>
 }): CareInvoiceDto {
@@ -501,6 +529,7 @@ function toInvoiceDto(row: {
       amount: line.amount.toString(),
       hourlyRateSnapshot: line.hourlyRateSnapshot.toString(),
       hoursSnapshot: line.hoursSnapshot.toString(),
+      rateType: line.rateType,
       startsAt: line.occurrence.startsAt.toISOString(),
       endsAt: line.occurrence.endsAt.toISOString(),
     })),
@@ -545,7 +574,6 @@ async function ensureDefaultTypes() {
     create: {
       name: 'Employee',
       isPaid: true,
-      defaultHourlyRate: 25,
     },
     update: {},
   })
@@ -614,11 +642,7 @@ async function billingStatusForAssigneeId(
     include: { type: true },
   })
   if (!person) return 'NOT_BILLABLE'
-  const rate = effectiveHourlyRate({
-    personHourlyRate: decimalToString(person.hourlyRate),
-    typeDefaultHourlyRate: decimalToString(person.type.defaultHourlyRate),
-    typeIsPaid: person.type.isPaid,
-  })
+  const rate = effectiveRate(personRateInput(person))
   return rate !== null ? 'ACCRUED' : 'NOT_BILLABLE'
 }
 
@@ -763,6 +787,7 @@ async function completeDueShifts(now = new Date()) {
 async function createInvoiceForOccurrences(input: {
   carePersonId: string
   carePersonName: string
+  rateType: CareRateType
   occurrences: Array<{
     id: string
     startsAt: Date
@@ -775,13 +800,14 @@ async function createInvoiceForOccurrences(input: {
   if (input.occurrences.length === 0) return
 
   const lines = input.occurrences.map((occ) => {
-    const hours = hoursBetween(occ.startsAt, occ.endsAt)
-    const computed = computeInvoiceAmount(occ.hourlyRate, hours)
+    const quantity = billableQuantity(occ.startsAt, occ.endsAt, input.rateType)
+    const computed = computeInvoiceAmount(occ.hourlyRate, quantity)
     return {
       occurrenceId: occ.id,
       amount: computed.amount,
       hourlyRateSnapshot: computed.hourlyRate,
       hoursSnapshot: computed.hours,
+      rateType: input.rateType,
     }
   })
   const amount = lines.reduce((sum, line) => sum + line.amount, 0)
@@ -839,13 +865,7 @@ async function createPayPeriodInvoices(now = new Date()) {
   })
   for (const occ of stranded) {
     if (!occ.assignee) continue
-    const rate = effectiveHourlyRate({
-      personHourlyRate: decimalToString(occ.assignee.hourlyRate),
-      typeDefaultHourlyRate: decimalToString(
-        occ.assignee.type.defaultHourlyRate,
-      ),
-      typeIsPaid: occ.assignee.type.isPaid,
-    })
+    const rate = effectiveRate(personRateInput(occ.assignee))
     if (rate === null) continue
     await prisma.careCoverageOccurrence.update({
       where: { id: occ.id },
@@ -858,12 +878,10 @@ async function createPayPeriodInvoices(now = new Date()) {
   })
 
   for (const person of people) {
-    const rate = effectiveHourlyRate({
-      personHourlyRate: decimalToString(person.hourlyRate),
-      typeDefaultHourlyRate: decimalToString(person.type.defaultHourlyRate),
-      typeIsPaid: person.type.isPaid,
-    })
-    if (rate === null) continue
+    const resolved = effectiveRate(personRateInput(person))
+    if (resolved === null) continue
+    const rate = resolved.amount
+    const rateType = resolved.rateType
 
     const cutoff = lastClosedPayPeriodEnd(
       {
@@ -891,6 +909,7 @@ async function createPayPeriodInvoices(now = new Date()) {
         await createInvoiceForOccurrences({
           carePersonId: person.id,
           carePersonName: person.name,
+          rateType,
           occurrences: [
             {
               id: occ.id,
@@ -919,6 +938,7 @@ async function createPayPeriodInvoices(now = new Date()) {
     await createInvoiceForOccurrences({
       carePersonId: person.id,
       carePersonName: person.name,
+      rateType,
       occurrences: accrued.map((occ) => ({
         id: occ.id,
         startsAt: occ.startsAt,
@@ -1459,6 +1479,18 @@ export const upsertCareSettings = createServerFn({ method: 'POST' })
 
 // --- People / types ---
 
+function toPersonTypeDto(row: {
+  id: string
+  name: string
+  isPaid: boolean
+}): CarePersonTypeDto {
+  return {
+    id: row.id,
+    name: row.name,
+    isPaid: row.isPaid,
+  }
+}
+
 export const listCarePersonTypes = createServerFn({ method: 'GET' }).handler(
   async (): Promise<CarePersonTypeDto[]> => {
     await requireUserId()
@@ -1466,12 +1498,7 @@ export const listCarePersonTypes = createServerFn({ method: 'GET' }).handler(
     const rows = await prisma.carePersonType.findMany({
       orderBy: { name: 'asc' },
     })
-    return rows.map((row) => ({
-      id: row.id,
-      name: row.name,
-      isPaid: row.isPaid,
-      defaultHourlyRate: decimalToString(row.defaultHourlyRate),
-    }))
+    return rows.map(toPersonTypeDto)
   },
 )
 
@@ -1484,7 +1511,6 @@ export const createCarePersonType = createServerFn({ method: 'POST' })
     return {
       name,
       isPaid: Boolean(input.isPaid),
-      defaultHourlyRate: parseOptionalRate(input.defaultHourlyRate),
     }
   })
   .handler(async ({ data }): Promise<CarePersonTypeDto> => {
@@ -1493,7 +1519,6 @@ export const createCarePersonType = createServerFn({ method: 'POST' })
       data: {
         name: data.name,
         isPaid: data.isPaid,
-        defaultHourlyRate: data.defaultHourlyRate,
       },
     })
     await logActivity({
@@ -1502,15 +1527,10 @@ export const createCarePersonType = createServerFn({ method: 'POST' })
       entityType: ACTIVITY_ENTITY_TYPES.care_person_type,
       entityId: created.id,
       summary: `Created care person type ${created.name}`,
-      changes: createChanges(created, ['name', 'isPaid', 'defaultHourlyRate']),
+      changes: createChanges(created, ['name', 'isPaid']),
       visibilityUserId: null,
     })
-    return {
-      id: created.id,
-      name: created.name,
-      isPaid: created.isPaid,
-      defaultHourlyRate: decimalToString(created.defaultHourlyRate),
-    }
+    return toPersonTypeDto(created)
   })
 
 export const updateCarePersonType = createServerFn({ method: 'POST' })
@@ -1525,7 +1545,6 @@ export const updateCarePersonType = createServerFn({ method: 'POST' })
       id,
       name,
       isPaid: Boolean(input.isPaid),
-      defaultHourlyRate: parseOptionalRate(input.defaultHourlyRate),
     }
   })
   .handler(async ({ data }): Promise<CarePersonTypeDto> => {
@@ -1538,14 +1557,9 @@ export const updateCarePersonType = createServerFn({ method: 'POST' })
       data: {
         name: data.name,
         isPaid: data.isPaid,
-        defaultHourlyRate: data.defaultHourlyRate,
       },
     })
-    const changes = diffChanges(before, updated, [
-      'name',
-      'isPaid',
-      'defaultHourlyRate',
-    ])
+    const changes = diffChanges(before, updated, ['name', 'isPaid'])
     if (Object.keys(changes).length > 0) {
       await logActivity({
         actorUserId: userId,
@@ -1557,12 +1571,7 @@ export const updateCarePersonType = createServerFn({ method: 'POST' })
         visibilityUserId: null,
       })
     }
-    return {
-      id: updated.id,
-      name: updated.name,
-      isPaid: updated.isPaid,
-      defaultHourlyRate: decimalToString(updated.defaultHourlyRate),
-    }
+    return toPersonTypeDto(updated)
   })
 
 // --- Event types ---
@@ -1718,6 +1727,7 @@ export const createCarePerson = createServerFn({ method: 'POST' })
       typeId,
       userId,
       hourlyRate: parseOptionalRate(input.hourlyRate),
+      rateType: parseRateType(input.rateType),
       bgColor: optionalColor(input.bgColor),
       textColor: optionalColor(input.textColor),
       isActive: input.isActive === undefined ? true : Boolean(input.isActive),
@@ -1730,6 +1740,9 @@ export const createCarePerson = createServerFn({ method: 'POST' })
       where: { id: data.typeId },
     })
     if (!type) throw new Error('Person type not found.')
+    if (type.isPaid && data.hourlyRate === null) {
+      throw new Error('Rate is required for paid people.')
+    }
     if (data.userId) {
       const user = await prisma.user.findUnique({ where: { id: data.userId } })
       if (!user) throw new Error('Linked user not found.')
@@ -1741,6 +1754,7 @@ export const createCarePerson = createServerFn({ method: 'POST' })
         typeId: data.typeId,
         userId: data.userId,
         hourlyRate: type.isPaid ? data.hourlyRate : null,
+        rateType: type.isPaid ? data.rateType : 'HOURLY',
         payInterval: pay.payInterval,
         payWeekday: pay.payWeekday,
         payAnchorDate: pay.payAnchorDate,
@@ -1765,6 +1779,7 @@ export const createCarePerson = createServerFn({ method: 'POST' })
         'typeId',
         'userId',
         'hourlyRate',
+        'rateType',
         'payInterval',
         'payWeekday',
         'payAnchorDate',
@@ -1798,6 +1813,7 @@ export const updateCarePerson = createServerFn({ method: 'POST' })
       typeId,
       userId,
       hourlyRate: parseOptionalRate(input.hourlyRate),
+      rateType: parseRateType(input.rateType),
       bgColor: optionalColor(input.bgColor),
       textColor: optionalColor(input.textColor),
       isActive: Boolean(input.isActive),
@@ -1810,6 +1826,9 @@ export const updateCarePerson = createServerFn({ method: 'POST' })
       where: { id: data.typeId },
     })
     if (!type) throw new Error('Person type not found.')
+    if (type.isPaid && data.hourlyRate === null) {
+      throw new Error('Rate is required for paid people.')
+    }
     const pay = parsePaySchedule(data.payRaw, type.isPaid)
     const before = await prisma.carePerson.findUniqueOrThrow({
       where: { id: data.id },
@@ -1821,6 +1840,7 @@ export const updateCarePerson = createServerFn({ method: 'POST' })
         typeId: data.typeId,
         userId: data.userId,
         hourlyRate: type.isPaid ? data.hourlyRate : null,
+        rateType: type.isPaid ? data.rateType : 'HOURLY',
         payInterval: pay.payInterval,
         payWeekday: pay.payWeekday,
         payAnchorDate: pay.payAnchorDate,
@@ -1839,6 +1859,7 @@ export const updateCarePerson = createServerFn({ method: 'POST' })
       'typeId',
       'userId',
       'hourlyRate',
+      'rateType',
       'payInterval',
       'payWeekday',
       'payAnchorDate',

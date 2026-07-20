@@ -1,6 +1,10 @@
+import { hoursBetween } from '#/lib/care-recurrence'
+
+export type CareRateType = 'HOURLY' | 'DAILY'
+
 export type EffectiveRateInput = {
   personHourlyRate: number | string | null
-  typeDefaultHourlyRate: number | string | null
+  personRateType?: CareRateType
   typeIsPaid: boolean
 }
 
@@ -20,28 +24,48 @@ function toNumber(value: number | string | null | undefined): number | null {
   return n
 }
 
-/** Effective hourly rate for a care person, or null if unpaid / no rate. */
-export function effectiveHourlyRate(input: EffectiveRateInput): number | null {
+/**
+ * Effective billing rate for a care person, or null if unpaid / no rate.
+ * The rate lives solely on the person (paired with its rate type).
+ */
+export function effectiveRate(
+  input: EffectiveRateInput,
+): { amount: number; rateType: CareRateType } | null {
   if (!input.typeIsPaid) return null
-  const override = toNumber(input.personHourlyRate)
-  if (override !== null && override >= 0) return override
-  const fallback = toNumber(input.typeDefaultHourlyRate)
-  if (fallback !== null && fallback >= 0) return fallback
+  const rate = toNumber(input.personHourlyRate)
+  if (rate !== null && rate >= 0) {
+    return { amount: rate, rateType: input.personRateType ?? 'HOURLY' }
+  }
   return null
 }
 
+/** Effective rate amount for a care person, or null if unpaid / no rate. */
+export function effectiveHourlyRate(input: EffectiveRateInput): number | null {
+  return effectiveRate(input)?.amount ?? null
+}
+
+/** Billable quantity for a slot: hours when HOURLY, days when DAILY. */
+export function billableQuantity(
+  startsAt: Date,
+  endsAt: Date,
+  rateType: CareRateType,
+): number {
+  const hours = hoursBetween(startsAt, endsAt)
+  return rateType === 'DAILY' ? hours / 24 : hours
+}
+
 export function computeInvoiceAmount(
-  hourlyRate: number,
-  hours: number,
+  rate: number,
+  quantity: number,
 ): { amount: number; hourlyRate: number; hours: number } {
-  if (!Number.isFinite(hourlyRate) || hourlyRate < 0) {
-    throw new Error('Hourly rate is invalid.')
+  if (!Number.isFinite(rate) || rate < 0) {
+    throw new Error('Rate is invalid.')
   }
-  if (!Number.isFinite(hours) || hours <= 0) {
-    throw new Error('Hours must be positive.')
+  if (!Number.isFinite(quantity) || quantity <= 0) {
+    throw new Error('Quantity must be positive.')
   }
-  const amount = Math.round(hourlyRate * hours * 10_000) / 10_000
-  return { amount, hourlyRate, hours }
+  const amount = Math.round(rate * quantity * 10_000) / 10_000
+  return { amount, hourlyRate: rate, hours: quantity }
 }
 
 function endOfLocalDay(d: Date): Date {

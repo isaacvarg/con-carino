@@ -1,8 +1,80 @@
 import { describe, expect, it } from 'vitest'
 import {
+  billableQuantity,
+  computeInvoiceAmount,
+  effectiveRate,
   lastClosedPayPeriodEnd,
   payPeriodStart,
 } from '#/lib/care-invoice'
+
+describe('computeInvoiceAmount', () => {
+  it('multiplies rate by quantity', () => {
+    expect(computeInvoiceAmount(25, 8).amount).toBe(200)
+    expect(computeInvoiceAmount(150, 1).amount).toBe(150)
+  })
+
+  it('rejects non-positive quantity', () => {
+    expect(() => computeInvoiceAmount(25, 0)).toThrow()
+  })
+})
+
+describe('billableQuantity', () => {
+  const start = new Date(2026, 6, 20, 0, 0, 0)
+
+  it('returns hours for HOURLY', () => {
+    const end = new Date(2026, 6, 20, 8, 0, 0)
+    expect(billableQuantity(start, end, 'HOURLY')).toBe(8)
+  })
+
+  it('returns 1 day for a 24h DAILY slot', () => {
+    const end = new Date(2026, 6, 21, 0, 0, 0)
+    expect(billableQuantity(start, end, 'DAILY')).toBe(1)
+  })
+
+  it('returns 2 days for a 48h DAILY slot', () => {
+    const end = new Date(2026, 6, 22, 0, 0, 0)
+    expect(billableQuantity(start, end, 'DAILY')).toBe(2)
+  })
+})
+
+describe('effectiveRate', () => {
+  it('returns null for unpaid types', () => {
+    expect(
+      effectiveRate({
+        personHourlyRate: 25,
+        typeIsPaid: false,
+      }),
+    ).toBeNull()
+  })
+
+  it('returns null when a paid person has no rate', () => {
+    expect(
+      effectiveRate({
+        personHourlyRate: null,
+        typeIsPaid: true,
+      }),
+    ).toBeNull()
+  })
+
+  it('uses the person rate paired with its rate type', () => {
+    expect(
+      effectiveRate({
+        personHourlyRate: 200,
+        personRateType: 'DAILY',
+        typeIsPaid: true,
+      }),
+    ).toEqual({ amount: 200, rateType: 'DAILY' })
+  })
+
+  it('defaults rate type to HOURLY when unspecified', () => {
+    expect(
+      effectiveRate({
+        personHourlyRate: 30,
+        typeIsPaid: true,
+      }),
+    ).toEqual({ amount: 30, rateType: 'HOURLY' })
+  })
+})
 
 describe('lastClosedPayPeriodEnd', () => {
   it('returns now for PER_SHIFT', () => {
