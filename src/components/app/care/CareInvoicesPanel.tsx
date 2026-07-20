@@ -64,7 +64,8 @@ function InvoiceLines({ invoice }: { invoice: CareInvoiceDto }) {
             {formatTimeRange(line.startsAt, line.endsAt)}
           </span>
           <span className="tabular-nums text-base-content/60">
-            {Number(line.hoursSnapshot).toFixed(2)} hrs × $
+            {Number(line.hoursSnapshot).toFixed(2)}{' '}
+            {line.rateType === 'DAILY' ? 'day' : 'hrs'} × $
             {Number(line.hourlyRateSnapshot).toFixed(2)} = $
             {Number(line.amount).toFixed(2)}
           </span>

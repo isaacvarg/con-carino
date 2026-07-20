@@ -93,6 +93,7 @@ export function CareCalendarPanel({
   )
 
   const [modal, setModal] = useState<ModalKind>(null)
+  const [daySheetOpen, setDaySheetOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [swapFromId, setSwapFromId] = useState<string | null>(null)
@@ -231,6 +232,174 @@ export function CareCalendarPanel({
   function toggleOpenSelection(id: string) {
     setSelectedOpenIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    )
+  }
+
+  function handleSelectDay(key: string) {
+    onSelectDay(key)
+    if (window.matchMedia('(max-width: 1023px)').matches) {
+      setDaySheetOpen(true)
+    }
+  }
+
+  function renderDayDetail() {
+    return (
+      <>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-semibold">
+            {selectedDate.toLocaleDateString(undefined, {
+              weekday: 'long',
+              month: 'long',
+              day: 'numeric',
+            })}
+          </h3>
+          <div className="dropdown dropdown-end">
+            <button type="button" tabIndex={0} className="btn btn-primary btn-sm">
+              Add
+            </button>
+            <ul
+              tabIndex={0}
+              className="menu dropdown-content z-30 mt-1 w-52 rounded-box bg-base-100 p-2 shadow"
+            >
+              <li>
+                <button type="button" onClick={() => openModal('coverage')}>
+                  Coverage (one-off)
+                </button>
+              </li>
+              <li>
+                <button type="button" onClick={() => openModal('assignRule')}>
+                  Recurring coverage
+                </button>
+              </li>
+              <li>
+                <button type="button" onClick={() => openModal('event')}>
+                  Appointment / event
+                </button>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <section className="mt-4">
+          <h4 className="text-sm font-medium text-base-content/70">Coverage</h4>
+          {dayOccurrences.length === 0 ? (
+            <p className="mt-2 text-sm text-base-content/50">No coverage slots.</p>
+          ) : (
+            <ul className="mt-2 space-y-2">
+              {dayOccurrences.map((o) => {
+                const isOpen = !o.assigneeId && o.status === 'SCHEDULED'
+                const selectable = selectMode && isOpen
+                const isSelected = selectedOpenIds.includes(o.id)
+                return (
+                  <li
+                    key={o.id}
+                    onClick={
+                      selectable
+                        ? () => toggleOpenSelection(o.id)
+                        : undefined
+                    }
+                    className={`rounded-lg border p-3 transition ${
+                      selectable
+                        ? `cursor-pointer ${
+                            isSelected
+                              ? 'border-primary bg-primary/10'
+                              : 'border-base-300 hover:bg-base-200'
+                          }`
+                        : 'border-base-300'
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="flex min-w-0 items-start gap-2">
+                        {selectable ? (
+                          <input
+                            type="checkbox"
+                            className="checkbox checkbox-sm mt-1 pointer-events-none"
+                            checked={isSelected}
+                            readOnly
+                            tabIndex={-1}
+                            aria-hidden="true"
+                          />
+                        ) : null}
+                        <div>
+                          <p className="text-base font-semibold text-base-content">
+                            {formatTimeRange(o.startsAt, o.endsAt)}
+                          </p>
+                          <p className="text-sm text-base-content/60">
+                            <span
+                              className="mr-2 inline-block size-2 rounded-full align-middle"
+                              style={{
+                                backgroundColor:
+                                  o.assigneeBgColor ?? '#94a3b8',
+                              }}
+                            />
+                            {o.assigneeName ?? 'Open slot'}
+                          </p>
+                          <p className="text-xs text-base-content/50">
+                            {o.status}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {isOpen && !selectMode ? (
+                          <button
+                            type="button"
+                            className="btn btn-primary btn-xs"
+                            onClick={() =>
+                              openModal('assign', { assignId: o.id })
+                            }
+                          >
+                            Assign
+                          </button>
+                        ) : null}
+                        {o.assigneeId && o.status === 'SCHEDULED' ? (
+                          <button
+                            type="button"
+                            className="btn btn-outline btn-xs"
+                            onClick={() =>
+                              openModal('swap', { swapFrom: o.id })
+                            }
+                          >
+                            Request swap
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </section>
+
+        <section className="mt-4">
+          <h4 className="text-sm font-medium text-base-content/70">Events</h4>
+          {dayEvents.length === 0 ? (
+            <p className="mt-2 text-sm text-base-content/50">No events.</p>
+          ) : (
+            <ul className="mt-2 space-y-2">
+              {dayEvents.map((ev) => (
+                <li
+                  key={ev.id}
+                  className="rounded-lg border border-base-300 p-3"
+                >
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium"
+                      style={personChipStyle(ev.bgColor, ev.textColor)}
+                    >
+                      {ev.typeName}
+                    </span>
+                    <p className="font-medium">{ev.title}</p>
+                  </div>
+                  <p className="mt-1 text-sm text-base-content/60">
+                    {formatTimeRange(ev.startsAt, ev.endsAt)}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </>
     )
   }
 
@@ -446,14 +615,14 @@ export function CareCalendarPanel({
             </button>
           </div>
         ) : null}
-        <div className="grid grid-cols-7 gap-1.5 text-center text-sm font-medium text-base-content/50">
+        <div className="grid grid-cols-7 gap-1 text-center text-xs font-medium text-base-content/50 sm:text-sm lg:gap-1.5">
           {DAY_NAMES.map((d) => (
-            <div key={d} className="py-1.5">
+            <div key={d} className="py-1 lg:py-1.5">
               {d}
             </div>
           ))}
         </div>
-        <div className="mt-1.5 grid grid-cols-7 gap-1.5">
+        <div className="mt-1 grid grid-cols-7 gap-1 lg:mt-1.5 lg:gap-1.5">
           {cells.map((cell) => {
             const key = dayKey(cell)
             const inMonth = cell.getMonth() === month
@@ -464,30 +633,33 @@ export function CareCalendarPanel({
             const dayEvts = events.filter((ev) =>
               isSameLocalDay(new Date(ev.startsAt), cell),
             )
+            const totalItems = dayOccs.length + dayEvts.length
             return (
               <button
                 key={key}
                 type="button"
-                onClick={() => onSelectDay(key)}
-                className={`flex aspect-square min-h-24 flex-col items-start rounded-xl border p-2 text-left transition ${
+                onClick={() => handleSelectDay(key)}
+                className={`flex min-h-16 flex-col items-start rounded-lg border p-1.5 text-left transition lg:aspect-square lg:min-h-24 lg:rounded-xl lg:p-2 ${
                   selected
                     ? 'border-primary bg-primary/10'
                     : 'border-base-300 hover:bg-base-200'
                 } ${inMonth ? '' : 'opacity-40'}`}
               >
                 <div className="flex flex-col items-start leading-none">
-                  <span className="text-[11px] font-medium text-base-content/50">
+                  <span className="hidden text-[11px] font-medium text-base-content/50 lg:inline">
                     {DAY_NAMES[cell.getDay()]}
                   </span>
-                  <span className="mt-0.5 text-base font-semibold">
+                  <span className="text-sm font-semibold lg:mt-0.5 lg:text-base">
                     {cell.getDate()}
                   </span>
                 </div>
-                <div className="mt-1.5 flex w-full flex-col gap-1">
-                  {dayOccs.slice(0, 2).map((o) => (
+                <div className="mt-1 flex w-full flex-col gap-0.5 lg:mt-1.5 lg:gap-1">
+                  {dayOccs.slice(0, 2).map((o, i) => (
                     <span
                       key={o.id}
-                      className="truncate rounded-md px-1.5 py-0.5 text-xs font-medium leading-snug"
+                      className={`truncate rounded-md px-1 py-0.5 text-[10px] font-medium leading-snug lg:px-1.5 lg:text-xs ${
+                        i > 0 ? 'hidden lg:block' : ''
+                      }`}
                       style={
                         o.assigneeBgColor
                           ? personChipStyle(
@@ -503,15 +675,20 @@ export function CareCalendarPanel({
                   {dayEvts.slice(0, 1).map((ev) => (
                     <span
                       key={ev.id}
-                      className="truncate rounded-md px-1.5 py-0.5 text-xs font-medium leading-snug"
+                      className="hidden truncate rounded-md px-1.5 py-0.5 text-xs font-medium leading-snug lg:block"
                       style={personChipStyle(ev.bgColor, ev.textColor)}
                     >
                       {ev.title}
                     </span>
                   ))}
-                  {dayOccs.length + dayEvts.length > 3 ? (
-                    <span className="px-0.5 text-xs text-base-content/50">
-                      +{dayOccs.length + dayEvts.length - 3}
+                  {totalItems > 1 ? (
+                    <span className="px-0.5 text-[10px] text-base-content/50 lg:hidden">
+                      +{totalItems - 1}
+                    </span>
+                  ) : null}
+                  {totalItems > 3 ? (
+                    <span className="hidden px-0.5 text-xs text-base-content/50 lg:block">
+                      +{totalItems - 3}
                     </span>
                   ) : null}
                 </div>
@@ -521,162 +698,29 @@ export function CareCalendarPanel({
         </div>
       </div>
 
-      <div className="app-card p-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="font-semibold">
-            {selectedDate.toLocaleDateString(undefined, {
-              weekday: 'long',
-              month: 'long',
-              day: 'numeric',
-            })}
-          </h3>
-          <div className="dropdown dropdown-end">
-            <button type="button" tabIndex={0} className="btn btn-primary btn-sm">
-              Add
-            </button>
-            <ul
-              tabIndex={0}
-              className="menu dropdown-content z-10 mt-1 w-52 rounded-box bg-base-100 p-2 shadow"
-            >
-              <li>
-                <button type="button" onClick={() => openModal('coverage')}>
-                  Coverage (one-off)
-                </button>
-              </li>
-              <li>
-                <button type="button" onClick={() => openModal('assignRule')}>
-                  Recurring coverage
-                </button>
-              </li>
-              <li>
-                <button type="button" onClick={() => openModal('event')}>
-                  Appointment / event
-                </button>
-              </li>
-            </ul>
+      <div className="app-card hidden p-4 lg:block">{renderDayDetail()}</div>
+
+      {daySheetOpen ? (
+        <dialog className="modal modal-bottom modal-open lg:hidden">
+          <div className="modal-box max-h-[85vh] overflow-y-auto rounded-t-2xl">
+            <div className="mb-2 flex justify-end">
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => setDaySheetOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+            {renderDayDetail()}
           </div>
-        </div>
-
-        <section className="mt-4">
-          <h4 className="text-sm font-medium text-base-content/70">Coverage</h4>
-          {dayOccurrences.length === 0 ? (
-            <p className="mt-2 text-sm text-base-content/50">No coverage slots.</p>
-          ) : (
-            <ul className="mt-2 space-y-2">
-              {dayOccurrences.map((o) => {
-                const isOpen = !o.assigneeId && o.status === 'SCHEDULED'
-                const selectable = selectMode && isOpen
-                const isSelected = selectedOpenIds.includes(o.id)
-                return (
-                  <li
-                    key={o.id}
-                    onClick={
-                      selectable
-                        ? () => toggleOpenSelection(o.id)
-                        : undefined
-                    }
-                    className={`rounded-lg border p-3 transition ${
-                      selectable
-                        ? `cursor-pointer ${
-                            isSelected
-                              ? 'border-primary bg-primary/10'
-                              : 'border-base-300 hover:bg-base-200'
-                          }`
-                        : 'border-base-300'
-                    }`}
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div className="flex min-w-0 items-start gap-2">
-                        {selectable ? (
-                          <input
-                            type="checkbox"
-                            className="checkbox checkbox-sm mt-1 pointer-events-none"
-                            checked={isSelected}
-                            readOnly
-                            tabIndex={-1}
-                            aria-hidden="true"
-                          />
-                        ) : null}
-                        <div>
-                          <p className="text-base font-semibold text-base-content">
-                            {formatTimeRange(o.startsAt, o.endsAt)}
-                          </p>
-                          <p className="text-sm text-base-content/60">
-                            <span
-                              className="mr-2 inline-block size-2 rounded-full align-middle"
-                              style={{
-                                backgroundColor:
-                                  o.assigneeBgColor ?? '#94a3b8',
-                              }}
-                            />
-                            {o.assigneeName ?? 'Open slot'}
-                          </p>
-                          <p className="text-xs text-base-content/50">
-                            {o.status}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap gap-1">
-                        {isOpen && !selectMode ? (
-                          <button
-                            type="button"
-                            className="btn btn-primary btn-xs"
-                            onClick={() =>
-                              openModal('assign', { assignId: o.id })
-                            }
-                          >
-                            Assign
-                          </button>
-                        ) : null}
-                        {o.assigneeId && o.status === 'SCHEDULED' ? (
-                          <button
-                            type="button"
-                            className="btn btn-outline btn-xs"
-                            onClick={() =>
-                              openModal('swap', { swapFrom: o.id })
-                            }
-                          >
-                            Request swap
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                  </li>
-                )
-              })}
-            </ul>
-          )}
-        </section>
-
-        <section className="mt-4">
-          <h4 className="text-sm font-medium text-base-content/70">Events</h4>
-          {dayEvents.length === 0 ? (
-            <p className="mt-2 text-sm text-base-content/50">No events.</p>
-          ) : (
-            <ul className="mt-2 space-y-2">
-              {dayEvents.map((ev) => (
-                <li
-                  key={ev.id}
-                  className="rounded-lg border border-base-300 p-3"
-                >
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium"
-                      style={personChipStyle(ev.bgColor, ev.textColor)}
-                    >
-                      {ev.typeName}
-                    </span>
-                    <p className="font-medium">{ev.title}</p>
-                  </div>
-                  <p className="mt-1 text-sm text-base-content/60">
-                    {formatTimeRange(ev.startsAt, ev.endsAt)}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      </div>
+          <form method="dialog" className="modal-backdrop">
+            <button type="button" onClick={() => setDaySheetOpen(false)}>
+              close
+            </button>
+          </form>
+        </dialog>
+      ) : null}
 
       {selectMode ? (
         <div className="fixed inset-x-0 bottom-0 z-20 border-t border-base-300 bg-base-100/95 px-4 py-3 shadow-lg backdrop-blur lg:sticky lg:bottom-4 lg:col-span-2 lg:rounded-box lg:border">

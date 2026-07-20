@@ -20,7 +20,7 @@ import {
   updateCarePerson,
   updateCarePersonType,
 } from '#/server/care'
-import type { CarePayInterval } from '#/generated/prisma/enums'
+import type { CarePayInterval, CareRateType } from '#/generated/prisma/enums'
 import {
   DEFAULT_PERSON_BG_COLOR,
   DEFAULT_PERSON_TEXT_COLOR,
@@ -48,6 +48,15 @@ function payIntervalLabel(interval: CarePayInterval): string {
   return PAY_INTERVALS.find((p) => p.value === interval)?.label ?? interval
 }
 
+const RATE_TYPES: Array<{ value: CareRateType; label: string }> = [
+  { value: 'HOURLY', label: 'Hourly' },
+  { value: 'DAILY', label: 'Daily' },
+]
+
+function rateUnit(rateType: CareRateType): string {
+  return rateType === 'DAILY' ? '/day' : '/hr'
+}
+
 type CarePeoplePanelProps = {
   types: CarePersonTypeDto[]
   people: CarePersonDto[]
@@ -70,6 +79,7 @@ export function CarePeoplePanel({
   const [typeId, setTypeId] = useState(types[0]?.id ?? '')
   const [userId, setUserId] = useState('')
   const [hourlyRate, setHourlyRate] = useState('')
+  const [rateType, setRateType] = useState<CareRateType>('HOURLY')
   const [payInterval, setPayInterval] = useState<CarePayInterval>('PER_SHIFT')
   const [payWeekday, setPayWeekday] = useState('5')
   const [payAnchorDate, setPayAnchorDate] = useState('')
@@ -83,6 +93,7 @@ export function CarePeoplePanel({
   const [typeName, setTypeName] = useState('')
   const [typeIsPaid, setTypeIsPaid] = useState(false)
   const [typeRate, setTypeRate] = useState('25')
+  const [typeRateType, setTypeRateType] = useState<CareRateType>('HOURLY')
   const [typeError, setTypeError] = useState<string | null>(null)
   const [typeSaving, setTypeSaving] = useState(false)
 
@@ -95,6 +106,7 @@ export function CarePeoplePanel({
     setTypeId(types[0]?.id ?? '')
     setUserId('')
     setHourlyRate('')
+    setRateType('HOURLY')
     setPayInterval('PER_SHIFT')
     setPayWeekday('5')
     setPayAnchorDate('')
@@ -117,6 +129,7 @@ export function CarePeoplePanel({
     setTypeId(person.typeId)
     setUserId(person.userId ?? '')
     setHourlyRate(person.hourlyRate ?? '')
+    setRateType(person.rateType)
     setPayInterval(person.payInterval)
     setPayWeekday(
       person.payWeekday !== null ? String(person.payWeekday) : '5',
@@ -137,6 +150,7 @@ export function CarePeoplePanel({
     setTypeName('')
     setTypeIsPaid(false)
     setTypeRate('25')
+    setTypeRateType('HOURLY')
     setTypeError(null)
     setShowTypeForm(false)
   }
@@ -151,6 +165,7 @@ export function CarePeoplePanel({
     setTypeName(type.name)
     setTypeIsPaid(type.isPaid)
     setTypeRate(type.defaultHourlyRate ?? '25')
+    setTypeRateType(type.defaultRateType)
     setShowTypeForm(true)
     setTypeError(null)
   }
@@ -165,6 +180,7 @@ export function CarePeoplePanel({
         typeId,
         userId: userId || null,
         hourlyRate: selectedTypeIsPaid ? hourlyRate || null : null,
+        rateType: selectedTypeIsPaid ? rateType : 'HOURLY',
         payInterval: selectedTypeIsPaid ? payInterval : 'PER_SHIFT',
         payWeekday:
           selectedTypeIsPaid &&
@@ -208,6 +224,7 @@ export function CarePeoplePanel({
         name: typeName,
         isPaid: typeIsPaid,
         defaultHourlyRate: typeIsPaid ? typeRate : null,
+        defaultRateType: typeIsPaid ? typeRateType : 'HOURLY',
       }
       if (editingTypeId) {
         await updateCarePersonType({ data: { id: editingTypeId, ...payload } })
@@ -307,7 +324,7 @@ export function CarePeoplePanel({
               </FormField>
               {selectedTypeIsPaid ? (
                 <FormField
-                  label="Hourly Rate"
+                  label={rateType === 'DAILY' ? 'Daily Rate' : 'Hourly Rate'}
                   htmlFor="person-rate"
                 >
                   <input
@@ -321,6 +338,27 @@ export function CarePeoplePanel({
                 </FormField>
               ) : null}
             </FormRow>
+            {selectedTypeIsPaid ? (
+              <FormField label="Rate Type" htmlFor="person-rate-type">
+                <select
+                  id="person-rate-type"
+                  className={FORM_SELECT_CLASS}
+                  value={rateType}
+                  onChange={(e) => setRateType(e.target.value as CareRateType)}
+                >
+                  {RATE_TYPES.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                {rateType === 'DAILY' ? (
+                  <p className="mt-1 text-xs text-base-content/60">
+                    A flat amount per day — best for all-day coverage.
+                  </p>
+                ) : null}
+              </FormField>
+            ) : null}
             {selectedTypeIsPaid ? (
               <>
                 <FormRow>
@@ -471,7 +509,7 @@ export function CarePeoplePanel({
                 <p className="text-sm text-base-content/60">
                   {person.typeName}
                   {person.isPaid
-                    ? ` · $${person.effectiveHourlyRate ?? '—'}/hr · ${payIntervalLabel(person.payInterval)}`
+                    ? ` · $${person.effectiveHourlyRate ?? '—'}${rateUnit(person.effectiveRateType)} · ${payIntervalLabel(person.payInterval)}`
                     : ''}
                   {person.userEmail
                     ? ` · ${person.userName || person.userEmail}`
@@ -538,16 +576,41 @@ export function CarePeoplePanel({
               />
             </FormField>
             {typeIsPaid ? (
-              <FormField label="Default Hourly Rate" htmlFor="type-rate">
-                <input
-                  id="type-rate"
-                  className={FORM_INPUT_CLASS}
-                  value={typeRate}
-                  onChange={(e) => setTypeRate(e.target.value)}
-                  inputMode="decimal"
-                  required
-                />
-              </FormField>
+              <FormRow>
+                <FormField
+                  label={
+                    typeRateType === 'DAILY'
+                      ? 'Default Daily Rate'
+                      : 'Default Hourly Rate'
+                  }
+                  htmlFor="type-rate"
+                >
+                  <input
+                    id="type-rate"
+                    className={FORM_INPUT_CLASS}
+                    value={typeRate}
+                    onChange={(e) => setTypeRate(e.target.value)}
+                    inputMode="decimal"
+                    required
+                  />
+                </FormField>
+                <FormField label="Rate Type" htmlFor="type-rate-type">
+                  <select
+                    id="type-rate-type"
+                    className={FORM_SELECT_CLASS}
+                    value={typeRateType}
+                    onChange={(e) =>
+                      setTypeRateType(e.target.value as CareRateType)
+                    }
+                  >
+                    {RATE_TYPES.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </FormField>
+              </FormRow>
             ) : null}
             {typeError ? (
               <p className="text-sm text-error" role="alert">
@@ -589,7 +652,7 @@ export function CarePeoplePanel({
                 <p className="font-medium text-base-content">{t.name}</p>
                 <p className="text-sm text-base-content/60">
                   {t.isPaid
-                    ? `Paid · $${t.defaultHourlyRate ?? '—'}/hr`
+                    ? `Paid · $${t.defaultHourlyRate ?? '—'}${rateUnit(t.defaultRateType)}`
                     : 'Unpaid'}
                 </p>
                 <div className="mt-auto flex justify-end">
