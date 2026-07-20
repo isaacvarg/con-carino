@@ -35,6 +35,30 @@ describe('billableQuantity', () => {
     const end = new Date(2026, 6, 22, 0, 0, 0)
     expect(billableQuantity(start, end, 'DAILY')).toBe(2)
   })
+
+  it('bills a full day for a partial DAILY slot when flat', () => {
+    const partialStart = new Date(2026, 6, 20, 9, 0, 0)
+    const partialEnd = new Date(2026, 6, 20, 17, 0, 0)
+    // Non-flat pro-rates to 8/24; flat charges a whole day.
+    expect(billableQuantity(partialStart, partialEnd, 'DAILY')).toBeCloseTo(8 / 24)
+    expect(billableQuantity(partialStart, partialEnd, 'DAILY', true)).toBe(1)
+  })
+
+  it('bills one day per calendar day for an overnight flat DAILY slot', () => {
+    const overnightStart = new Date(2026, 6, 20, 20, 0, 0)
+    const overnightEnd = new Date(2026, 6, 21, 6, 0, 0)
+    expect(billableQuantity(overnightStart, overnightEnd, 'DAILY', true)).toBe(2)
+  })
+
+  it('does not count the next day when a flat DAILY slot ends at midnight', () => {
+    const end = new Date(2026, 6, 21, 0, 0, 0)
+    expect(billableQuantity(start, end, 'DAILY', true)).toBe(1)
+  })
+
+  it('flat has no effect on HOURLY slots', () => {
+    const end = new Date(2026, 6, 20, 8, 0, 0)
+    expect(billableQuantity(start, end, 'HOURLY', true)).toBe(8)
+  })
 })
 
 describe('effectiveRate', () => {
@@ -63,7 +87,7 @@ describe('effectiveRate', () => {
         personRateType: 'DAILY',
         typeIsPaid: true,
       }),
-    ).toEqual({ amount: 200, rateType: 'DAILY' })
+    ).toEqual({ amount: 200, rateType: 'DAILY', flatDaily: false })
   })
 
   it('defaults rate type to HOURLY when unspecified', () => {
@@ -72,7 +96,18 @@ describe('effectiveRate', () => {
         personHourlyRate: 30,
         typeIsPaid: true,
       }),
-    ).toEqual({ amount: 30, rateType: 'HOURLY' })
+    ).toEqual({ amount: 30, rateType: 'HOURLY', flatDaily: false })
+  })
+
+  it('passes through the flat daily flag', () => {
+    expect(
+      effectiveRate({
+        personHourlyRate: 200,
+        personRateType: 'DAILY',
+        personFlatDailyRate: true,
+        typeIsPaid: true,
+      }),
+    ).toEqual({ amount: 200, rateType: 'DAILY', flatDaily: true })
   })
 })
 

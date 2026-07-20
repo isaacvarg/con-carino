@@ -110,6 +110,9 @@ model CarePerson {
   hourlyRate    Decimal?        @db.Decimal(19, 4)
   /// Whether hourlyRate is charged per hour or as a flat daily amount
   rateType      CareRateType    @default(HOURLY)
+  /// When true and rateType is DAILY, bill the full daily rate per calendar day
+  /// covered, regardless of hours actually worked in the window
+  flatDailyRate Boolean         @default(false)
   /// When to create period invoices; only applies when type.isPaid
   payInterval   CarePayInterval @default(PER_SHIFT)
   /// 0=Sun … 6=Sat; used for WEEKLY / BIWEEKLY

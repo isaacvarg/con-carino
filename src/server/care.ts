@@ -68,6 +68,7 @@ function decimalToString(value: { toString(): string } | null | undefined): stri
 function personRateInput(person: {
   hourlyRate: { toString(): string } | null
   rateType: CareRateType
+  flatDailyRate: boolean
   type: {
     isPaid: boolean
   }
@@ -75,6 +76,7 @@ function personRateInput(person: {
   return {
     personHourlyRate: decimalToString(person.hourlyRate),
     personRateType: person.rateType,
+    personFlatDailyRate: person.flatDailyRate,
     typeIsPaid: person.type.isPaid,
   }
 }
@@ -311,6 +313,7 @@ export type CarePersonDto = {
   isPaid: boolean
   hourlyRate: string | null
   rateType: CareRateType
+  flatDailyRate: boolean
   effectiveHourlyRate: string | null
   effectiveRateType: CareRateType
   payInterval: CarePayInterval
@@ -417,6 +420,7 @@ function toPersonDto(person: {
   typeId: string
   hourlyRate: { toString(): string } | null
   rateType: CareRateType
+  flatDailyRate: boolean
   payInterval: CarePayInterval
   payWeekday: number | null
   payAnchorDate: Date | null
@@ -433,6 +437,7 @@ function toPersonDto(person: {
   const rate = effectiveRate({
     personHourlyRate: decimalToString(person.hourlyRate),
     personRateType: person.rateType,
+    personFlatDailyRate: person.flatDailyRate,
     typeIsPaid: person.type.isPaid,
   })
   return {
@@ -444,6 +449,7 @@ function toPersonDto(person: {
     isPaid: person.type.isPaid,
     hourlyRate: decimalToString(person.hourlyRate),
     rateType: person.rateType,
+    flatDailyRate: person.flatDailyRate,
     effectiveHourlyRate: rate !== null ? rate.amount.toFixed(4) : null,
     effectiveRateType: rate?.rateType ?? 'HOURLY',
     payInterval: person.payInterval,
@@ -789,6 +795,7 @@ async function createInvoiceForOccurrences(input: {
   carePersonId: string
   carePersonName: string
   rateType: CareRateType
+  flatDaily: boolean
   occurrences: Array<{
     id: string
     startsAt: Date
@@ -801,7 +808,12 @@ async function createInvoiceForOccurrences(input: {
   if (input.occurrences.length === 0) return
 
   const lines = input.occurrences.map((occ) => {
-    const quantity = billableQuantity(occ.startsAt, occ.endsAt, input.rateType)
+    const quantity = billableQuantity(
+      occ.startsAt,
+      occ.endsAt,
+      input.rateType,
+      input.flatDaily,
+    )
     const computed = computeInvoiceAmount(occ.hourlyRate, quantity)
     return {
       occurrenceId: occ.id,
@@ -883,6 +895,7 @@ async function createPayPeriodInvoices(now = new Date()) {
     if (resolved === null) continue
     const rate = resolved.amount
     const rateType = resolved.rateType
+    const flatDaily = resolved.flatDaily
 
     const cutoff = lastClosedPayPeriodEnd(
       {
@@ -911,6 +924,7 @@ async function createPayPeriodInvoices(now = new Date()) {
           carePersonId: person.id,
           carePersonName: person.name,
           rateType,
+          flatDaily,
           occurrences: [
             {
               id: occ.id,
@@ -940,6 +954,7 @@ async function createPayPeriodInvoices(now = new Date()) {
       carePersonId: person.id,
       carePersonName: person.name,
       rateType,
+      flatDaily,
       occurrences: accrued.map((occ) => ({
         id: occ.id,
         startsAt: occ.startsAt,
@@ -1730,6 +1745,7 @@ export const createCarePerson = createServerFn({ method: 'POST' })
       userId,
       hourlyRate: parseOptionalRate(input.hourlyRate),
       rateType: parseRateType(input.rateType),
+      flatDailyRate: Boolean(input.flatDailyRate),
       bgColor: optionalColor(input.bgColor),
       textColor: optionalColor(input.textColor),
       isActive: input.isActive === undefined ? true : Boolean(input.isActive),
@@ -1757,6 +1773,8 @@ export const createCarePerson = createServerFn({ method: 'POST' })
         userId: data.userId,
         hourlyRate: type.isPaid ? data.hourlyRate : null,
         rateType: type.isPaid ? data.rateType : 'HOURLY',
+        flatDailyRate:
+          type.isPaid && data.rateType === 'DAILY' ? data.flatDailyRate : false,
         payInterval: pay.payInterval,
         payWeekday: pay.payWeekday,
         payAnchorDate: pay.payAnchorDate,
@@ -1782,6 +1800,7 @@ export const createCarePerson = createServerFn({ method: 'POST' })
         'userId',
         'hourlyRate',
         'rateType',
+        'flatDailyRate',
         'payInterval',
         'payWeekday',
         'payAnchorDate',
@@ -1816,6 +1835,7 @@ export const updateCarePerson = createServerFn({ method: 'POST' })
       userId,
       hourlyRate: parseOptionalRate(input.hourlyRate),
       rateType: parseRateType(input.rateType),
+      flatDailyRate: Boolean(input.flatDailyRate),
       bgColor: optionalColor(input.bgColor),
       textColor: optionalColor(input.textColor),
       isActive: Boolean(input.isActive),
@@ -1843,6 +1863,8 @@ export const updateCarePerson = createServerFn({ method: 'POST' })
         userId: data.userId,
         hourlyRate: type.isPaid ? data.hourlyRate : null,
         rateType: type.isPaid ? data.rateType : 'HOURLY',
+        flatDailyRate:
+          type.isPaid && data.rateType === 'DAILY' ? data.flatDailyRate : false,
         payInterval: pay.payInterval,
         payWeekday: pay.payWeekday,
         payAnchorDate: pay.payAnchorDate,
@@ -1862,6 +1884,7 @@ export const updateCarePerson = createServerFn({ method: 'POST' })
       'userId',
       'hourlyRate',
       'rateType',
+      'flatDailyRate',
       'payInterval',
       'payWeekday',
       'payAnchorDate',

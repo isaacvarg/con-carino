@@ -15,6 +15,7 @@ services:
     container_name: con-carino-app
     restart: unless-stopped
     environment:
+      TZ: America/Los_Angeles
       DATABASE_URL: postgresql://${POSTGRES_USER:-con_carino}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-con_carino}?schema=public
       AUTH_SECRET: ${AUTH_SECRET}
       # Must include the auth base path (start-authjs derives basePath from

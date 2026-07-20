@@ -5,6 +5,7 @@ export type CareRateType = 'HOURLY' | 'DAILY'
 export type EffectiveRateInput = {
   personHourlyRate: number | string | null
   personRateType?: CareRateType
+  personFlatDailyRate?: boolean
   typeIsPaid: boolean
 }
 
@@ -30,11 +31,15 @@ function toNumber(value: number | string | null | undefined): number | null {
  */
 export function effectiveRate(
   input: EffectiveRateInput,
-): { amount: number; rateType: CareRateType } | null {
+): { amount: number; rateType: CareRateType; flatDaily: boolean } | null {
   if (!input.typeIsPaid) return null
   const rate = toNumber(input.personHourlyRate)
   if (rate !== null && rate >= 0) {
-    return { amount: rate, rateType: input.personRateType ?? 'HOURLY' }
+    return {
+      amount: rate,
+      rateType: input.personRateType ?? 'HOURLY',
+      flatDaily: input.personFlatDailyRate ?? false,
+    }
   }
   return null
 }
@@ -44,12 +49,20 @@ export function effectiveHourlyRate(input: EffectiveRateInput): number | null {
   return effectiveRate(input)?.amount ?? null
 }
 
-/** Billable quantity for a slot: hours when HOURLY, days when DAILY. */
+/**
+ * Billable quantity for a slot: hours when HOURLY, days when DAILY.
+ * When `flatDaily` is set, a DAILY slot bills one full day per calendar day
+ * covered, regardless of hours actually worked in the window.
+ */
 export function billableQuantity(
   startsAt: Date,
   endsAt: Date,
   rateType: CareRateType,
+  flatDaily = false,
 ): number {
+  if (rateType === 'DAILY' && flatDaily) {
+    return calendarDaysSpanned(startsAt, endsAt)
+  }
   const hours = hoursBetween(startsAt, endsAt)
   return rateType === 'DAILY' ? hours / 24 : hours
 }
@@ -80,6 +93,17 @@ function daysBetweenUtcMidnight(a: Date, b: Date): number {
   const a0 = Date.UTC(a.getFullYear(), a.getMonth(), a.getDate())
   const b0 = Date.UTC(b.getFullYear(), b.getMonth(), b.getDate())
   return Math.round((b0 - a0) / 86_400_000)
+}
+
+/**
+ * Number of distinct local calendar days a [startsAt, endsAt) window touches.
+ * The end is treated as exclusive so a window ending exactly at midnight does
+ * not count the following day. Always at least 1.
+ */
+export function calendarDaysSpanned(startsAt: Date, endsAt: Date): number {
+  const end = new Date(Math.max(startsAt.getTime(), endsAt.getTime() - 1))
+  const days = daysBetweenUtcMidnight(startOfLocalDay(startsAt), startOfLocalDay(end))
+  return Math.max(1, days + 1)
 }
 
 /**

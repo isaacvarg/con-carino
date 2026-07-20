@@ -31,9 +31,11 @@ RUN pnpm install --frozen-lockfile --prod
 FROM node:24-bookworm-slim AS runner
 ENV NODE_ENV=production
 WORKDIR /app
-# Fonts for pdfjs when a PDF doesn't embed its own.
+# Fonts for pdfjs when a PDF doesn't embed its own. tzdata so the TZ env var
+# (set in docker-compose) resolves — bookworm-slim ships without zoneinfo, and
+# without it TZ silently falls back to UTC and shifts recurring schedules a day.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends fonts-liberation \
+  && apt-get install -y --no-install-recommends fonts-liberation tzdata \
   && rm -rf /var/lib/apt/lists/*
 # The server bundle externalizes node_modules, so prod deps must ship.
 COPY --from=prod-deps /app/node_modules ./node_modules

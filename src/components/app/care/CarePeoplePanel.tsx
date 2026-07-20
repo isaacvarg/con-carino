@@ -80,6 +80,7 @@ export function CarePeoplePanel({
   const [userId, setUserId] = useState('')
   const [hourlyRate, setHourlyRate] = useState('')
   const [rateType, setRateType] = useState<CareRateType>('HOURLY')
+  const [flatDailyRate, setFlatDailyRate] = useState(false)
   const [payInterval, setPayInterval] = useState<CarePayInterval>('PER_SHIFT')
   const [payWeekday, setPayWeekday] = useState('5')
   const [payAnchorDate, setPayAnchorDate] = useState('')
@@ -105,6 +106,7 @@ export function CarePeoplePanel({
     setUserId('')
     setHourlyRate('')
     setRateType('HOURLY')
+    setFlatDailyRate(false)
     setPayInterval('PER_SHIFT')
     setPayWeekday('5')
     setPayAnchorDate('')
@@ -128,6 +130,7 @@ export function CarePeoplePanel({
     setUserId(person.userId ?? '')
     setHourlyRate(person.hourlyRate ?? '')
     setRateType(person.rateType)
+    setFlatDailyRate(person.flatDailyRate)
     setPayInterval(person.payInterval)
     setPayWeekday(
       person.payWeekday !== null ? String(person.payWeekday) : '5',
@@ -175,6 +178,8 @@ export function CarePeoplePanel({
         userId: userId || null,
         hourlyRate: selectedTypeIsPaid ? hourlyRate || null : null,
         rateType: selectedTypeIsPaid ? rateType : 'HOURLY',
+        flatDailyRate:
+          selectedTypeIsPaid && rateType === 'DAILY' ? flatDailyRate : false,
         payInterval: selectedTypeIsPaid ? payInterval : 'PER_SHIFT',
         payWeekday:
           selectedTypeIsPaid &&
@@ -352,6 +357,24 @@ export function CarePeoplePanel({
                 ) : null}
               </FormField>
             ) : null}
+            {selectedTypeIsPaid && rateType === 'DAILY' ? (
+              <FormField
+                label="Pay full daily rate regardless of hours covered"
+                htmlFor="person-flat-daily"
+              >
+                <input
+                  id="person-flat-daily"
+                  type="checkbox"
+                  className="toggle toggle-primary"
+                  checked={flatDailyRate}
+                  onChange={(e) => setFlatDailyRate(e.target.checked)}
+                />
+                <p className="mt-1 text-xs text-base-content/60">
+                  When on, one-offs bill the full daily rate per day covered
+                  instead of pro-rating by hours worked.
+                </p>
+              </FormField>
+            ) : null}
             {selectedTypeIsPaid ? (
               <>
                 <FormRow>
@@ -502,7 +525,7 @@ export function CarePeoplePanel({
                 <p className="text-sm text-base-content/60">
                   {person.typeName}
                   {person.isPaid
-                    ? ` · $${person.effectiveHourlyRate ?? '—'}${rateUnit(person.effectiveRateType)} · ${payIntervalLabel(person.payInterval)}`
+                    ? ` · $${person.effectiveHourlyRate ?? '—'}${rateUnit(person.effectiveRateType)}${person.effectiveRateType === 'DAILY' && person.flatDailyRate ? ' flat' : ''} · ${payIntervalLabel(person.payInterval)}`
                     : ''}
                   {person.userEmail
                     ? ` · ${person.userName || person.userEmail}`
