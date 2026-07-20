@@ -886,6 +886,13 @@ export function CareCalendarPanel({
               >
                 Close
               </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => openModal('assignRule')}
+              >
+                Add
+              </button>
             </div>
           </div>
           <form method="dialog" className="modal-backdrop">

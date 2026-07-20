@@ -41,7 +41,7 @@ const QUICK_ACTIONS = [
   },
   {
     id: 'event',
-    label: 'Event',
+    label: 'Calendar',
     to: '/schedule' as const,
     Icon: HiOutlineCalendar,
   },
