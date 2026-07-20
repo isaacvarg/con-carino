@@ -123,6 +123,7 @@ export function CareCalendarPanel({
     'ALL_SHIFTS',
   )
   const [selectedShiftIds, setSelectedShiftIds] = useState<string[]>([])
+  const [intervalWeeks, setIntervalWeeks] = useState(1)
   const [notes, setNotes] = useState('')
   const [title, setTitle] = useState('')
   const [eventTypeId, setEventTypeId] = useState(eventTypes[0]?.id ?? '')
@@ -171,6 +172,7 @@ export function CareCalendarPanel({
     )
     setShiftScope('ALL_SHIFTS')
     setSelectedShiftIds([])
+    setIntervalWeeks(1)
     setNotes('')
     setTitle('')
     setEventTypeId(eventTypes[0]?.id ?? '')
@@ -494,6 +496,7 @@ export function CareCalendarPanel({
             startsOn: startDate,
             endsOn: endDate || null,
             daysOfWeek,
+            intervalWeeks,
             scope,
             shiftIds: scope === 'SPECIFIC_SHIFTS' ? selectedShiftIds : [],
             notes: notes || null,
@@ -814,6 +817,9 @@ export function CareCalendarPanel({
                             {rule.daysOfWeek
                               .map((d) => DAY_NAMES[d])
                               .join(', ')}
+                            {rule.intervalWeeks > 1
+                              ? ` · every ${rule.intervalWeeks} weeks`
+                              : ''}
                           </p>
                           <p className="text-xs text-base-content/50">
                             From {rule.startsOn}
@@ -1160,6 +1166,19 @@ export function CareCalendarPanel({
                         </label>
                       ))}
                     </div>
+                  </FormField>
+                  <FormField label="Repeats" htmlFor="rule-interval">
+                    <select
+                      id="rule-interval"
+                      className={FORM_SELECT_CLASS}
+                      value={intervalWeeks}
+                      onChange={(e) => setIntervalWeeks(Number(e.target.value))}
+                    >
+                      <option value={1}>Every week</option>
+                      <option value={2}>Every 2 weeks</option>
+                      <option value={3}>Every 3 weeks</option>
+                      <option value={4}>Every 4 weeks</option>
+                    </select>
                   </FormField>
                   {usesShifts ? (
                     <FormField label="Shifts">

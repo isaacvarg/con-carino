@@ -9,6 +9,7 @@ const NOW = new Date(2026, 6, 20, 8, 0, 0) // Mon Jul 20, 2026 08:00
 function rule(overrides: Partial<AssignmentRuleShape> = {}): AssignmentRuleShape {
   return {
     daysOfWeek: [1], // Monday
+    intervalWeeks: 1,
     startsOn: new Date(2026, 6, 1),
     endsOn: null,
     scope: 'ALL_SHIFTS',
@@ -55,6 +56,29 @@ describe('occurrenceMatchesRule', () => {
     const r = rule({ endsOn: new Date(2026, 6, 27) })
     expect(occurrenceMatchesRule(r, occ(onEnd), NOW)).toBe(true)
     expect(occurrenceMatchesRule(r, occ(afterEnd), NOW)).toBe(false)
+  })
+
+  // Week index is floor(daysBetween(startsOn, day) / 7) from startsOn (Jul 1, Wed).
+  // Mondays: Jul 20 → index 2, Jul 27 → index 3, Aug 3 → index 4.
+  it('intervalWeeks 1 fills every eligible week', () => {
+    const r = rule({ intervalWeeks: 1 })
+    expect(occurrenceMatchesRule(r, occ(new Date(2026, 6, 20, 9, 0, 0)), NOW)).toBe(true)
+    expect(occurrenceMatchesRule(r, occ(new Date(2026, 6, 27, 9, 0, 0)), NOW)).toBe(true)
+    expect(occurrenceMatchesRule(r, occ(new Date(2026, 7, 3, 9, 0, 0)), NOW)).toBe(true)
+  })
+
+  it('intervalWeeks 2 fills only on-cadence weeks (even week index)', () => {
+    const r = rule({ intervalWeeks: 2 })
+    expect(occurrenceMatchesRule(r, occ(new Date(2026, 6, 20, 9, 0, 0)), NOW)).toBe(true) // index 2
+    expect(occurrenceMatchesRule(r, occ(new Date(2026, 6, 27, 9, 0, 0)), NOW)).toBe(false) // index 3
+    expect(occurrenceMatchesRule(r, occ(new Date(2026, 7, 3, 9, 0, 0)), NOW)).toBe(true) // index 4
+  })
+
+  it('intervalWeeks 3 fills only every third week from startsOn', () => {
+    const r = rule({ intervalWeeks: 3 })
+    expect(occurrenceMatchesRule(r, occ(new Date(2026, 6, 20, 9, 0, 0)), NOW)).toBe(false) // index 2
+    expect(occurrenceMatchesRule(r, occ(new Date(2026, 6, 27, 9, 0, 0)), NOW)).toBe(true) // index 3
+    expect(occurrenceMatchesRule(r, occ(new Date(2026, 7, 17, 9, 0, 0)), NOW)).toBe(true) // index 6
   })
 
   it('SPECIFIC_SHIFTS matches only targeted shift ids', () => {

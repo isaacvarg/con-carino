@@ -283,6 +283,7 @@ export type CareCoverageAssignmentRuleDto = {
   startsOn: string
   endsOn: string | null
   daysOfWeek: number[]
+  intervalWeeks: number
   scope: CareAssignmentScope
   shiftIds: string[]
   notes: string | null
@@ -1274,6 +1275,7 @@ async function applyAssignmentRules(
 
     const ruleShape = {
       daysOfWeek: rule.daysOfWeek,
+      intervalWeeks: rule.intervalWeeks,
       startsOn,
       endsOn,
       scope: rule.scope,
@@ -2552,6 +2554,7 @@ function toAssignmentRuleDto(row: {
   startsOn: Date
   endsOn: Date | null
   daysOfWeek: number[]
+  intervalWeeks: number
   scope: CareAssignmentScope
   shiftIds: string[]
   notes: string | null
@@ -2565,6 +2568,7 @@ function toAssignmentRuleDto(row: {
     startsOn: row.startsOn.toISOString().slice(0, 10),
     endsOn: row.endsOn ? row.endsOn.toISOString().slice(0, 10) : null,
     daysOfWeek: row.daysOfWeek,
+    intervalWeeks: row.intervalWeeks,
     scope: row.scope,
     shiftIds: row.shiftIds,
     notes: row.notes,
@@ -2625,11 +2629,23 @@ export const createCoverageAssignmentRule = createServerFn({ method: 'POST' })
       typeof input.notes === 'string' && input.notes.trim()
         ? input.notes.trim()
         : null
+    let intervalWeeks = 1
+    if (input.intervalWeeks !== undefined && input.intervalWeeks !== null) {
+      const n =
+        typeof input.intervalWeeks === 'number'
+          ? input.intervalWeeks
+          : Number(input.intervalWeeks)
+      if (!Number.isInteger(n) || n < 1 || n > 8) {
+        throw new Error('Repeat interval must be a whole number of 1–8 weeks.')
+      }
+      intervalWeeks = n
+    }
     return {
       assigneeId,
       startsOn: parseDateOnly(input.startsOn, 'Start date'),
       endsOn: endsOnRaw ? parseDateOnly(endsOnRaw, 'End date') : null,
       daysOfWeek: parseDaysOfWeek(input.daysOfWeek),
+      intervalWeeks,
       scope,
       shiftIds,
       notes,
@@ -2662,6 +2678,7 @@ export const createCoverageAssignmentRule = createServerFn({ method: 'POST' })
         startsOn: data.startsOn,
         endsOn: data.endsOn,
         daysOfWeek: data.daysOfWeek,
+        intervalWeeks: data.intervalWeeks,
         scope: data.scope,
         shiftIds: data.shiftIds,
         notes: data.notes,
@@ -2688,6 +2705,7 @@ export const createCoverageAssignmentRule = createServerFn({ method: 'POST' })
         'startsOn',
         'endsOn',
         'daysOfWeek',
+        'intervalWeeks',
         'scope',
         'shiftIds',
         'notes',
@@ -2756,6 +2774,7 @@ export const deleteCoverageAssignmentRule = createServerFn({ method: 'POST' })
         'startsOn',
         'endsOn',
         'daysOfWeek',
+        'intervalWeeks',
         'scope',
         'shiftIds',
         'notes',

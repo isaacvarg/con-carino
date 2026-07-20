@@ -3,6 +3,8 @@ export type CareAssignmentScope = 'ALL_SHIFTS' | 'SPECIFIC_SHIFTS'
 export type AssignmentRuleShape = {
   /** Days of week 0=Sun … 6=Sat */
   daysOfWeek: number[]
+  /** Cadence in weeks: 1 = weekly, 2 = every other week, etc. Anchored at startsOn. */
+  intervalWeeks: number
   /** Local midnight of the rule's first eligible day */
   startsOn: Date
   /** Local midnight of the rule's last eligible day, inclusive; null = indefinite */
@@ -23,6 +25,11 @@ function startOfLocalDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate())
 }
 
+function daysBetween(a: Date, b: Date): number {
+  const ms = startOfLocalDay(b).getTime() - startOfLocalDay(a).getTime()
+  return Math.round(ms / 86_400_000)
+}
+
 /**
  * Whether an open required occurrence falls within a rule's day-of-week, date
  * window, and shift scope. Occurrences that have already ended (relative to
@@ -39,6 +46,11 @@ export function occurrenceMatchesRule(
   const day = startOfLocalDay(occ.startsAt)
   if (day.getTime() < rule.startsOn.getTime()) return false
   if (rule.endsOn && day.getTime() > rule.endsOn.getTime()) return false
+
+  if (rule.intervalWeeks > 1) {
+    const weekIndex = Math.floor(daysBetween(rule.startsOn, day) / 7)
+    if (weekIndex % rule.intervalWeeks !== 0) return false
+  }
 
   if (rule.scope === 'SPECIFIC_SHIFTS') {
     if (!occ.requiredShiftId) return false

@@ -209,6 +209,8 @@ model CareCoverageAssignmentRule {
   endsOn     DateTime?           @db.Date
   /// Days of week 0=Sun … 6=Sat
   daysOfWeek Int[]
+  /// Cadence in weeks: 1 = weekly, 2 = every other week, etc. Anchored at startsOn.
+  intervalWeeks Int              @default(1)
   scope      CareAssignmentScope @default(ALL_SHIFTS)
   /// Targeted CareRequiredShift ids when scope is SPECIFIC_SHIFTS
   shiftIds   String[]            @default([])
