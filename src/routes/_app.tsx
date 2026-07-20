@@ -39,7 +39,6 @@ function AppLayout() {
           htmlFor={drawerId}
           aria-label="Close navigation"
           className="drawer-overlay"
-          onClick={closeDrawer}
         />
         <div className="flex min-h-full flex-col bg-base-300">
           <AppSidebar onNavigate={closeDrawer} />
