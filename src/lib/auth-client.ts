@@ -32,6 +32,17 @@ export async function signIn(
   submitForm(`${BASE_PATH}/signin/${provider}`, { csrfToken, callbackUrl })
 }
 
+// The email provider needs an extra `email` field alongside the CSRF token.
+// The form POST navigates the browser, so Auth.js lands the user on the
+// verifyRequest page itself — no client-side redirect needed here.
+export async function signInWithEmail(
+  email: string,
+  callbackUrl: string = '/',
+) {
+  const csrfToken = await getCsrfToken()
+  submitForm(`${BASE_PATH}/signin/resend`, { csrfToken, callbackUrl, email })
+}
+
 export async function signOut(callbackUrl: string = '/') {
   const csrfToken = await getCsrfToken()
   submitForm(`${BASE_PATH}/signout`, { csrfToken, callbackUrl })

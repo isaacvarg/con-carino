@@ -1,13 +1,25 @@
+import { useState } from 'react'
 import { createFileRoute, redirect, useSearch } from '@tanstack/react-router'
-import { signIn } from '#/lib/auth-client'
+import { signIn, signInWithEmail } from '#/lib/auth-client'
 
 type LoginSearch = {
   redirect?: string
+  error?: string
+}
+
+// Auth.js redirects here with ?error=<code> because authConfig sets
+// pages.error to this route.
+function errorMessage(code: string): string {
+  if (code === 'Verification') {
+    return 'That sign-in link has expired or was already used. Request a new one below.'
+  }
+  return 'Something went wrong signing you in. Please try again.'
 }
 
 export const Route = createFileRoute('/login')({
   validateSearch: (search: Record<string, unknown>): LoginSearch => ({
     redirect: typeof search.redirect === 'string' ? search.redirect : undefined,
+    error: typeof search.error === 'string' ? search.error : undefined,
   }),
   beforeLoad: ({ context, search }) => {
     if (context.session) {
@@ -18,8 +30,18 @@ export const Route = createFileRoute('/login')({
 })
 
 function LoginPage() {
-  const { redirect: redirectTo } = useSearch({ from: '/login' })
+  const { redirect: redirectTo, error } = useSearch({ from: '/login' })
   const callbackUrl = redirectTo ?? '/'
+  const [email, setEmail] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  // signInWithEmail navigates the browser away, so `submitting` is never
+  // reset on success — it only needs to unstick if the CSRF fetch fails.
+  const handleEmailSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setSubmitting(true)
+    void signInWithEmail(email, callbackUrl).catch(() => setSubmitting(false))
+  }
 
   return (
     <main className="flex min-h-[75vh] items-center justify-center bg-base-200 px-4 py-16">
@@ -38,8 +60,39 @@ function LoginPage() {
             </p>
           </div>
 
+          {error ? (
+            <div role="alert" className="alert alert-error text-sm">
+              <span>{errorMessage(error)}</span>
+            </div>
+          ) : null}
+
+          <form className="flex flex-col gap-3" onSubmit={handleEmailSubmit}>
+            <label className="form-control w-full">
+              <span className="label-text text-sm text-base-content/70">
+                Email address
+              </span>
+              <input
+                type="email"
+                name="email"
+                required
+                autoComplete="email"
+                placeholder="you@example.com"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                className="input input-bordered mt-2 w-full rounded-full"
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="btn btn-primary btn-block rounded-full"
+            >
+              {submitting ? 'Sending…' : 'Email me a sign-in link'}
+            </button>
+          </form>
+
           <div className="divider my-0 text-xs text-base-content/40">
-            Continue with
+            Or continue with
           </div>
 
           <div className="flex flex-col gap-3">

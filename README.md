@@ -94,6 +94,8 @@ All of these live in `.env` locally; see `.env.example`. In production they are 
 | `AUTH_TRUST_HOST` | `true` when running behind a proxy. |
 | `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | [Google credentials](https://console.cloud.google.com/apis/credentials). |
 | `AUTH_DISCORD_ID` / `AUTH_DISCORD_SECRET` | [Discord application](https://discord.com/developers/applications). |
+| `AUTH_RESEND_KEY` | [Resend API key](https://resend.com/api-keys). Sends the magic-link sign-in emails. |
+| `AUTH_EMAIL_FROM` | **Required** — the app throws at boot without it. Sender for magic links, e.g. `Con cariño <hola@example.com>`. The domain must be verified in Resend. |
 | `S3_ENDPOINT` | `http://127.0.0.1:9000` in dev; `http://rustfs:9000` in production. |
 | `S3_REGION` | Defaults to `us-east-1`. |
 | `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | Compose feeds these to RustFS as its admin keys, so both sides must match. |

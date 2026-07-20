@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as VerifyRequestRouteImport } from './routes/verify-request'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as AppRouteImport } from './routes/_app'
@@ -53,6 +54,11 @@ import { Route as AppAccountsAccountIdSettingsRouteImport } from './routes/_app/
 import { Route as AppAccountsAccountIdTransfersNewRouteImport } from './routes/_app/accounts/$accountId/transfers/new'
 import { Route as AppAccountsAccountIdTransactionsNewRouteImport } from './routes/_app/accounts/$accountId/transactions/new'
 
+const VerifyRequestRoute = VerifyRequestRouteImport.update({
+  id: '/verify-request',
+  path: '/verify-request',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
@@ -279,6 +285,7 @@ export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/about': typeof AboutRoute
   '/login': typeof LoginRoute
+  '/verify-request': typeof VerifyRequestRoute
   '/accounts': typeof AppAccountsRouteWithChildren
   '/activity': typeof AppActivityRouteWithChildren
   '/care': typeof AppCareRoute
@@ -322,6 +329,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/about': typeof AboutRoute
   '/login': typeof LoginRoute
+  '/verify-request': typeof VerifyRequestRoute
   '/care': typeof AppCareRoute
   '/insights': typeof AppInsightsRoute
   '/invoices': typeof AppInvoicesRoute
@@ -362,6 +370,7 @@ export interface FileRoutesById {
   '/_app': typeof AppRouteWithChildren
   '/about': typeof AboutRoute
   '/login': typeof LoginRoute
+  '/verify-request': typeof VerifyRequestRoute
   '/_app/accounts': typeof AppAccountsRouteWithChildren
   '/_app/activity': typeof AppActivityRouteWithChildren
   '/_app/care': typeof AppCareRoute
@@ -409,6 +418,7 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/login'
+    | '/verify-request'
     | '/accounts'
     | '/activity'
     | '/care'
@@ -452,6 +462,7 @@ export interface FileRouteTypes {
   to:
     | '/about'
     | '/login'
+    | '/verify-request'
     | '/care'
     | '/insights'
     | '/invoices'
@@ -491,6 +502,7 @@ export interface FileRouteTypes {
     | '/_app'
     | '/about'
     | '/login'
+    | '/verify-request'
     | '/_app/accounts'
     | '/_app/activity'
     | '/_app/care'
@@ -537,6 +549,7 @@ export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
   AboutRoute: typeof AboutRoute
   LoginRoute: typeof LoginRoute
+  VerifyRequestRoute: typeof VerifyRequestRoute
   ApiFilesRoute: typeof ApiFilesRoute
   ApiUploadsRoute: typeof ApiUploadsRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
@@ -544,6 +557,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/verify-request': {
+      id: '/verify-request'
+      path: '/verify-request'
+      fullPath: '/verify-request'
+      preLoaderRoute: typeof VerifyRequestRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/login': {
       id: '/login'
       path: '/login'
@@ -994,6 +1014,7 @@ const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
   AboutRoute: AboutRoute,
   LoginRoute: LoginRoute,
+  VerifyRequestRoute: VerifyRequestRoute,
   ApiFilesRoute: ApiFilesRoute,
   ApiUploadsRoute: ApiUploadsRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
