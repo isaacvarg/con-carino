@@ -1,11 +1,40 @@
 import { useRouter } from '@tanstack/react-router'
 import { useState } from 'react'
-import type { CareSwapRequestDto } from '#/server/care'
+import type { CareSwapRequestDto, CareSwapWindowDto } from '#/server/care'
 import { reviewSwapRequest } from '#/server/care'
 import { formatTimeRange } from './care-utils'
 
 type CareSwapsPanelProps = {
   swaps: CareSwapRequestDto[]
+}
+
+function WindowList({
+  label,
+  windows,
+  emptyLabel,
+}: {
+  label: string
+  windows: CareSwapWindowDto[]
+  emptyLabel?: string
+}) {
+  return (
+    <div>
+      <p className="text-xs font-medium uppercase tracking-wide text-base-content/50">
+        {label}
+      </p>
+      {windows.length === 0 ? (
+        <p className="text-sm text-base-content/60">{emptyLabel}</p>
+      ) : (
+        <ul className="mt-1 space-y-0.5">
+          {windows.map((window) => (
+            <li key={window.occurrenceId} className="text-sm text-base-content/70">
+              {formatTimeRange(window.startsAt, window.endsAt)}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
 }
 
 export function CareSwapsPanel({ swaps }: CareSwapsPanelProps) {
@@ -43,7 +72,8 @@ export function CareSwapsPanel({ swaps }: CareSwapsPanelProps) {
       <section className="app-card p-4">
         <h3 className="font-semibold">Pending swaps</h3>
         <p className="mt-1 text-sm text-base-content/60">
-          Any signed-in user can approve or reject.
+          Whoever is losing coverage approves. Anyone can approve for a
+          caregiver without an app account.
         </p>
         {pending.length === 0 ? (
           <p className="mt-4 text-sm text-base-content/50">No pending requests.</p>
@@ -55,48 +85,61 @@ export function CareSwapsPanel({ swaps }: CareSwapsPanelProps) {
                 className="rounded-lg border border-base-300 p-4"
               >
                 <p className="font-medium">
-                  {swap.claimForPersonName} claims open slot
+                  {swap.requesterPersonName} wants{' '}
+                  {swap.takeWindows.length} window
+                  {swap.takeWindows.length === 1 ? '' : 's'} from{' '}
+                  {swap.targetPersonName}
                 </p>
-                <p className="mt-1 text-sm text-base-content/70">
-                  Relinquish:{' '}
-                  {formatTimeRange(
-                    swap.relinquishStartsAt,
-                    swap.relinquishEndsAt,
-                  )}
-                </p>
-                <p className="text-sm text-base-content/70">
-                  Claim:{' '}
-                  {formatTimeRange(swap.claimStartsAt, swap.claimEndsAt)}
-                </p>
-                <p className="mt-1 text-xs text-base-content/50">
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <WindowList
+                    label={`${swap.requesterPersonName} takes`}
+                    windows={swap.takeWindows}
+                  />
+                  <WindowList
+                    label={`${swap.targetPersonName} receives`}
+                    windows={swap.giveWindows}
+                    emptyLabel="Nothing offered in exchange."
+                  />
+                </div>
+                <p className="mt-3 text-xs text-base-content/50">
                   Requested by {swap.requestedByName || 'a user'}
                   {swap.notes ? ` · ${swap.notes}` : ''}
                 </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    className="btn btn-primary btn-sm"
-                    disabled={busyId === swap.id}
-                    onClick={() => review(swap.id, 'APPROVED')}
-                  >
-                    Approve
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-outline btn-sm"
-                    disabled={busyId === swap.id}
-                    onClick={() => review(swap.id, 'REJECTED')}
-                  >
-                    Reject
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    disabled={busyId === swap.id}
-                    onClick={() => review(swap.id, 'CANCELLED')}
-                  >
-                    Cancel
-                  </button>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  {swap.canReview ? (
+                    <>
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        disabled={busyId === swap.id}
+                        onClick={() => review(swap.id, 'APPROVED')}
+                      >
+                        Approve
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-outline btn-sm"
+                        disabled={busyId === swap.id}
+                        onClick={() => review(swap.id, 'REJECTED')}
+                      >
+                        Decline
+                      </button>
+                    </>
+                  ) : (
+                    <span className="text-sm text-base-content/60">
+                      Waiting on {swap.targetPersonName} to approve.
+                    </span>
+                  )}
+                  {swap.canCancel ? (
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      disabled={busyId === swap.id}
+                      onClick={() => review(swap.id, 'CANCELLED')}
+                    >
+                      Cancel
+                    </button>
+                  ) : null}
                 </div>
               </li>
             ))}
@@ -112,16 +155,22 @@ export function CareSwapsPanel({ swaps }: CareSwapsPanelProps) {
           <ul className="mt-4 divide-y divide-base-300">
             {history.map((swap) => (
               <li key={swap.id} className="py-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
-                    <p className="font-medium">{swap.claimForPersonName}</p>
+                    <p className="font-medium">
+                      {swap.requesterPersonName} ← {swap.targetPersonName}
+                    </p>
                     <p className="text-sm text-base-content/60">
-                      {formatTimeRange(
-                        swap.relinquishStartsAt,
-                        swap.relinquishEndsAt,
-                      )}{' '}
-                      →{' '}
-                      {formatTimeRange(swap.claimStartsAt, swap.claimEndsAt)}
+                      {swap.takeWindows.length} taken
+                      {swap.giveWindows.length > 0
+                        ? ` · ${swap.giveWindows.length} given back`
+                        : ''}
+                      {swap.takeWindows[0]
+                        ? ` · from ${formatTimeRange(
+                            swap.takeWindows[0].startsAt,
+                            swap.takeWindows[0].endsAt,
+                          )}`
+                        : ''}
                     </p>
                   </div>
                   <span className="badge badge-outline">{swap.status}</span>

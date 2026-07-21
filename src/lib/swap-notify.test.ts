@@ -1,36 +1,36 @@
 import { describe, expect, it } from 'vitest'
 import {
-  buildSwapRequestEmail,
+  buildSwapEmail,
   buildSwapScheduleUrl,
   resolveAppOrigin,
-  shouldNotifyAssignee,
+  shouldNotifyParticipant,
 } from '#/lib/swap-notify'
 
-describe('shouldNotifyAssignee', () => {
-  it('notifies a linked assignee with email', () => {
+describe('shouldNotifyParticipant', () => {
+  it('notifies a linked participant with email', () => {
     expect(
-      shouldNotifyAssignee(
+      shouldNotifyParticipant(
         { userId: 'user-a', email: 'a@example.com' },
         'user-b',
       ),
     ).toBe(true)
   })
 
-  it('skips offline assignees', () => {
+  it('skips offline participants', () => {
     expect(
-      shouldNotifyAssignee({ userId: null, email: null }, 'user-b'),
+      shouldNotifyParticipant({ userId: null, email: null }, 'user-b'),
     ).toBe(false)
   })
 
-  it('skips linked assignees without email', () => {
+  it('skips linked participants without email', () => {
     expect(
-      shouldNotifyAssignee({ userId: 'user-a', email: '  ' }, 'user-b'),
+      shouldNotifyParticipant({ userId: 'user-a', email: '  ' }, 'user-b'),
     ).toBe(false)
   })
 
-  it('skips when the requester is the assignee', () => {
+  it('skips when the participant is the actor', () => {
     expect(
-      shouldNotifyAssignee(
+      shouldNotifyParticipant(
         { userId: 'user-a', email: 'a@example.com' },
         'user-a',
       ),
@@ -78,34 +78,72 @@ describe('buildSwapScheduleUrl', () => {
   })
 })
 
-describe('buildSwapRequestEmail', () => {
+
+describe('buildSwapEmail', () => {
   const base = {
-    requesterName: 'Alex',
-    relinquishStartsAt: new Date(2026, 6, 20, 9, 0, 0),
-    relinquishEndsAt: new Date(2026, 6, 20, 17, 0, 0),
-    claimStartsAt: new Date(2026, 6, 22, 9, 0, 0),
-    claimEndsAt: new Date(2026, 6, 22, 17, 0, 0),
-    claimForPersonName: 'Jordan',
-    notes: 'Need Tuesday free',
+    kind: 'REQUESTED' as const,
+    actorName: 'Alex',
+    requesterPersonName: 'Alex',
+    targetPersonName: 'Jordan',
+    takeWindows: [
+      {
+        startsAt: new Date(2026, 6, 25, 7, 0, 0),
+        endsAt: new Date(2026, 6, 25, 15, 0, 0),
+      },
+      {
+        startsAt: new Date(2026, 6, 26, 7, 0, 0),
+        endsAt: new Date(2026, 6, 26, 15, 0, 0),
+      },
+    ],
+    giveWindows: [
+      {
+        startsAt: new Date(2026, 6, 28, 7, 0, 0),
+        endsAt: new Date(2026, 6, 28, 15, 0, 0),
+      },
+    ],
+    notes: 'Need the weekend',
     scheduleUrl: 'https://app.example.com/schedule?tab=swaps',
-    dayLabel: '2026-07-20',
+    dayLabel: '2026-07-25',
   }
 
-  it('includes subject, windows, notes, and link', () => {
-    const email = buildSwapRequestEmail(base)
-    expect(email.subject).toBe('Swap requested for your coverage on 2026-07-20')
-    expect(email.text).toContain('Alex requested a swap')
-    expect(email.text).toContain('Claim for: Jordan')
-    expect(email.text).toContain('Notes: Need Tuesday free')
+  it('lists every take and give window', () => {
+    const email = buildSwapEmail(base)
+    expect(email.subject).toBe('Swap requested for your coverage on 2026-07-25')
+    expect(email.text).toContain('Alex takes from Jordan')
+    expect(email.text).toContain('Jordan receives from Alex')
+    expect(email.text).toContain('Sat, Jul 25')
+    expect(email.text).toContain('Sun, Jul 26')
+    expect(email.text).toContain('Tue, Jul 28')
+    expect(email.text).toContain('Notes: Need the weekend')
     expect(email.text).toContain(base.scheduleUrl)
-    expect(email.html).toContain('Review the swap request')
-    expect(email.html).toContain(base.scheduleUrl)
+    expect(email.html.match(/<li>/g)).toHaveLength(3)
+  })
+
+  it('says nothing is offered for a take-only request', () => {
+    const email = buildSwapEmail({ ...base, giveWindows: [] })
+    expect(email.text).toContain('Nothing offered in exchange.')
+    expect(email.html).toContain('Nothing offered in exchange.')
+    expect(email.html.match(/<li>/g)).toHaveLength(2)
+  })
+
+  it.each([
+    ['APPROVED', 'Your swap for 2026-07-25 was approved', 'approved the swap'],
+    ['REJECTED', 'Your swap for 2026-07-25 was declined', 'declined the swap'],
+    [
+      'CANCELLED',
+      'A swap request for 2026-07-25 was cancelled',
+      'cancelled the swap request',
+    ],
+  ] as const)('builds the %s email', (kind, subject, lead) => {
+    const email = buildSwapEmail({ ...base, kind })
+    expect(email.subject).toBe(subject)
+    expect(email.text).toContain(lead)
   })
 
   it('escapes HTML in names and notes', () => {
-    const email = buildSwapRequestEmail({
+    const email = buildSwapEmail({
       ...base,
-      requesterName: '<script>x</script>',
+      actorName: '<script>x</script>',
       notes: 'a & b <c>',
     })
     expect(email.html).toContain('&lt;script&gt;x&lt;/script&gt;')
@@ -114,7 +152,7 @@ describe('buildSwapRequestEmail', () => {
   })
 
   it('falls back when there is no schedule URL', () => {
-    const email = buildSwapRequestEmail({ ...base, scheduleUrl: null })
+    const email = buildSwapEmail({ ...base, scheduleUrl: null })
     expect(email.text).toContain('Schedule → Swaps')
     expect(email.html).toContain('Schedule → Swaps')
   })

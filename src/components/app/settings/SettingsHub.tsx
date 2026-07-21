@@ -1,4 +1,4 @@
-import { Link } from '@tanstack/react-router'
+import { Link, useRouteContext } from '@tanstack/react-router'
 import {
   HiChevronRight,
   HiOutlineCalendar,
@@ -7,11 +7,13 @@ import {
   HiOutlineHeart,
   HiOutlineOfficeBuilding,
   HiOutlineTag,
+  HiOutlineUser,
   HiOutlineUserGroup,
 } from 'react-icons/hi'
 
 type SettingsCard = {
   to:
+    | '/settings/users'
     | '/settings/loved-one'
     | '/settings/people'
     | '/settings/schedule'
@@ -22,9 +24,17 @@ type SettingsCard = {
   title: string
   description: string
   icon: typeof HiOutlineUserGroup
+  adminOnly?: boolean
 }
 
 const SETTINGS_CARDS: SettingsCard[] = [
+  {
+    to: '/settings/users',
+    title: 'Users',
+    description: 'App accounts, profile photos, sessions, and admin access.',
+    icon: HiOutlineUser,
+    adminOnly: true,
+  },
   {
     to: '/settings/loved-one',
     title: 'Loved one',
@@ -34,7 +44,7 @@ const SETTINGS_CARDS: SettingsCard[] = [
   {
     to: '/settings/people',
     title: 'People',
-    description: 'Manage users, family members, and employees.',
+    description: 'Offline caregivers and person types for the schedule.',
     icon: HiOutlineUserGroup,
   },
   {
@@ -70,10 +80,14 @@ const SETTINGS_CARDS: SettingsCard[] = [
 ]
 
 export function SettingsHub() {
+  const { session } = useRouteContext({ from: '/_app/settings' })
+  const isAdmin = Boolean(session?.user?.isAdmin)
+  const cards = SETTINGS_CARDS.filter((card) => !card.adminOnly || isAdmin)
+
   return (
     <div className="flex flex-col gap-4">
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {SETTINGS_CARDS.map((card) => {
+        {cards.map((card) => {
           const Icon = card.icon
           return (
             <Link

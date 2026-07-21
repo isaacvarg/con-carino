@@ -37,6 +37,7 @@ import { Route as AppAccountsIndexRouteImport } from './routes/_app/accounts/ind
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as AppTransactionsNewRouteImport } from './routes/_app/transactions/new'
 import { Route as AppTransactionsTransactionIdRouteImport } from './routes/_app/transactions/$transactionId'
+import { Route as AppSettingsUsersRouteImport } from './routes/_app/settings/users'
 import { Route as AppSettingsTagsRouteImport } from './routes/_app/settings/tags'
 import { Route as AppSettingsScheduleRouteImport } from './routes/_app/settings/schedule'
 import { Route as AppSettingsPeopleRouteImport } from './routes/_app/settings/people'
@@ -48,8 +49,10 @@ import { Route as AppDocumentsDocumentIdRouteImport } from './routes/_app/docume
 import { Route as AppActivityActivityIdRouteImport } from './routes/_app/activity/$activityId'
 import { Route as AppAccountsNewRouteImport } from './routes/_app/accounts/new'
 import { Route as AppAccountsAccountIdRouteImport } from './routes/_app/accounts/$accountId'
+import { Route as AppSettingsUsersIndexRouteImport } from './routes/_app/settings/users/index'
 import { Route as AppAccountsAccountIdIndexRouteImport } from './routes/_app/accounts/$accountId/index'
 import { Route as AppTransactionsTransfersNewRouteImport } from './routes/_app/transactions/transfers/new'
+import { Route as AppSettingsUsersUserIdRouteImport } from './routes/_app/settings/users/$userId'
 import { Route as AppAccountsAccountIdSettingsRouteImport } from './routes/_app/accounts/$accountId/settings'
 import { Route as AppAccountsAccountIdTransfersNewRouteImport } from './routes/_app/accounts/$accountId/transfers/new'
 import { Route as AppAccountsAccountIdTransactionsNewRouteImport } from './routes/_app/accounts/$accountId/transactions/new'
@@ -194,6 +197,11 @@ const AppTransactionsTransactionIdRoute =
     path: '/$transactionId',
     getParentRoute: () => AppTransactionsRoute,
   } as any)
+const AppSettingsUsersRoute = AppSettingsUsersRouteImport.update({
+  id: '/users',
+  path: '/users',
+  getParentRoute: () => AppSettingsRoute,
+} as any)
 const AppSettingsTagsRoute = AppSettingsTagsRouteImport.update({
   id: '/tags',
   path: '/tags',
@@ -250,6 +258,11 @@ const AppAccountsAccountIdRoute = AppAccountsAccountIdRouteImport.update({
   path: '/$accountId',
   getParentRoute: () => AppAccountsRoute,
 } as any)
+const AppSettingsUsersIndexRoute = AppSettingsUsersIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppSettingsUsersRoute,
+} as any)
 const AppAccountsAccountIdIndexRoute =
   AppAccountsAccountIdIndexRouteImport.update({
     id: '/',
@@ -262,6 +275,11 @@ const AppTransactionsTransfersNewRoute =
     path: '/transfers/new',
     getParentRoute: () => AppTransactionsRoute,
   } as any)
+const AppSettingsUsersUserIdRoute = AppSettingsUsersUserIdRouteImport.update({
+  id: '/$userId',
+  path: '/$userId',
+  getParentRoute: () => AppSettingsUsersRoute,
+} as any)
 const AppAccountsAccountIdSettingsRoute =
   AppAccountsAccountIdSettingsRouteImport.update({
     id: '/settings',
@@ -312,6 +330,7 @@ export interface FileRoutesByFullPath {
   '/settings/people': typeof AppSettingsPeopleRoute
   '/settings/schedule': typeof AppSettingsScheduleRoute
   '/settings/tags': typeof AppSettingsTagsRoute
+  '/settings/users': typeof AppSettingsUsersRouteWithChildren
   '/transactions/$transactionId': typeof AppTransactionsTransactionIdRoute
   '/transactions/new': typeof AppTransactionsNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -321,8 +340,10 @@ export interface FileRoutesByFullPath {
   '/settings/': typeof AppSettingsIndexRoute
   '/transactions/': typeof AppTransactionsIndexRoute
   '/accounts/$accountId/settings': typeof AppAccountsAccountIdSettingsRoute
+  '/settings/users/$userId': typeof AppSettingsUsersUserIdRoute
   '/transactions/transfers/new': typeof AppTransactionsTransfersNewRoute
   '/accounts/$accountId/': typeof AppAccountsAccountIdIndexRoute
+  '/settings/users/': typeof AppSettingsUsersIndexRoute
   '/accounts/$accountId/transactions/new': typeof AppAccountsAccountIdTransactionsNewRoute
   '/accounts/$accountId/transfers/new': typeof AppAccountsAccountIdTransfersNewRoute
 }
@@ -360,8 +381,10 @@ export interface FileRoutesByTo {
   '/settings': typeof AppSettingsIndexRoute
   '/transactions': typeof AppTransactionsIndexRoute
   '/accounts/$accountId/settings': typeof AppAccountsAccountIdSettingsRoute
+  '/settings/users/$userId': typeof AppSettingsUsersUserIdRoute
   '/transactions/transfers/new': typeof AppTransactionsTransfersNewRoute
   '/accounts/$accountId': typeof AppAccountsAccountIdIndexRoute
+  '/settings/users': typeof AppSettingsUsersIndexRoute
   '/accounts/$accountId/transactions/new': typeof AppAccountsAccountIdTransactionsNewRoute
   '/accounts/$accountId/transfers/new': typeof AppAccountsAccountIdTransfersNewRoute
 }
@@ -398,6 +421,7 @@ export interface FileRoutesById {
   '/_app/settings/people': typeof AppSettingsPeopleRoute
   '/_app/settings/schedule': typeof AppSettingsScheduleRoute
   '/_app/settings/tags': typeof AppSettingsTagsRoute
+  '/_app/settings/users': typeof AppSettingsUsersRouteWithChildren
   '/_app/transactions/$transactionId': typeof AppTransactionsTransactionIdRoute
   '/_app/transactions/new': typeof AppTransactionsNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -407,8 +431,10 @@ export interface FileRoutesById {
   '/_app/settings/': typeof AppSettingsIndexRoute
   '/_app/transactions/': typeof AppTransactionsIndexRoute
   '/_app/accounts/$accountId/settings': typeof AppAccountsAccountIdSettingsRoute
+  '/_app/settings/users/$userId': typeof AppSettingsUsersUserIdRoute
   '/_app/transactions/transfers/new': typeof AppTransactionsTransfersNewRoute
   '/_app/accounts/$accountId/': typeof AppAccountsAccountIdIndexRoute
+  '/_app/settings/users/': typeof AppSettingsUsersIndexRoute
   '/_app/accounts/$accountId/transactions/new': typeof AppAccountsAccountIdTransactionsNewRoute
   '/_app/accounts/$accountId/transfers/new': typeof AppAccountsAccountIdTransfersNewRoute
 }
@@ -445,6 +471,7 @@ export interface FileRouteTypes {
     | '/settings/people'
     | '/settings/schedule'
     | '/settings/tags'
+    | '/settings/users'
     | '/transactions/$transactionId'
     | '/transactions/new'
     | '/api/auth/$'
@@ -454,8 +481,10 @@ export interface FileRouteTypes {
     | '/settings/'
     | '/transactions/'
     | '/accounts/$accountId/settings'
+    | '/settings/users/$userId'
     | '/transactions/transfers/new'
     | '/accounts/$accountId/'
+    | '/settings/users/'
     | '/accounts/$accountId/transactions/new'
     | '/accounts/$accountId/transfers/new'
   fileRoutesByTo: FileRoutesByTo
@@ -493,8 +522,10 @@ export interface FileRouteTypes {
     | '/settings'
     | '/transactions'
     | '/accounts/$accountId/settings'
+    | '/settings/users/$userId'
     | '/transactions/transfers/new'
     | '/accounts/$accountId'
+    | '/settings/users'
     | '/accounts/$accountId/transactions/new'
     | '/accounts/$accountId/transfers/new'
   id:
@@ -530,6 +561,7 @@ export interface FileRouteTypes {
     | '/_app/settings/people'
     | '/_app/settings/schedule'
     | '/_app/settings/tags'
+    | '/_app/settings/users'
     | '/_app/transactions/$transactionId'
     | '/_app/transactions/new'
     | '/api/auth/$'
@@ -539,8 +571,10 @@ export interface FileRouteTypes {
     | '/_app/settings/'
     | '/_app/transactions/'
     | '/_app/accounts/$accountId/settings'
+    | '/_app/settings/users/$userId'
     | '/_app/transactions/transfers/new'
     | '/_app/accounts/$accountId/'
+    | '/_app/settings/users/'
     | '/_app/accounts/$accountId/transactions/new'
     | '/_app/accounts/$accountId/transfers/new'
   fileRoutesById: FileRoutesById
@@ -753,6 +787,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppTransactionsTransactionIdRouteImport
       parentRoute: typeof AppTransactionsRoute
     }
+    '/_app/settings/users': {
+      id: '/_app/settings/users'
+      path: '/users'
+      fullPath: '/settings/users'
+      preLoaderRoute: typeof AppSettingsUsersRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
     '/_app/settings/tags': {
       id: '/_app/settings/tags'
       path: '/tags'
@@ -830,6 +871,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAccountsAccountIdRouteImport
       parentRoute: typeof AppAccountsRoute
     }
+    '/_app/settings/users/': {
+      id: '/_app/settings/users/'
+      path: '/'
+      fullPath: '/settings/users/'
+      preLoaderRoute: typeof AppSettingsUsersIndexRouteImport
+      parentRoute: typeof AppSettingsUsersRoute
+    }
     '/_app/accounts/$accountId/': {
       id: '/_app/accounts/$accountId/'
       path: '/'
@@ -843,6 +891,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/transactions/transfers/new'
       preLoaderRoute: typeof AppTransactionsTransfersNewRouteImport
       parentRoute: typeof AppTransactionsRoute
+    }
+    '/_app/settings/users/$userId': {
+      id: '/_app/settings/users/$userId'
+      path: '/$userId'
+      fullPath: '/settings/users/$userId'
+      preLoaderRoute: typeof AppSettingsUsersUserIdRouteImport
+      parentRoute: typeof AppSettingsUsersRoute
     }
     '/_app/accounts/$accountId/settings': {
       id: '/_app/accounts/$accountId/settings'
@@ -930,6 +985,19 @@ const AppDocumentsRouteWithChildren = AppDocumentsRoute._addFileChildren(
   AppDocumentsRouteChildren,
 )
 
+interface AppSettingsUsersRouteChildren {
+  AppSettingsUsersUserIdRoute: typeof AppSettingsUsersUserIdRoute
+  AppSettingsUsersIndexRoute: typeof AppSettingsUsersIndexRoute
+}
+
+const AppSettingsUsersRouteChildren: AppSettingsUsersRouteChildren = {
+  AppSettingsUsersUserIdRoute: AppSettingsUsersUserIdRoute,
+  AppSettingsUsersIndexRoute: AppSettingsUsersIndexRoute,
+}
+
+const AppSettingsUsersRouteWithChildren =
+  AppSettingsUsersRoute._addFileChildren(AppSettingsUsersRouteChildren)
+
 interface AppSettingsRouteChildren {
   AppSettingsCategoriesRoute: typeof AppSettingsCategoriesRoute
   AppSettingsDocumentTypesRoute: typeof AppSettingsDocumentTypesRoute
@@ -938,6 +1006,7 @@ interface AppSettingsRouteChildren {
   AppSettingsPeopleRoute: typeof AppSettingsPeopleRoute
   AppSettingsScheduleRoute: typeof AppSettingsScheduleRoute
   AppSettingsTagsRoute: typeof AppSettingsTagsRoute
+  AppSettingsUsersRoute: typeof AppSettingsUsersRouteWithChildren
   AppSettingsIndexRoute: typeof AppSettingsIndexRoute
 }
 
@@ -949,6 +1018,7 @@ const AppSettingsRouteChildren: AppSettingsRouteChildren = {
   AppSettingsPeopleRoute: AppSettingsPeopleRoute,
   AppSettingsScheduleRoute: AppSettingsScheduleRoute,
   AppSettingsTagsRoute: AppSettingsTagsRoute,
+  AppSettingsUsersRoute: AppSettingsUsersRouteWithChildren,
   AppSettingsIndexRoute: AppSettingsIndexRoute,
 }
 

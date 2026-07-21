@@ -40,6 +40,24 @@ export function formatTimeRange(startsAt: string, endsAt: string): string {
   })}`
 }
 
+/** Times only, for lists that already carry a day heading. */
+export function formatClockRange(startsAt: string, endsAt: string): string {
+  const timeOpts: Intl.DateTimeFormatOptions = {
+    hour: 'numeric',
+    minute: '2-digit',
+  }
+  return `${new Date(startsAt).toLocaleTimeString(undefined, timeOpts)}–${new Date(
+    endsAt,
+  ).toLocaleTimeString(undefined, timeOpts)}`
+}
+
+/** Sunday-anchored start of the week containing `date`. */
+export function startOfWeek(date: Date): Date {
+  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+  start.setDate(start.getDate() - start.getDay())
+  return start
+}
+
 export function toDateInputValue(date: Date): string {
   const y = date.getFullYear()
   const m = String(date.getMonth() + 1).padStart(2, '0')

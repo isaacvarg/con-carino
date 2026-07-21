@@ -102,6 +102,7 @@ export const Route = createFileRoute('/_app/schedule')({
 function ScheduleRoute() {
   const data = Route.useLoaderData()
   const search = Route.useSearch()
+  const { session } = Route.useRouteContext()
   const navigate = useNavigate({ from: Route.fullPath })
 
   return (
@@ -109,6 +110,7 @@ function ScheduleRoute() {
       data={{
         ...data,
         selectedDay: search.day,
+        viewerUserId: session?.user?.id ?? null,
       }}
       tab={search.tab}
       onTabChange={(tab) => {

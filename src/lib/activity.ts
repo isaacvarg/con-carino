@@ -20,6 +20,8 @@ export const ACTIVITY_ENTITY_TYPES = {
   care_settings: 'care_settings',
   document: 'document',
   document_type: 'document_type',
+  session: 'session',
+  user: 'user',
   /** Future */
   med: 'med',
 } as const
@@ -92,6 +94,8 @@ export const ACTIVITY_ENTITY_LABELS: Record<string, string> = {
   med: 'Medication',
   document: 'Document',
   document_type: 'Document type',
+  session: 'Session',
+  user: 'User',
 }
 
 function serializeValue(value: unknown): ActivityChangeValue {

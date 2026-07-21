@@ -10,6 +10,7 @@ import type {
   CareOccurrenceStatus,
   CarePayInterval,
   CareRateType,
+  CareSwapItemRole,
   CareSwapStatus,
 } from '#/generated/prisma/enums'
 import {
@@ -38,13 +39,14 @@ import {
 } from '#/lib/activity'
 import { sendEmail } from '#/lib/email'
 import { prisma } from '#/lib/prisma'
+import type { SwapEmailKind } from '#/lib/swap-notify'
 import {
-  buildSwapRequestEmail,
+  buildSwapEmail,
   buildSwapScheduleUrl,
   resolveAppOrigin,
-  shouldNotifyAssignee,
+  shouldNotifyParticipant,
 } from '#/lib/swap-notify'
-import type { PrismaClient } from '#/generated/prisma/client'
+import type { Prisma, PrismaClient } from '#/generated/prisma/client'
 import { toSignedTransactionAmount } from '#/lib/transaction-amount'
 import { requireHexColor } from '#/lib/validators'
 import { logActivity } from '#/server/activity-log'
@@ -251,6 +253,17 @@ function toDayKey(d: Date): string {
   return `${y}-${m}-${day}`
 }
 
+/** Human-readable window, for error messages that name a specific shift. */
+function formatWindowLabel(startsAt: Date, endsAt: Date): string {
+  const time: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit' }
+  const day = startsAt.toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  })
+  return `${day} ${startsAt.toLocaleTimeString('en-US', time)}–${endsAt.toLocaleTimeString('en-US', time)}`
+}
+
 export type CareRequiredShiftDto = {
   id: string
   label: string | null
@@ -369,24 +382,35 @@ export type CareCalendarEventDto = {
   notes: string | null
 }
 
+export type CareSwapWindowDto = {
+  occurrenceId: string
+  startsAt: string
+  endsAt: string
+}
+
 export type CareSwapRequestDto = {
   id: string
   status: CareSwapStatus
   notes: string | null
   createdAt: string
   reviewedAt: string | null
-  relinquishOccurrenceId: string
-  claimOccurrenceId: string
-  claimForPersonId: string
-  claimForPersonName: string
-  relinquishStartsAt: string
-  relinquishEndsAt: string
-  claimStartsAt: string
-  claimEndsAt: string
+  requesterPersonId: string
+  requesterPersonName: string
+  targetPersonId: string
+  targetPersonName: string
+  /** null when the target person has no linked app user (offline) */
+  targetUserId: string | null
+  /** Windows moving from the target person to the requester person */
+  takeWindows: CareSwapWindowDto[]
+  /** Windows moving the other way; empty for a take-only request */
+  giveWindows: CareSwapWindowDto[]
   requestedByUserId: string
   requestedByName: string | null
   reviewedByUserId: string | null
   reviewedByName: string | null
+  /** Computed for the requesting viewer; drives which buttons render */
+  canReview: boolean
+  canCancel: boolean
 }
 
 export type CareInvoiceLineDto = {
@@ -420,7 +444,7 @@ export type AppUserOption = {
   email: string | null
 }
 
-function toPersonDto(person: {
+export function toPersonDto(person: {
   id: string
   name: string
   userId: string | null
@@ -1016,15 +1040,20 @@ async function occurrencesOverlap(
   personId: string,
   startsAt: Date,
   endsAt: Date,
-  excludeId?: string,
+  exclude?: string | string[],
 ) {
+  const excludeIds = exclude
+    ? Array.isArray(exclude)
+      ? exclude
+      : [exclude]
+    : []
   const conflict = await prisma.careCoverageOccurrence.findFirst({
     where: {
       assigneeId: personId,
       status: { not: 'CANCELLED' },
       startsAt: { lt: endsAt },
       endsAt: { gt: startsAt },
-      ...(excludeId ? { id: { not: excludeId } } : {}),
+      ...(excludeIds.length > 0 ? { id: { notIn: excludeIds } } : {}),
     },
     select: { id: true },
   })
@@ -1082,8 +1111,7 @@ async function detachProtectedOccurrences(seriesId: string) {
         { assigneeId: { not: null } },
         { status: { not: 'SCHEDULED' } },
         { invoiceLine: { isNot: null } },
-        { swapRelinquish: { some: { status: 'PENDING' } } },
-        { swapClaim: { some: { status: 'PENDING' } } },
+        { swapItems: { some: { swap: { status: 'PENDING' } } } },
         { startsAt: { lt: startOfLocalToday() } },
       ],
     },
@@ -1121,8 +1149,7 @@ async function deleteOpenFutureForSeries(seriesId: string) {
       status: 'SCHEDULED',
       startsAt: { gte: startOfLocalToday() },
       invoiceLine: null,
-      swapRelinquish: { none: { status: 'PENDING' } },
-      swapClaim: { none: { status: 'PENDING' } },
+      swapItems: { none: { swap: { status: 'PENDING' } } },
     },
   })
 }
@@ -1140,8 +1167,7 @@ async function deleteManualCoverageSeries(seriesId: string) {
       status: 'SCHEDULED',
       startsAt: { gte: startOfLocalToday() },
       invoiceLine: null,
-      swapRelinquish: { none: { status: 'PENDING' } },
-      swapClaim: { none: { status: 'PENDING' } },
+      swapItems: { none: { swap: { status: 'PENDING' } } },
     },
   })
   await prisma.careCoverageOccurrence.updateMany({
@@ -2116,7 +2142,7 @@ export const listCareCalendar = createServerFn({ method: 'GET' })
     }
   })
   .handler(async ({ data }): Promise<CareCalendarPayload> => {
-    await requireUserId()
+    const userId = await requireUserId()
 
     const padStart = new Date(data.rangeStart)
     padStart.setDate(padStart.getDate() - 7)
@@ -2156,7 +2182,17 @@ export const listCareCalendar = createServerFn({ method: 'GET' })
         prisma.careEventType.findMany({
           orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
         }),
-        prisma.careSwapRequest.count({ where: { status: 'PENDING' } }),
+        // Only badge swaps this viewer can actually act on or is waiting on.
+        prisma.careSwapRequest.count({
+          where: {
+            status: 'PENDING',
+            OR: [
+              { targetPerson: { userId } },
+              { targetPerson: { userId: null } },
+              { requestedByUserId: userId },
+            ],
+          },
+        }),
         prisma.careInvoice.count({ where: { status: 'OPEN' } }),
       ])
 
@@ -2780,8 +2816,7 @@ export const deleteCoverageAssignmentRule = createServerFn({ method: 'POST' })
         status: 'SCHEDULED',
         startsAt: { gte: startOfLocalToday() },
         invoiceLine: null,
-        swapRelinquish: { none: { status: 'PENDING' } },
-        swapClaim: { none: { status: 'PENDING' } },
+        swapItems: { none: { swap: { status: 'PENDING' } } },
       },
       data: {
         assigneeId: null,
@@ -2951,225 +2986,431 @@ export const updateCalendarEvent = createServerFn({ method: 'POST' })
 
 // --- Swaps ---
 
+const swapInclude = {
+  requesterPerson: {
+    select: {
+      id: true,
+      name: true,
+      userId: true,
+      user: { select: { email: true } },
+    },
+  },
+  targetPerson: {
+    select: {
+      id: true,
+      name: true,
+      userId: true,
+      user: { select: { email: true } },
+    },
+  },
+  requestedByUser: { select: { name: true, email: true } },
+  reviewedByUser: { select: { name: true } },
+  items: {
+    select: {
+      role: true,
+      occurrenceId: true,
+      occurrence: {
+        select: { startsAt: true, endsAt: true, assigneeId: true, status: true },
+      },
+    },
+    orderBy: { occurrence: { startsAt: 'asc' } },
+  },
+} satisfies Prisma.CareSwapRequestInclude
+
+type SwapRow = {
+  id: string
+  status: CareSwapStatus
+  notes: string | null
+  createdAt: Date
+  reviewedAt: Date | null
+  requesterPersonId: string
+  targetPersonId: string
+  requestedByUserId: string
+  reviewedByUserId: string | null
+  requesterPerson: {
+    name: string
+    userId: string | null
+    user: { email: string | null } | null
+  }
+  targetPerson: {
+    name: string
+    userId: string | null
+    user: { email: string | null } | null
+  }
+  requestedByUser: { name: string | null; email: string | null }
+  reviewedByUser: { name: string | null } | null
+  items: Array<{
+    role: CareSwapItemRole
+    occurrenceId: string
+    occurrence: {
+      startsAt: Date
+      endsAt: Date
+      assigneeId: string | null
+      status: CareOccurrenceStatus
+    }
+  }>
+}
+
+function swapWindows(row: SwapRow, role: CareSwapItemRole): CareSwapWindowDto[] {
+  return row.items
+    .filter((item) => item.role === role)
+    .map((item) => ({
+      occurrenceId: item.occurrenceId,
+      startsAt: item.occurrence.startsAt.toISOString(),
+      endsAt: item.occurrence.endsAt.toISOString(),
+    }))
+}
+
+/**
+ * Who may approve or reject: the target person is the one losing coverage, so
+ * when they are linked to an app user only that user decides. Offline people
+ * cannot answer, so anyone signed in may act on their behalf.
+ */
+function canReviewSwap(
+  row: { targetPerson: { userId: string | null } },
+  viewerUserId: string,
+): boolean {
+  const targetUserId = row.targetPerson.userId
+  return targetUserId ? targetUserId === viewerUserId : true
+}
+
+function toSwapDto(row: SwapRow, viewerUserId: string): CareSwapRequestDto {
+  const pending = row.status === 'PENDING'
+  return {
+    id: row.id,
+    status: row.status,
+    notes: row.notes,
+    createdAt: row.createdAt.toISOString(),
+    reviewedAt: row.reviewedAt?.toISOString() ?? null,
+    requesterPersonId: row.requesterPersonId,
+    requesterPersonName: row.requesterPerson.name,
+    targetPersonId: row.targetPersonId,
+    targetPersonName: row.targetPerson.name,
+    targetUserId: row.targetPerson.userId,
+    takeWindows: swapWindows(row, 'TAKE'),
+    giveWindows: swapWindows(row, 'GIVE'),
+    requestedByUserId: row.requestedByUserId,
+    requestedByName: row.requestedByUser.name,
+    reviewedByUserId: row.reviewedByUserId,
+    reviewedByName: row.reviewedByUser?.name ?? null,
+    canReview: pending && canReviewSwap(row, viewerUserId),
+    canCancel: pending && row.requestedByUserId === viewerUserId,
+  }
+}
+
+/** Earliest window in the swap; anchors the day used in links and summaries. */
+function swapAnchorDay(row: SwapRow): string {
+  const earliest = row.items.reduce<Date | null>(
+    (acc, item) =>
+      acc === null || item.occurrence.startsAt < acc
+        ? item.occurrence.startsAt
+        : acc,
+    null,
+  )
+  return toDayKey(earliest ?? row.createdAt)
+}
+
+/**
+ * Email every linked participant except whoever performed the action. A send
+ * failure must never fail the mutation that triggered it.
+ */
+async function notifySwapParticipants(
+  row: SwapRow,
+  kind: SwapEmailKind,
+  actorUserId: string,
+  actorName: string | null,
+) {
+  try {
+    const recipients = new Map<string, string>()
+    const participants = [
+      { userId: row.targetPerson.userId, email: row.targetPerson.user?.email },
+      {
+        userId: row.requesterPerson.userId,
+        email: row.requesterPerson.user?.email,
+      },
+      { userId: row.requestedByUserId, email: row.requestedByUser.email },
+    ]
+    for (const participant of participants) {
+      const email = participant.email ?? null
+      if (
+        !email ||
+        !shouldNotifyParticipant(
+          { userId: participant.userId ?? null, email },
+          actorUserId,
+        )
+      ) {
+        continue
+      }
+      recipients.set(participant.userId!, email)
+    }
+    if (recipients.size === 0) return
+
+    const day = swapAnchorDay(row)
+    const origin = resolveAppOrigin({
+      authUrl: process.env.AUTH_URL,
+      requestUrl: getRequest().url,
+    })
+    const email = buildSwapEmail({
+      kind,
+      actorName,
+      requesterPersonName: row.requesterPerson.name,
+      targetPersonName: row.targetPerson.name,
+      takeWindows: row.items
+        .filter((item) => item.role === 'TAKE')
+        .map((item) => item.occurrence),
+      giveWindows: row.items
+        .filter((item) => item.role === 'GIVE')
+        .map((item) => item.occurrence),
+      notes: row.notes,
+      scheduleUrl: origin ? buildSwapScheduleUrl(origin, day) : null,
+      dayLabel: day,
+    })
+    for (const to of recipients.values()) {
+      await sendEmail({
+        to,
+        subject: email.subject,
+        html: email.html,
+        text: email.text,
+      })
+    }
+  } catch (err) {
+    console.error(`[care] Failed to send swap ${kind} email:`, err)
+  }
+}
+
+/** The CarePerson this user acts as, if any. CarePerson.userId is unique. */
+async function personForUser(userId: string) {
+  return prisma.carePerson.findUnique({ where: { userId } })
+}
+
 export const listSwapRequests = createServerFn({ method: 'GET' }).handler(
   async (): Promise<CareSwapRequestDto[]> => {
-    await requireUserId()
+    const userId = await requireUserId()
     const rows = await prisma.careSwapRequest.findMany({
-      include: {
-        claimForPerson: { select: { name: true } },
-        relinquishOccurrence: {
-          select: { startsAt: true, endsAt: true },
-        },
-        claimOccurrence: {
-          select: { startsAt: true, endsAt: true },
-        },
-        requestedByUser: { select: { name: true } },
-        reviewedByUser: { select: { name: true } },
-      },
+      include: swapInclude,
       orderBy: { createdAt: 'desc' },
     })
-    return rows.map((row) => ({
-      id: row.id,
-      status: row.status,
-      notes: row.notes,
-      createdAt: row.createdAt.toISOString(),
-      reviewedAt: row.reviewedAt?.toISOString() ?? null,
-      relinquishOccurrenceId: row.relinquishOccurrenceId,
-      claimOccurrenceId: row.claimOccurrenceId,
-      claimForPersonId: row.claimForPersonId,
-      claimForPersonName: row.claimForPerson.name,
-      relinquishStartsAt: row.relinquishOccurrence.startsAt.toISOString(),
-      relinquishEndsAt: row.relinquishOccurrence.endsAt.toISOString(),
-      claimStartsAt: row.claimOccurrence.startsAt.toISOString(),
-      claimEndsAt: row.claimOccurrence.endsAt.toISOString(),
-      requestedByUserId: row.requestedByUserId,
-      requestedByName: row.requestedByUser.name,
-      reviewedByUserId: row.reviewedByUserId,
-      reviewedByName: row.reviewedByUser?.name ?? null,
-    }))
+    return rows.map((row) => toSwapDto(row, userId))
   },
 )
+
+/**
+ * Assigned, future, not-already-promised windows for one person. Feeds the
+ * week-at-a-time swap picker, which pages outside the loaded calendar month.
+ */
+export const listSwapCandidateWindows = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    if (!data || typeof data !== 'object') throw new Error('Invalid payload.')
+    const input = data as Record<string, unknown>
+    const personId =
+      typeof input.personId === 'string' ? input.personId.trim() : ''
+    if (!personId) throw new Error('Person is required.')
+    const rangeStart =
+      typeof input.rangeStart === 'string' ? new Date(input.rangeStart) : null
+    const rangeEnd =
+      typeof input.rangeEnd === 'string' ? new Date(input.rangeEnd) : null
+    if (
+      !rangeStart ||
+      !rangeEnd ||
+      Number.isNaN(rangeStart.getTime()) ||
+      Number.isNaN(rangeEnd.getTime())
+    ) {
+      throw new Error('A valid range is required.')
+    }
+    return { personId, rangeStart, rangeEnd }
+  })
+  .handler(async ({ data }): Promise<CareSwapWindowDto[]> => {
+    await requireUserId()
+    const floor = startOfLocalToday()
+    const rows = await prisma.careCoverageOccurrence.findMany({
+      where: {
+        assigneeId: data.personId,
+        status: 'SCHEDULED',
+        startsAt: {
+          gte: data.rangeStart > floor ? data.rangeStart : floor,
+          lte: data.rangeEnd,
+        },
+        swapItems: { none: { swap: { status: 'PENDING' } } },
+      },
+      select: { id: true, startsAt: true, endsAt: true },
+      orderBy: { startsAt: 'asc' },
+    })
+    return rows.map((row) => ({
+      occurrenceId: row.id,
+      startsAt: row.startsAt.toISOString(),
+      endsAt: row.endsAt.toISOString(),
+    }))
+  })
+
+function uniqueIds(value: unknown, label: string): string[] {
+  if (!Array.isArray(value)) throw new Error(`${label} must be a list.`)
+  return [
+    ...new Set(
+      value.map((id) => {
+        if (typeof id !== 'string' || !id.trim()) {
+          throw new Error(`${label} contains an invalid window.`)
+        }
+        return id.trim()
+      }),
+    ),
+  ]
+}
 
 export const createSwapRequest = createServerFn({ method: 'POST' })
   .validator((data: unknown) => {
     if (!data || typeof data !== 'object') throw new Error('Invalid payload.')
     const input = data as Record<string, unknown>
-    const relinquishOccurrenceId =
-      typeof input.relinquishOccurrenceId === 'string'
-        ? input.relinquishOccurrenceId
-        : ''
-    const claimOccurrenceId =
-      typeof input.claimOccurrenceId === 'string' ? input.claimOccurrenceId : ''
-    const claimForPersonId =
-      typeof input.claimForPersonId === 'string' ? input.claimForPersonId : ''
-    if (!relinquishOccurrenceId || !claimOccurrenceId || !claimForPersonId) {
-      throw new Error('Relinquish, claim, and person are required.')
+    const targetPersonId =
+      typeof input.targetPersonId === 'string' ? input.targetPersonId.trim() : ''
+    if (!targetPersonId) throw new Error('Pick whose windows you are taking.')
+    const requesterPersonId =
+      typeof input.requesterPersonId === 'string' &&
+      input.requesterPersonId.trim()
+        ? input.requesterPersonId.trim()
+        : null
+    const takeOccurrenceIds = uniqueIds(
+      input.takeOccurrenceIds,
+      'Windows to take',
+    )
+    if (takeOccurrenceIds.length === 0) {
+      throw new Error('Pick at least one window to take.')
     }
-    if (relinquishOccurrenceId === claimOccurrenceId) {
-      throw new Error('Relinquish and claim slots must be different.')
+    const giveOccurrenceIds = uniqueIds(
+      input.giveOccurrenceIds ?? [],
+      'Windows to give',
+    )
+    const overlap = giveOccurrenceIds.filter((id) =>
+      takeOccurrenceIds.includes(id),
+    )
+    if (overlap.length > 0) {
+      throw new Error('A window cannot be both taken and given.')
     }
     const notes =
       typeof input.notes === 'string' && input.notes.trim()
         ? input.notes.trim()
         : null
     return {
-      relinquishOccurrenceId,
-      claimOccurrenceId,
-      claimForPersonId,
+      targetPersonId,
+      requesterPersonId,
+      takeOccurrenceIds,
+      giveOccurrenceIds,
       notes,
     }
   })
   .handler(async ({ data }): Promise<CareSwapRequestDto> => {
     const userId = await requireUserId()
 
-    const [relinquish, claim, person] = await Promise.all([
-      prisma.careCoverageOccurrence.findUnique({
-        where: { id: data.relinquishOccurrenceId },
-        include: {
-          assignee: {
-            select: {
-              userId: true,
-              user: { select: { id: true, email: true, name: true } },
-            },
-          },
-        },
-      }),
-      prisma.careCoverageOccurrence.findUnique({
-        where: { id: data.claimOccurrenceId },
-      }),
-      prisma.carePerson.findUnique({ where: { id: data.claimForPersonId } }),
+    const linkedPerson = data.requesterPersonId ? null : await personForUser(userId)
+    const requesterPersonId = data.requesterPersonId ?? linkedPerson?.id ?? null
+    if (!requesterPersonId) {
+      throw new Error(
+        'Your account is not linked to a caregiver, so pick who is taking these windows.',
+      )
+    }
+    if (requesterPersonId === data.targetPersonId) {
+      throw new Error('Pick a different person to swap with.')
+    }
+
+    const [requesterPerson, targetPerson] = await Promise.all([
+      prisma.carePerson.findUnique({ where: { id: requesterPersonId } }),
+      prisma.carePerson.findUnique({ where: { id: data.targetPersonId } }),
     ])
-
-    if (!relinquish || relinquish.status !== 'SCHEDULED') {
-      throw new Error('Relinquish slot must be a scheduled occurrence.')
+    if (!requesterPerson || !requesterPerson.isActive) {
+      throw new Error('The person taking these windows is not active.')
     }
-    if (!relinquish.assigneeId) {
-      throw new Error('Relinquish slot must already be assigned.')
-    }
-    if (!claim || claim.status !== 'SCHEDULED') {
-      throw new Error('Claim slot must be a scheduled occurrence.')
-    }
-    if (claim.assigneeId) {
-      throw new Error('Claim slot must be open.')
-    }
-    if (!person || !person.isActive) {
-      throw new Error('Claim person not found or inactive.')
+    if (!targetPerson || !targetPerson.isActive) {
+      throw new Error('The person you are swapping with is not active.')
     }
 
-    const pendingExists = await prisma.careSwapRequest.findFirst({
-      where: {
-        status: 'PENDING',
-        OR: [
-          { relinquishOccurrenceId: data.relinquishOccurrenceId },
-          { claimOccurrenceId: data.claimOccurrenceId },
-        ],
-      },
+    const allIds = [...data.takeOccurrenceIds, ...data.giveOccurrenceIds]
+    const occurrences = await prisma.careCoverageOccurrence.findMany({
+      where: { id: { in: allIds } },
+      select: { id: true, assigneeId: true, status: true, startsAt: true },
     })
-    if (pendingExists) {
-      throw new Error('One of these slots already has a pending swap.')
+    if (occurrences.length !== allIds.length) {
+      throw new Error('One or more windows were not found.')
+    }
+    const byId = new Map(occurrences.map((row) => [row.id, row]))
+    const floor = startOfLocalToday()
+    for (const [ids, expectedAssigneeId, label] of [
+      [data.takeOccurrenceIds, data.targetPersonId, targetPerson.name],
+      [data.giveOccurrenceIds, requesterPersonId, requesterPerson.name],
+    ] as const) {
+      for (const id of ids) {
+        const row = byId.get(id)!
+        if (row.status !== 'SCHEDULED' || row.assigneeId !== expectedAssigneeId) {
+          throw new Error(`One of the windows is no longer assigned to ${label}.`)
+        }
+        if (row.startsAt < floor) {
+          throw new Error('Past windows cannot be swapped.')
+        }
+      }
+    }
+
+    const promised = await prisma.careSwapItem.findFirst({
+      where: { occurrenceId: { in: allIds }, swap: { status: 'PENDING' } },
+      select: { id: true },
+    })
+    if (promised) {
+      throw new Error('One of these windows is already in a pending swap.')
     }
 
     const created = await prisma.careSwapRequest.create({
       data: {
-        relinquishOccurrenceId: data.relinquishOccurrenceId,
-        claimOccurrenceId: data.claimOccurrenceId,
-        claimForPersonId: data.claimForPersonId,
+        requesterPersonId,
+        targetPersonId: data.targetPersonId,
         requestedByUserId: userId,
         notes: data.notes,
         status: 'PENDING',
-      },
-      include: {
-        claimForPerson: { select: { name: true } },
-        relinquishOccurrence: {
-          select: { startsAt: true, endsAt: true },
+        items: {
+          create: [
+            ...data.takeOccurrenceIds.map((occurrenceId) => ({
+              occurrenceId,
+              role: 'TAKE' as const,
+            })),
+            ...data.giveOccurrenceIds.map((occurrenceId) => ({
+              occurrenceId,
+              role: 'GIVE' as const,
+            })),
+          ],
         },
-        claimOccurrence: {
-          select: { startsAt: true, endsAt: true },
-        },
-        requestedByUser: { select: { name: true } },
-        reviewedByUser: { select: { name: true } },
       },
+      include: swapInclude,
     })
+
+    const takeCount = data.takeOccurrenceIds.length
+    const giveCount = data.giveOccurrenceIds.length
+    const day = swapAnchorDay(created)
     await logActivity({
       actorUserId: userId,
       action: 'CREATE',
       entityType: ACTIVITY_ENTITY_TYPES.swap,
       entityId: created.id,
-      summary: `Requested swap for ${toDayKey(created.relinquishOccurrence.startsAt)}`,
+      summary:
+        `Requested to take ${takeCount} window${takeCount === 1 ? '' : 's'} from ${targetPerson.name}` +
+        (giveCount > 0 ? `, offering ${giveCount} back` : ''),
       changes: createChanges(created, [
-        'relinquishOccurrenceId',
-        'claimOccurrenceId',
-        'claimForPersonId',
+        'requesterPersonId',
+        'targetPersonId',
         'status',
         'notes',
       ]),
-      linkMeta: {
-        day: toDayKey(created.relinquishOccurrence.startsAt),
-        tab: 'swaps',
-      },
+      linkMeta: { day, tab: 'swaps' },
       visibilityUserId: null,
     })
 
-    const assigneeEmail = relinquish.assignee?.user?.email ?? null
-    if (
-      shouldNotifyAssignee(
-        {
-          userId: relinquish.assignee?.userId ?? null,
-          email: assigneeEmail,
-        },
-        userId,
-      ) &&
-      assigneeEmail
-    ) {
-      try {
-        const day = toDayKey(created.relinquishOccurrence.startsAt)
-        const origin = resolveAppOrigin({
-          authUrl: process.env.AUTH_URL,
-          requestUrl: getRequest().url,
-        })
-        const scheduleUrl = origin ? buildSwapScheduleUrl(origin, day) : null
-        const email = buildSwapRequestEmail({
-          requesterName: created.requestedByUser.name,
-          relinquishStartsAt: created.relinquishOccurrence.startsAt,
-          relinquishEndsAt: created.relinquishOccurrence.endsAt,
-          claimStartsAt: created.claimOccurrence.startsAt,
-          claimEndsAt: created.claimOccurrence.endsAt,
-          claimForPersonName: created.claimForPerson.name,
-          notes: created.notes,
-          scheduleUrl,
-          dayLabel: day,
-        })
-        await sendEmail({
-          to: assigneeEmail,
-          subject: email.subject,
-          html: email.html,
-          text: email.text,
-        })
-      } catch (err) {
-        console.error('[care] Failed to send swap-request email:', err)
-      }
-    }
+    await notifySwapParticipants(
+      created,
+      'REQUESTED',
+      userId,
+      created.requestedByUser.name,
+    )
 
-    return {
-      id: created.id,
-      status: created.status,
-      notes: created.notes,
-      createdAt: created.createdAt.toISOString(),
-      reviewedAt: null,
-      relinquishOccurrenceId: created.relinquishOccurrenceId,
-      claimOccurrenceId: created.claimOccurrenceId,
-      claimForPersonId: created.claimForPersonId,
-      claimForPersonName: created.claimForPerson.name,
-      relinquishStartsAt: created.relinquishOccurrence.startsAt.toISOString(),
-      relinquishEndsAt: created.relinquishOccurrence.endsAt.toISOString(),
-      claimStartsAt: created.claimOccurrence.startsAt.toISOString(),
-      claimEndsAt: created.claimOccurrence.endsAt.toISOString(),
-      requestedByUserId: created.requestedByUserId,
-      requestedByName: created.requestedByUser.name,
-      reviewedByUserId: null,
-      reviewedByName: null,
-    }
+    return toSwapDto(created, userId)
   })
+
+const SWAP_DECISIONS = ['APPROVED', 'REJECTED', 'CANCELLED'] as const
+type SwapDecision = (typeof SWAP_DECISIONS)[number]
 
 export const reviewSwapRequest = createServerFn({ method: 'POST' })
   .validator((data: unknown) => {
@@ -3177,25 +3418,39 @@ export const reviewSwapRequest = createServerFn({ method: 'POST' })
     const input = data as Record<string, unknown>
     const id = typeof input.id === 'string' ? input.id : ''
     if (!id) throw new Error('Swap id is required.')
-    const decision = input.decision
-    if (decision !== 'APPROVED' && decision !== 'REJECTED' && decision !== 'CANCELLED') {
+    const decision = input.decision as SwapDecision
+    if (!SWAP_DECISIONS.includes(decision)) {
       throw new Error('Decision must be APPROVED, REJECTED, or CANCELLED.')
     }
-    return { id, decision: decision as CareSwapStatus }
+    return { id, decision }
   })
   .handler(async ({ data }): Promise<CareSwapRequestDto> => {
     const userId = await requireUserId()
     const existing = await prisma.careSwapRequest.findUnique({
       where: { id: data.id },
-      include: {
-        relinquishOccurrence: true,
-        claimOccurrence: true,
-      },
+      include: swapInclude,
     })
     if (!existing) throw new Error('Swap request not found.')
     if (existing.status !== 'PENDING') {
       throw new Error('Only pending swaps can be reviewed.')
     }
+
+    if (data.decision === 'CANCELLED') {
+      if (existing.requestedByUserId !== userId) {
+        throw new Error('Only the person who asked can cancel this swap.')
+      }
+    } else if (!canReviewSwap(existing, userId)) {
+      throw new Error(
+        `Only ${existing.targetPerson.name} can approve or decline this swap.`,
+      )
+    }
+
+    const actorName =
+      (await prisma.user.findUnique({
+        where: { id: userId },
+        select: { name: true },
+      }))?.name ?? null
+    const day = swapAnchorDay(existing)
 
     if (data.decision !== 'APPROVED') {
       const updated = await prisma.careSwapRequest.update({
@@ -3205,80 +3460,106 @@ export const reviewSwapRequest = createServerFn({ method: 'POST' })
           reviewedByUserId: userId,
           reviewedAt: new Date(),
         },
-        include: {
-          claimForPerson: { select: { name: true } },
-          relinquishOccurrence: {
-            select: { startsAt: true, endsAt: true },
-          },
-          claimOccurrence: {
-            select: { startsAt: true, endsAt: true },
-          },
-          requestedByUser: { select: { name: true } },
-          reviewedByUser: { select: { name: true } },
-        },
+        include: swapInclude,
       })
       await logActivity({
         actorUserId: userId,
         action: 'UPDATE',
         entityType: ACTIVITY_ENTITY_TYPES.swap,
         entityId: updated.id,
-        summary: `${data.decision === 'REJECTED' ? 'Rejected' : 'Cancelled'} swap for ${toDayKey(updated.relinquishOccurrence.startsAt)}`,
+        summary: `${data.decision === 'REJECTED' ? 'Declined' : 'Cancelled'} swap for ${day}`,
         changes: diffChanges(existing, updated, [
           'status',
           'reviewedByUserId',
           'reviewedAt',
         ]),
-        linkMeta: {
-          day: toDayKey(updated.relinquishOccurrence.startsAt),
-          tab: 'swaps',
-        },
+        linkMeta: { day, tab: 'swaps' },
         visibilityUserId: null,
       })
-      return {
-        id: updated.id,
-        status: updated.status,
-        notes: updated.notes,
-        createdAt: updated.createdAt.toISOString(),
-        reviewedAt: updated.reviewedAt?.toISOString() ?? null,
-        relinquishOccurrenceId: updated.relinquishOccurrenceId,
-        claimOccurrenceId: updated.claimOccurrenceId,
-        claimForPersonId: updated.claimForPersonId,
-        claimForPersonName: updated.claimForPerson.name,
-        relinquishStartsAt: updated.relinquishOccurrence.startsAt.toISOString(),
-        relinquishEndsAt: updated.relinquishOccurrence.endsAt.toISOString(),
-        claimStartsAt: updated.claimOccurrence.startsAt.toISOString(),
-        claimEndsAt: updated.claimOccurrence.endsAt.toISOString(),
-        requestedByUserId: updated.requestedByUserId,
-        requestedByName: updated.requestedByUser.name,
-        reviewedByUserId: updated.reviewedByUserId,
-        reviewedByName: updated.reviewedByUser?.name ?? null,
+      await notifySwapParticipants(updated, data.decision, userId, actorName)
+      return toSwapDto(updated, userId)
+    }
+
+    // Approving moves real coverage, so re-check that the schedule has not
+    // shifted since the request was made.
+    const takeIds: string[] = []
+    const giveIds: string[] = []
+    for (const item of existing.items) {
+      const expectedAssigneeId =
+        item.role === 'TAKE' ? existing.targetPersonId : existing.requesterPersonId
+      const expectedName =
+        item.role === 'TAKE'
+          ? existing.targetPerson.name
+          : existing.requesterPerson.name
+      if (
+        item.occurrence.status !== 'SCHEDULED' ||
+        item.occurrence.assigneeId !== expectedAssigneeId
+      ) {
+        throw new Error(
+          `${formatWindowLabel(item.occurrence.startsAt, item.occurrence.endsAt)} is no longer assigned to ${expectedName}.`,
+        )
+      }
+      ;(item.role === 'TAKE' ? takeIds : giveIds).push(item.occurrenceId)
+    }
+    const involvedIds = [...takeIds, ...giveIds]
+
+    // Fail before touching anything if billing would block the move.
+    const paidLine = await prisma.careInvoiceLine.findFirst({
+      where: {
+        occurrenceId: { in: involvedIds },
+        invoice: { status: 'PAID' },
+      },
+      select: { id: true },
+    })
+    if (paidLine) {
+      throw new Error(
+        'One of these windows is on a paid invoice and cannot be reassigned. Void the invoice first.',
+      )
+    }
+
+    // Excluding the whole involved set makes this a check against everything
+    // *else* on the calendar, which is what the post-swap state looks like.
+    for (const item of existing.items) {
+      const destinationId =
+        item.role === 'TAKE' ? existing.requesterPersonId : existing.targetPersonId
+      const destinationName =
+        item.role === 'TAKE'
+          ? existing.requesterPerson.name
+          : existing.targetPerson.name
+      if (
+        await occurrencesOverlap(
+          destinationId,
+          item.occurrence.startsAt,
+          item.occurrence.endsAt,
+          involvedIds,
+        )
+      ) {
+        throw new Error(
+          `${destinationName} already has coverage overlapping ${formatWindowLabel(item.occurrence.startsAt, item.occurrence.endsAt)}.`,
+        )
       }
     }
 
-    const claim = existing.claimOccurrence
-    if (claim.assigneeId) {
-      throw new Error('Claim slot is no longer open.')
-    }
-    if (
-      await occurrencesOverlap(
-        existing.claimForPersonId,
-        claim.startsAt,
-        claim.endsAt,
-        claim.id,
-      )
-    ) {
-      throw new Error('Claim person has overlapping coverage.')
-    }
-
     await prisma.$transaction(async (tx) => {
-      await tx.careCoverageOccurrence.update({
-        where: { id: existing.relinquishOccurrenceId },
-        data: { assigneeId: null },
+      // Clear first so a true two-way swap never collides with itself. The
+      // rule link goes too: after a manual swap the slot is no longer the
+      // rule's to revert.
+      await tx.careCoverageOccurrence.updateMany({
+        where: { id: { in: involvedIds } },
+        data: { assigneeId: null, assignedByRuleId: null },
       })
-      await tx.careCoverageOccurrence.update({
-        where: { id: existing.claimOccurrenceId },
-        data: { assigneeId: existing.claimForPersonId },
-      })
+      if (takeIds.length > 0) {
+        await tx.careCoverageOccurrence.updateMany({
+          where: { id: { in: takeIds } },
+          data: { assigneeId: existing.requesterPersonId },
+        })
+      }
+      if (giveIds.length > 0) {
+        await tx.careCoverageOccurrence.updateMany({
+          where: { id: { in: giveIds } },
+          data: { assigneeId: existing.targetPersonId },
+        })
+      }
       const updated = await tx.careSwapRequest.update({
         where: { id: data.id },
         data: {
@@ -3293,62 +3574,32 @@ export const reviewSwapRequest = createServerFn({ method: 'POST' })
           action: 'UPDATE',
           entityType: ACTIVITY_ENTITY_TYPES.swap,
           entityId: updated.id,
-          summary: `Approved swap for ${toDayKey(existing.relinquishOccurrence.startsAt)}`,
+          summary: `Approved swap for ${day}`,
           changes: diffChanges(existing, updated, [
             'status',
             'reviewedByUserId',
             'reviewedAt',
           ]),
-          linkMeta: {
-            day: toDayKey(existing.relinquishOccurrence.startsAt),
-            tab: 'swaps',
-          },
+          linkMeta: { day, tab: 'swaps' },
           visibilityUserId: null,
         },
         tx,
       )
     })
 
-    await syncBillingForAssignee(existing.relinquishOccurrenceId, null)
-    await syncBillingForAssignee(
-      existing.claimOccurrenceId,
-      existing.claimForPersonId,
-    )
+    for (const id of takeIds) {
+      await syncBillingForAssignee(id, existing.requesterPersonId)
+    }
+    for (const id of giveIds) {
+      await syncBillingForAssignee(id, existing.targetPersonId)
+    }
 
     const updated = await prisma.careSwapRequest.findUniqueOrThrow({
       where: { id: data.id },
-      include: {
-        claimForPerson: { select: { name: true } },
-        relinquishOccurrence: {
-          select: { startsAt: true, endsAt: true },
-        },
-        claimOccurrence: {
-          select: { startsAt: true, endsAt: true },
-        },
-        requestedByUser: { select: { name: true } },
-        reviewedByUser: { select: { name: true } },
-      },
+      include: swapInclude,
     })
-
-    return {
-      id: updated.id,
-      status: updated.status,
-      notes: updated.notes,
-      createdAt: updated.createdAt.toISOString(),
-      reviewedAt: updated.reviewedAt?.toISOString() ?? null,
-      relinquishOccurrenceId: updated.relinquishOccurrenceId,
-      claimOccurrenceId: updated.claimOccurrenceId,
-      claimForPersonId: updated.claimForPersonId,
-      claimForPersonName: updated.claimForPerson.name,
-      relinquishStartsAt: updated.relinquishOccurrence.startsAt.toISOString(),
-      relinquishEndsAt: updated.relinquishOccurrence.endsAt.toISOString(),
-      claimStartsAt: updated.claimOccurrence.startsAt.toISOString(),
-      claimEndsAt: updated.claimOccurrence.endsAt.toISOString(),
-      requestedByUserId: updated.requestedByUserId,
-      requestedByName: updated.requestedByUser.name,
-      reviewedByUserId: updated.reviewedByUserId,
-      reviewedByName: updated.reviewedByUser?.name ?? null,
-    }
+    await notifySwapParticipants(updated, 'APPROVED', userId, actorName)
+    return toSwapDto(updated, userId)
   })
 
 // --- Invoices ---

@@ -183,6 +183,8 @@ export function titleForPath(pathname: string): string {
     return 'Document'
   }
   if (path === '/settings/loved-one') return 'Loved one'
+  if (path === '/settings/users') return 'Users'
+  if (/^\/settings\/users\/[^/]+$/.test(path)) return 'User'
   if (path === '/settings/people') return 'People'
   if (path === '/settings/schedule') return 'Schedule'
   if (path === '/settings/tags') return 'Tags'

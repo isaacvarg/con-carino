@@ -1,12 +1,14 @@
 import { useRouter } from '@tanstack/react-router'
 import { useState, type FormEvent } from 'react'
-import { ColorField } from '#/components/app/accounts/taxonomy-form-fields'
+import {
+  CarePersonFormFields,
+  carePersonFormPayload,
+  type CarePersonFormValues,
+} from '#/components/app/care/CarePersonFormFields'
 import {
   FORM_INPUT_CLASS,
-  FORM_SELECT_CLASS,
   FormActions,
   FormField,
-  FormRow,
   FormShell,
 } from '#/components/app/ui/form'
 import type {
@@ -27,16 +29,6 @@ import {
   personChipStyle,
 } from './care-utils'
 
-const WEEKDAYS = [
-  { value: 0, label: 'Sunday' },
-  { value: 1, label: 'Monday' },
-  { value: 2, label: 'Tuesday' },
-  { value: 3, label: 'Wednesday' },
-  { value: 4, label: 'Thursday' },
-  { value: 5, label: 'Friday' },
-  { value: 6, label: 'Saturday' },
-] as const
-
 const PAY_INTERVALS: Array<{ value: CarePayInterval; label: string }> = [
   { value: 'PER_SHIFT', label: 'Per shift (after shift ends)' },
   { value: 'WEEKLY', label: 'Weekly' },
@@ -48,13 +40,26 @@ function payIntervalLabel(interval: CarePayInterval): string {
   return PAY_INTERVALS.find((p) => p.value === interval)?.label ?? interval
 }
 
-const RATE_TYPES: Array<{ value: CareRateType; label: string }> = [
-  { value: 'HOURLY', label: 'Hourly' },
-  { value: 'DAILY', label: 'Daily' },
-]
-
 function rateUnit(rateType: CareRateType): string {
   return rateType === 'DAILY' ? '/day' : '/hr'
+}
+
+function emptyPersonForm(types: CarePersonTypeDto[]): CarePersonFormValues {
+  return {
+    name: '',
+    typeId: types[0]?.id ?? '',
+    userId: '',
+    hourlyRate: '',
+    rateType: 'HOURLY',
+    flatDailyRate: false,
+    payInterval: 'PER_SHIFT',
+    payWeekday: '5',
+    payAnchorDate: '',
+    payMonthDay: '1',
+    bgColor: DEFAULT_PERSON_BG_COLOR,
+    textColor: DEFAULT_PERSON_TEXT_COLOR,
+    isActive: true,
+  }
 }
 
 type CarePeoplePanelProps = {
@@ -74,20 +79,9 @@ export function CarePeoplePanel({
   const [editingPersonId, setEditingPersonId] = useState<string | null>(null)
   const [personError, setPersonError] = useState<string | null>(null)
   const [personSaving, setPersonSaving] = useState(false)
-
-  const [name, setName] = useState('')
-  const [typeId, setTypeId] = useState(types[0]?.id ?? '')
-  const [userId, setUserId] = useState('')
-  const [hourlyRate, setHourlyRate] = useState('')
-  const [rateType, setRateType] = useState<CareRateType>('HOURLY')
-  const [flatDailyRate, setFlatDailyRate] = useState(false)
-  const [payInterval, setPayInterval] = useState<CarePayInterval>('PER_SHIFT')
-  const [payWeekday, setPayWeekday] = useState('5')
-  const [payAnchorDate, setPayAnchorDate] = useState('')
-  const [payMonthDay, setPayMonthDay] = useState('1')
-  const [bgColor, setBgColor] = useState(DEFAULT_PERSON_BG_COLOR)
-  const [textColor, setTextColor] = useState(DEFAULT_PERSON_TEXT_COLOR)
-  const [isActive, setIsActive] = useState(true)
+  const [personForm, setPersonForm] = useState<CarePersonFormValues>(() =>
+    emptyPersonForm(types),
+  )
 
   const [showTypeForm, setShowTypeForm] = useState(false)
   const [editingTypeId, setEditingTypeId] = useState<string | null>(null)
@@ -96,54 +90,61 @@ export function CarePeoplePanel({
   const [typeError, setTypeError] = useState<string | null>(null)
   const [typeSaving, setTypeSaving] = useState(false)
 
-  const selectedType = types.find((t) => t.id === typeId)
-  const selectedTypeIsPaid = selectedType?.isPaid ?? false
-
   function resetPersonForm() {
     setEditingPersonId(null)
-    setName('')
-    setTypeId(types[0]?.id ?? '')
-    setUserId('')
-    setHourlyRate('')
-    setRateType('HOURLY')
-    setFlatDailyRate(false)
-    setPayInterval('PER_SHIFT')
-    setPayWeekday('5')
-    setPayAnchorDate('')
-    setPayMonthDay('1')
-    setBgColor(DEFAULT_PERSON_BG_COLOR)
-    setTextColor(DEFAULT_PERSON_TEXT_COLOR)
-    setIsActive(true)
     setPersonError(null)
+    setPersonForm(emptyPersonForm(types))
     setShowPersonForm(false)
   }
 
   function startAddPerson() {
-    resetPersonForm()
+    setEditingPersonId(null)
+    setPersonError(null)
+    setPersonForm(emptyPersonForm(types))
     setShowPersonForm(true)
   }
 
   function startEditPerson(person: CarePersonDto) {
     setEditingPersonId(person.id)
-    setName(person.name)
-    setTypeId(person.typeId)
-    setUserId(person.userId ?? '')
-    setHourlyRate(person.hourlyRate ?? '')
-    setRateType(person.rateType)
-    setFlatDailyRate(person.flatDailyRate)
-    setPayInterval(person.payInterval)
-    setPayWeekday(
-      person.payWeekday !== null ? String(person.payWeekday) : '5',
-    )
-    setPayAnchorDate(person.payAnchorDate ?? '')
-    setPayMonthDay(
-      person.payMonthDay !== null ? String(person.payMonthDay) : '1',
-    )
-    setBgColor(person.bgColor ?? DEFAULT_PERSON_BG_COLOR)
-    setTextColor(person.textColor ?? DEFAULT_PERSON_TEXT_COLOR)
-    setIsActive(person.isActive)
-    setShowPersonForm(true)
     setPersonError(null)
+    setPersonForm({
+      name: person.name,
+      typeId: person.typeId,
+      userId: person.userId ?? '',
+      hourlyRate: person.hourlyRate ?? '',
+      rateType: person.rateType,
+      flatDailyRate: person.flatDailyRate,
+      payInterval: person.payInterval,
+      payWeekday: String(person.payWeekday ?? 5),
+      payAnchorDate: person.payAnchorDate ?? '',
+      payMonthDay: String(person.payMonthDay ?? 1),
+      bgColor: person.bgColor ?? DEFAULT_PERSON_BG_COLOR,
+      textColor: person.textColor ?? DEFAULT_PERSON_TEXT_COLOR,
+      isActive: person.isActive,
+    })
+    setShowPersonForm(true)
+  }
+
+  async function savePerson(e: FormEvent) {
+    e.preventDefault()
+    setPersonSaving(true)
+    setPersonError(null)
+    const payload = carePersonFormPayload(personForm)
+    try {
+      if (editingPersonId) {
+        await updateCarePerson({ data: { id: editingPersonId, ...payload } })
+      } else {
+        await createCarePerson({ data: payload })
+      }
+      resetPersonForm()
+      await router.invalidate()
+    } catch (err) {
+      setPersonError(
+        err instanceof Error ? err.message : 'Could not save person.',
+      )
+    } finally {
+      setPersonSaving(false)
+    }
   }
 
   function resetTypeForm() {
@@ -165,53 +166,6 @@ export function CarePeoplePanel({
     setTypeIsPaid(type.isPaid)
     setShowTypeForm(true)
     setTypeError(null)
-  }
-
-  async function savePerson(e: FormEvent) {
-    e.preventDefault()
-    setPersonSaving(true)
-    setPersonError(null)
-    try {
-      const payload = {
-        name,
-        typeId,
-        userId: userId || null,
-        hourlyRate: selectedTypeIsPaid ? hourlyRate || null : null,
-        rateType: selectedTypeIsPaid ? rateType : 'HOURLY',
-        flatDailyRate:
-          selectedTypeIsPaid && rateType === 'DAILY' ? flatDailyRate : false,
-        payInterval: selectedTypeIsPaid ? payInterval : 'PER_SHIFT',
-        payWeekday:
-          selectedTypeIsPaid &&
-          (payInterval === 'WEEKLY' || payInterval === 'BIWEEKLY')
-            ? Number(payWeekday)
-            : null,
-        payAnchorDate:
-          selectedTypeIsPaid && payInterval === 'BIWEEKLY'
-            ? payAnchorDate || null
-            : null,
-        payMonthDay:
-          selectedTypeIsPaid && payInterval === 'MONTHLY'
-            ? Number(payMonthDay)
-            : null,
-        bgColor,
-        textColor,
-        isActive,
-      }
-      if (editingPersonId) {
-        await updateCarePerson({ data: { id: editingPersonId, ...payload } })
-      } else {
-        await createCarePerson({ data: payload })
-      }
-      resetPersonForm()
-      await router.invalidate()
-    } catch (err) {
-      setPersonError(
-        err instanceof Error ? err.message : 'Could not save person.',
-      )
-    } finally {
-      setPersonSaving(false)
-    }
   }
 
   async function saveType(e: FormEvent) {
@@ -248,7 +202,8 @@ export function CarePeoplePanel({
               People
             </h3>
             <p className="mt-1 text-sm text-base-content/60">
-              App users and offline family or employees who can be scheduled.
+              Offline caregivers and person types. Linked app users are managed
+              under Users.
             </p>
           </div>
           {!showPersonForm ? (
@@ -268,208 +223,15 @@ export function CarePeoplePanel({
             onSubmit={savePerson}
             className="mt-4 rounded-box border border-base-300 p-4"
           >
-            <FormRow>
-              <FormField label="Name" htmlFor="person-name">
-                <input
-                  id="person-name"
-                  className={FORM_INPUT_CLASS}
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  required
-                />
-              </FormField>
-              <FormField label="Type" htmlFor="person-type">
-                <select
-                  id="person-type"
-                  className={FORM_SELECT_CLASS}
-                  value={typeId}
-                  onChange={(e) => {
-                    const nextTypeId = e.target.value
-                    setTypeId(nextTypeId)
-                    const nextType = types.find((t) => t.id === nextTypeId)
-                    if (!nextType?.isPaid) setHourlyRate('')
-                  }}
-                  required
-                >
-                  {types.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                      {t.isPaid ? ' ($)' : ''}
-                    </option>
-                  ))}
-                </select>
-              </FormField>
-            </FormRow>
-            <FormRow>
-              <FormField
-                label="Linked App User"
-                htmlFor="person-user"
-              >
-                <select
-                  id="person-user"
-                  className={FORM_SELECT_CLASS}
-                  value={userId}
-                  onChange={(e) => setUserId(e.target.value)}
-                >
-                  <option value="">None — offline person</option>
-                  {users.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name || u.email || u.id}
-                    </option>
-                  ))}
-                </select>
-              </FormField>
-              {selectedTypeIsPaid ? (
-                <FormField
-                  label={rateType === 'DAILY' ? 'Daily Rate' : 'Hourly Rate'}
-                  htmlFor="person-rate"
-                >
-                  <input
-                    id="person-rate"
-                    className={FORM_INPUT_CLASS}
-                    value={hourlyRate}
-                    onChange={(e) => setHourlyRate(e.target.value)}
-                    placeholder="e.g. 25"
-                    inputMode="decimal"
-                    required
-                  />
-                </FormField>
-              ) : null}
-            </FormRow>
-            {selectedTypeIsPaid ? (
-              <FormField label="Rate Type" htmlFor="person-rate-type">
-                <select
-                  id="person-rate-type"
-                  className={FORM_SELECT_CLASS}
-                  value={rateType}
-                  onChange={(e) => setRateType(e.target.value as CareRateType)}
-                >
-                  {RATE_TYPES.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-                {rateType === 'DAILY' ? (
-                  <p className="mt-1 text-xs text-base-content/60">
-                    A flat amount per day — best for all-day coverage.
-                  </p>
-                ) : null}
-              </FormField>
-            ) : null}
-            {selectedTypeIsPaid && rateType === 'DAILY' ? (
-              <FormField
-                label="Pay full daily rate regardless of hours covered"
-                htmlFor="person-flat-daily"
-              >
-                <input
-                  id="person-flat-daily"
-                  type="checkbox"
-                  className="toggle toggle-primary"
-                  checked={flatDailyRate}
-                  onChange={(e) => setFlatDailyRate(e.target.checked)}
-                />
-                <p className="mt-1 text-xs text-base-content/60">
-                  When on, one-offs bill the full daily rate per day covered
-                  instead of pro-rating by hours worked.
-                </p>
-              </FormField>
-            ) : null}
-            {selectedTypeIsPaid ? (
-              <>
-                <FormRow>
-                  <FormField label="Pay Interval" htmlFor="person-pay-interval">
-                    <select
-                      id="person-pay-interval"
-                      className={FORM_SELECT_CLASS}
-                      value={payInterval}
-                      onChange={(e) =>
-                        setPayInterval(e.target.value as CarePayInterval)
-                      }
-                    >
-                      {PAY_INTERVALS.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </option>
-                      ))}
-                    </select>
-                  </FormField>
-                  {payInterval === 'WEEKLY' || payInterval === 'BIWEEKLY' ? (
-                    <FormField label="Pay Day" htmlFor="person-pay-weekday">
-                      <select
-                        id="person-pay-weekday"
-                        className={FORM_SELECT_CLASS}
-                        value={payWeekday}
-                        onChange={(e) => setPayWeekday(e.target.value)}
-                      >
-                        {WEEKDAYS.map((d) => (
-                          <option key={d.value} value={d.value}>
-                            {d.label}
-                          </option>
-                        ))}
-                      </select>
-                    </FormField>
-                  ) : null}
-                  {payInterval === 'MONTHLY' ? (
-                    <FormField
-                      label="Pay Day of Month"
-                      htmlFor="person-pay-month-day"
-                    >
-                      <input
-                        id="person-pay-month-day"
-                        className={FORM_INPUT_CLASS}
-                        type="number"
-                        min={1}
-                        max={28}
-                        value={payMonthDay}
-                        onChange={(e) => setPayMonthDay(e.target.value)}
-                        required
-                      />
-                    </FormField>
-                  ) : null}
-                </FormRow>
-                {payInterval === 'BIWEEKLY' ? (
-                  <FormField
-                    label="Pay Anchor Date (A Known Payday)"
-                    htmlFor="person-pay-anchor"
-                  >
-                    <input
-                      id="person-pay-anchor"
-                      className={FORM_INPUT_CLASS}
-                      type="date"
-                      value={payAnchorDate}
-                      onChange={(e) => setPayAnchorDate(e.target.value)}
-                      required
-                    />
-                  </FormField>
-                ) : null}
-              </>
-            ) : null}
-            <FormRow>
-              <ColorField
-                id="person-bg-color"
-                label="Background Color"
-                value={bgColor}
-                onBlur={() => {}}
-                onChange={setBgColor}
-              />
-              <ColorField
-                id="person-text-color"
-                label="Text Color"
-                value={textColor}
-                onBlur={() => {}}
-                onChange={setTextColor}
-              />
-            </FormRow>
-            <FormField label="Active" htmlFor="person-active">
-              <input
-                id="person-active"
-                type="checkbox"
-                className="toggle toggle-primary"
-                checked={isActive}
-                onChange={(e) => setIsActive(e.target.checked)}
-              />
-            </FormField>
+            <CarePersonFormFields
+              types={types}
+              users={users}
+              showLinkedUser
+              values={personForm}
+              onChange={(patch) =>
+                setPersonForm((prev) => ({ ...prev, ...patch }))
+              }
+            />
             {personError ? (
               <p className="text-sm text-error" role="alert">
                 {personError}
@@ -629,10 +391,7 @@ export function CarePeoplePanel({
         ) : (
           <ul className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {types.map((t) => (
-              <li
-                key={t.id}
-                className="flex flex-col gap-3 app-card p-4"
-              >
+              <li key={t.id} className="flex flex-col gap-3 app-card p-4">
                 <p className="font-medium text-base-content">{t.name}</p>
                 <p className="text-sm text-base-content/60">
                   {t.isPaid ? 'Paid' : 'Unpaid'}

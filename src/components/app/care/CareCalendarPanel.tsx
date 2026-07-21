@@ -31,6 +31,7 @@ import {
   listCoverageSeries,
   updateOccurrence,
 } from '#/server/care'
+import { SwapWindowPicker } from './SwapWindowPicker'
 import {
   DAY_NAMES,
   dayKey,
@@ -52,6 +53,8 @@ type CareCalendarPanelProps = {
   events: CareCalendarEventDto[]
   eventTypes: CareEventTypeDto[]
   people: CarePersonDto[]
+  /** Signed-in user; used to find which caregiver they act as when swapping */
+  viewerUserId: string | null
   onMonthChange: (year: number, month: number) => void
   onSelectDay: (dayKey: string) => void
 }
@@ -75,6 +78,7 @@ export function CareCalendarPanel({
   events,
   eventTypes,
   people,
+  viewerUserId,
   onMonthChange,
   onSelectDay,
 }: CareCalendarPanelProps) {
@@ -96,7 +100,12 @@ export function CareCalendarPanel({
   const [daySheetOpen, setDaySheetOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-  const [swapFromId, setSwapFromId] = useState<string | null>(null)
+  const [swapTargetPersonId, setSwapTargetPersonId] = useState<string | null>(
+    null,
+  )
+  const [swapTakeIds, setSwapTakeIds] = useState<string[]>([])
+  const [swapGiveIds, setSwapGiveIds] = useState<string[]>([])
+  const [swapTrading, setSwapTrading] = useState(false)
   const [assignOccurrenceId, setAssignOccurrenceId] = useState<string | null>(
     null,
   )
@@ -127,15 +136,19 @@ export function CareCalendarPanel({
   const [notes, setNotes] = useState('')
   const [title, setTitle] = useState('')
   const [eventTypeId, setEventTypeId] = useState(eventTypes[0]?.id ?? '')
-  const [claimId, setClaimId] = useState('')
-  const [claimForPersonId, setClaimForPersonId] = useState(
-    people.find((p) => p.isActive)?.id ?? '',
-  )
 
-  const openSlots = occurrences.filter(
-    (o) => !o.assigneeId && o.status === 'SCHEDULED',
-  )
   const activePeople = people.filter((p) => p.isActive)
+  /** The caregiver this user is, when their account is linked to one. */
+  const linkedPerson = viewerUserId
+    ? (activePeople.find((p) => p.userId === viewerUserId) ?? null)
+    : null
+  /** Who receives the taken windows. Unlinked users arrange on someone's behalf. */
+  const [swapRequesterPersonId, setSwapRequesterPersonId] = useState('')
+  const requesterPersonId = linkedPerson?.id ?? swapRequesterPersonId
+  const requesterPerson =
+    activePeople.find((p) => p.id === requesterPersonId) ?? null
+  const swapTargetPerson =
+    activePeople.find((p) => p.id === swapTargetPersonId) ?? null
   const coveredDays = useMemo(
     () =>
       settings.coverageNeed === 'FULL'
@@ -157,7 +170,7 @@ export function CareCalendarPanel({
 
   function openModal(
     kind: ModalKind,
-    opts?: { swapFrom?: string; assignId?: string },
+    opts?: { swapFrom?: CareCoverageOccurrenceDto; assignId?: string },
   ) {
     setError(null)
     setModal(kind)
@@ -177,9 +190,13 @@ export function CareCalendarPanel({
     setTitle('')
     setEventTypeId(eventTypes[0]?.id ?? '')
     setAssigneeId(activePeople[0]?.id ?? '')
-    setClaimId('')
-    setClaimForPersonId(activePeople[0]?.id ?? '')
-    setSwapFromId(opts?.swapFrom ?? null)
+    setSwapTargetPersonId(opts?.swapFrom?.assigneeId ?? null)
+    setSwapTakeIds(opts?.swapFrom ? [opts.swapFrom.id] : [])
+    setSwapGiveIds([])
+    setSwapTrading(false)
+    setSwapRequesterPersonId(
+      activePeople.find((p) => p.id !== opts?.swapFrom?.assigneeId)?.id ?? '',
+    )
     setAssignOccurrenceId(opts?.assignId ?? null)
   }
 
@@ -219,6 +236,15 @@ export function CareCalendarPanel({
 
   function toggleShift(id: string) {
     setSelectedShiftIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    )
+  }
+
+  function toggleSwapId(
+    id: string,
+    setIds: (update: (prev: string[]) => string[]) => void,
+  ) {
+    setIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     )
   }
@@ -353,13 +379,13 @@ export function CareCalendarPanel({
                             Assign
                           </button>
                         ) : null}
-                        {o.assigneeId && o.status === 'SCHEDULED' ? (
+                        {o.assigneeId &&
+                        o.status === 'SCHEDULED' &&
+                        o.assigneeId !== linkedPerson?.id ? (
                           <button
                             type="button"
                             className="btn btn-outline btn-xs"
-                            onClick={() =>
-                              openModal('swap', { swapFrom: o.id })
-                            }
+                            onClick={() => openModal('swap', { swapFrom: o })}
                           >
                             Request swap
                           </button>
@@ -522,14 +548,18 @@ export function CareCalendarPanel({
           },
         })
       } else if (modal === 'swap') {
-        if (!swapFromId || !claimId || !claimForPersonId) {
-          throw new Error('Pick an open slot and who will claim it.')
+        if (!swapTargetPersonId || swapTakeIds.length === 0) {
+          throw new Error('Pick at least one window to take.')
+        }
+        if (!requesterPersonId) {
+          throw new Error('Pick who is taking these windows.')
         }
         await createSwapRequest({
           data: {
-            relinquishOccurrenceId: swapFromId,
-            claimOccurrenceId: claimId,
-            claimForPersonId,
+            targetPersonId: swapTargetPersonId,
+            requesterPersonId,
+            takeOccurrenceIds: swapTakeIds,
+            giveOccurrenceIds: swapTrading ? swapGiveIds : [],
             notes: notes || null,
           },
         })
@@ -963,45 +993,98 @@ export function CareCalendarPanel({
                 </>
               ) : null}
 
-              {modal === 'swap' ? (
+              {modal === 'swap' && swapTargetPerson ? (
                 <>
-                  <p className="text-sm text-base-content/70">
-                    Relinquish this shift and claim an open slot. Another user
-                    must approve.
+                  {linkedPerson ? null : (
+                    <FormField label="Acting for" htmlFor="swap-requester">
+                      <select
+                        id="swap-requester"
+                        className={FORM_SELECT_CLASS}
+                        value={swapRequesterPersonId}
+                        onChange={(e) => {
+                          setSwapRequesterPersonId(e.target.value)
+                          setSwapGiveIds([])
+                        }}
+                        required
+                      >
+                        {activePeople
+                          .filter((p) => p.id !== swapTargetPerson.id)
+                          .map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name}
+                            </option>
+                          ))}
+                      </select>
+                    </FormField>
+                  )}
+
+                  <FormField label={`Taking from ${swapTargetPerson.name}`}>
+                    <SwapWindowPicker
+                      personId={swapTargetPerson.id}
+                      personName={swapTargetPerson.name}
+                      selectedIds={swapTakeIds}
+                      onToggle={(id) => toggleSwapId(id, setSwapTakeIds)}
+                      initialDay={selectedDay}
+                      emptyLabel={`${swapTargetPerson.name} has no coverage this week.`}
+                    />
+                  </FormField>
+
+                  <FormField label="In exchange">
+                    <div className="flex flex-wrap gap-4">
+                      <label className="flex items-center gap-2 text-sm">
+                        <input
+                          type="radio"
+                          className="radio radio-sm"
+                          name="swap-mode"
+                          checked={!swapTrading}
+                          onChange={() => setSwapTrading(false)}
+                        />
+                        Just take these windows
+                      </label>
+                      <label className="flex items-center gap-2 text-sm">
+                        <input
+                          type="radio"
+                          className="radio radio-sm"
+                          name="swap-mode"
+                          checked={swapTrading}
+                          onChange={() => setSwapTrading(true)}
+                        />
+                        Trade some of mine
+                      </label>
+                    </div>
+                  </FormField>
+
+                  {swapTrading ? (
+                    requesterPerson ? (
+                      <FormField
+                        label={`Giving ${swapTargetPerson.name}`}
+                        hint={
+                          swapGiveIds.length === swapTakeIds.length
+                            ? `${swapTakeIds.length} taken · ${swapGiveIds.length} offered`
+                            : `${swapTakeIds.length} taken · ${swapGiveIds.length} offered — an even trade is usually easier to approve`
+                        }
+                      >
+                        <SwapWindowPicker
+                          personId={requesterPerson.id}
+                          personName={requesterPerson.name}
+                          selectedIds={swapGiveIds}
+                          onToggle={(id) => toggleSwapId(id, setSwapGiveIds)}
+                          initialDay={selectedDay}
+                          emptyLabel="You have no coverage this week to offer."
+                        />
+                      </FormField>
+                    ) : (
+                      <p className="text-sm text-base-content/60">
+                        Pick who you are acting for to offer windows back.
+                      </p>
+                    )
+                  ) : null}
+
+                  <p className="text-sm text-base-content/60">
+                    {swapTargetPerson.userId
+                      ? `${swapTargetPerson.name} has to approve this.`
+                      : `${swapTargetPerson.name} has no app account, so any signed-in user can approve this.`}
                   </p>
-                  <FormField label="Claim open slot" htmlFor="swap-claim">
-                    <select
-                      id="swap-claim"
-                      className={FORM_SELECT_CLASS}
-                      value={claimId}
-                      onChange={(e) => setClaimId(e.target.value)}
-                      required
-                    >
-                      <option value="">Select…</option>
-                      {openSlots
-                        .filter((o) => o.id !== swapFromId)
-                        .map((o) => (
-                          <option key={o.id} value={o.id}>
-                            {formatTimeRange(o.startsAt, o.endsAt)}
-                          </option>
-                        ))}
-                    </select>
-                  </FormField>
-                  <FormField label="Assign claim to" htmlFor="swap-person">
-                    <select
-                      id="swap-person"
-                      className={FORM_SELECT_CLASS}
-                      value={claimForPersonId}
-                      onChange={(e) => setClaimForPersonId(e.target.value)}
-                      required
-                    >
-                      {activePeople.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}
-                        </option>
-                      ))}
-                    </select>
-                  </FormField>
                 </>
               ) : null}
 

@@ -19,6 +19,7 @@ export type CarePageData = {
   eventTypes: CareEventTypeDto[]
   swaps: CareSwapRequestDto[]
   pendingSwapCount: number
+  viewerUserId: string | null
   year: number
   month: number
   selectedDay: string
@@ -76,6 +77,7 @@ export function CarePage({
           events={data.events}
           eventTypes={data.eventTypes}
           people={data.people}
+          viewerUserId={data.viewerUserId}
           onMonthChange={onMonthChange}
           onSelectDay={onSelectDay}
         />

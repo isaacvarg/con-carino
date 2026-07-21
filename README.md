@@ -23,7 +23,7 @@ This is built for a single family on their own hardware. There is no tenancy mod
 - Loved-one coverage settings: full or partial days, all-day or specific shifts, and which days of the week need covering.
 - Caregivers, both paid and family, with hourly rates, pay intervals, and their own calendar colors.
 - Recurring weekly or biweekly coverage series that materialize into individual scheduled shifts.
-- Shift swaps — one caregiver relinquishes an occurrence, another claims it, and a reviewer approves or rejects.
+- Shift swaps — a caregiver takes one or more windows from another, optionally offering some of their own back. The caregiver losing coverage approves when they have an app account; anyone can approve for an offline caregiver.
 - A care calendar with event types you define.
 
 **Invoices** — accrued caregiver hours roll into invoices whose lines snapshot the rate and hours at billing time, so later rate changes never rewrite history. Paying an invoice links it to a ledger transaction.
@@ -94,7 +94,7 @@ All of these live in `.env` locally; see `.env.example`. In production they are 
 | `AUTH_TRUST_HOST` | `true` when running behind a proxy. |
 | `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | [Google credentials](https://console.cloud.google.com/apis/credentials). |
 | `AUTH_DISCORD_ID` / `AUTH_DISCORD_SECRET` | [Discord application](https://discord.com/developers/applications). |
-| `AUTH_RESEND_KEY` | [Resend API key](https://resend.com/api-keys). Sends magic-link sign-in emails and swap-request notifications to linked assignees. |
+| `AUTH_RESEND_KEY` | [Resend API key](https://resend.com/api-keys). Sends magic-link sign-in emails and swap notifications (requested, approved, declined, cancelled) to linked participants. |
 | `AUTH_EMAIL_FROM` | **Required** — the app throws at boot without it. Sender for magic links and swap emails, e.g. `Con cariño <hola@example.com>`. The domain must be verified in Resend. |
 | `S3_ENDPOINT` | `http://127.0.0.1:9000` in dev; `http://rustfs:9000` in production. |
 | `S3_REGION` | Defaults to `us-east-1`. |

@@ -26,6 +26,13 @@ enum CareSwapStatus {
   CANCELLED
 }
 
+enum CareSwapItemRole {
+  /// Currently the target person's window; moves to the requester person
+  TAKE
+  /// Currently the requester person's window; moves to the target person
+  GIVE
+}
+
 enum CareInvoiceStatus {
   OPEN
   PAID
@@ -132,7 +139,8 @@ model CarePerson {
   series        CareCoverageSeries[]
   occurrences   CareCoverageOccurrence[]
   assignmentRules CareCoverageAssignmentRule[]
-  swapClaims    CareSwapRequest[]         @relation("SwapClaimPerson")
+  swapsRequested CareSwapRequest[]        @relation("SwapRequesterPerson")
+  swapsTargeted  CareSwapRequest[]        @relation("SwapTargetPerson")
   invoices      CareInvoice[]
 
   @@index([typeId])
@@ -189,8 +197,7 @@ model CareCoverageOccurrence {
   assignee         CarePerson?         @relation(fields: [assigneeId], references: [id], onDelete: SetNull)
   assignedByRule   CareCoverageAssignmentRule? @relation(fields: [assignedByRuleId], references: [id], onDelete: SetNull)
   invoiceLine      CareInvoiceLine?
-  swapRelinquish   CareSwapRequest[]   @relation("SwapRelinquish")
-  swapClaim        CareSwapRequest[]   @relation("SwapClaim")
+  swapItems        CareSwapItem[]
 
   @@unique([seriesId, startsAt])
   @@index([startsAt, endsAt])
@@ -261,28 +268,48 @@ model CareCalendarEvent {
   @@map("care_calendar_events")
 }
 
+/// A negotiation between two people: the requester takes one or more windows
+/// currently assigned to the target person, and optionally gives some of their
+/// own windows back. Open (unassigned) windows are never part of a swap — those
+/// are handled by the no-approval claim flow.
 model CareSwapRequest {
-  id                    String         @id @default(uuid())
-  relinquishOccurrenceId String
-  claimOccurrenceId     String
-  claimForPersonId      String
-  requestedByUserId     String
-  status                CareSwapStatus @default(PENDING)
-  reviewedByUserId      String?
-  reviewedAt            DateTime?
-  notes                 String?
-  createdAt             DateTime       @default(now())
-  updatedAt             DateTime       @updatedAt
+  id                String         @id @default(uuid())
+  /// Person receiving the TAKE windows; usually the requester's linked person
+  requesterPersonId String
+  /// Person losing the TAKE windows
+  targetPersonId    String
+  requestedByUserId String
+  status            CareSwapStatus @default(PENDING)
+  reviewedByUserId  String?
+  reviewedAt        DateTime?
+  notes             String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
 
-  relinquishOccurrence CareCoverageOccurrence @relation("SwapRelinquish", fields: [relinquishOccurrenceId], references: [id], onDelete: Cascade)
-  claimOccurrence      CareCoverageOccurrence @relation("SwapClaim", fields: [claimOccurrenceId], references: [id], onDelete: Cascade)
-  claimForPerson       CarePerson             @relation("SwapClaimPerson", fields: [claimForPersonId], references: [id], onDelete: Restrict)
-  requestedByUser      User                   @relation("SwapRequestedBy", fields: [requestedByUserId], references: [id], onDelete: Cascade)
-  reviewedByUser       User?                  @relation("SwapReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  requesterPerson CarePerson @relation("SwapRequesterPerson", fields: [requesterPersonId], references: [id], onDelete: Restrict)
+  targetPerson    CarePerson @relation("SwapTargetPerson", fields: [targetPersonId], references: [id], onDelete: Restrict)
+  requestedByUser User       @relation("SwapRequestedBy", fields: [requestedByUserId], references: [id], onDelete: Cascade)
+  reviewedByUser  User?      @relation("SwapReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  items           CareSwapItem[]
 
   @@index([status])
+  @@index([targetPersonId, status])
   @@index([requestedByUserId])
   @@map("care_swap_requests")
+}
+
+model CareSwapItem {
+  id           String           @id @default(uuid())
+  swapId       String
+  occurrenceId String
+  role         CareSwapItemRole
+
+  swap       CareSwapRequest        @relation(fields: [swapId], references: [id], onDelete: Cascade)
+  occurrence CareCoverageOccurrence @relation(fields: [occurrenceId], references: [id], onDelete: Cascade)
+
+  @@unique([swapId, occurrenceId])
+  @@index([occurrenceId])
+  @@map("care_swap_items")
 }
 
 model CareInvoice {

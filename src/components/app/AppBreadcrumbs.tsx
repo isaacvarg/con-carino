@@ -19,6 +19,7 @@ type BreadcrumbHref =
   | { to: '/documents' }
   | { to: '/insights' }
   | { to: '/settings' }
+  | { to: '/settings/users' }
   | {
       to: '/accounts/$accountId'
       params: { accountId: string }
@@ -145,6 +146,22 @@ export function crumbsForPath(
     return [
       { label: 'settings', href: { to: '/settings' } },
       { label: 'loved one' },
+    ]
+  }
+
+  const settingsUserDetail = path.match(/^\/settings\/users\/([^/]+)$/)
+  if (settingsUserDetail) {
+    return [
+      { label: 'settings', href: { to: '/settings' } },
+      { label: 'users', href: { to: '/settings/users' } },
+      { label: 'details' },
+    ]
+  }
+
+  if (path === '/settings/users') {
+    return [
+      { label: 'settings', href: { to: '/settings' } },
+      { label: 'users' },
     ]
   }
 
