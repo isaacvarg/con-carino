@@ -30,6 +30,7 @@ import {
 } from '#/lib/transaction-search'
 import { DataTableCards } from '#/components/app/ui/DataTableCards'
 import { FacetFilter } from '#/components/app/ui/FacetFilter'
+import { TaxonomyBadge } from '#/components/app/transactions/TaxonomyBadge'
 import { TransactionsSpeedDial } from './TransactionsSpeedDial'
 import {
   parseCsvValues,
@@ -274,14 +275,34 @@ export function AllTransactionsTable({
         id: 'payee',
         accessorFn: (row) => row.payee?.id ?? NONE_FACET,
         header: 'Payee',
-        cell: ({ row }) => row.original.payee?.name?.trim() || '—',
+        cell: ({ row }) => {
+          const payee = row.original.payee
+          if (!payee?.name?.trim()) return '—'
+          return (
+            <TaxonomyBadge
+              name={payee.name}
+              bgColor={payee.bgColor}
+              textColor={payee.textColor}
+            />
+          )
+        },
         filterFn: multiValueFilter,
       },
       {
         id: 'category',
         accessorFn: (row) => row.category?.id ?? NONE_FACET,
         header: 'Category',
-        cell: ({ row }) => row.original.category?.name?.trim() || '—',
+        cell: ({ row }) => {
+          const category = row.original.category
+          if (!category?.name?.trim()) return '—'
+          return (
+            <TaxonomyBadge
+              name={category.name}
+              bgColor={category.bgColor}
+              textColor={category.textColor}
+            />
+          )
+        },
         filterFn: multiValueFilter,
       },
       {
@@ -290,8 +311,20 @@ export function AllTransactionsTable({
         getUniqueValues: (row) => row.tags.map((tag) => tag.id),
         header: 'Tags',
         cell: ({ row }) => {
-          const names = row.original.tags.map((tag) => tag.name).join(', ')
-          return names.trim() ? names : '—'
+          const tags = row.original.tags
+          if (tags.length === 0) return '—'
+          return (
+            <div className="flex flex-wrap gap-1">
+              {tags.map((tag) => (
+                <TaxonomyBadge
+                  key={tag.id}
+                  name={tag.name}
+                  bgColor={tag.bgColor}
+                  textColor={tag.textColor}
+                />
+              ))}
+            </div>
+          )
         },
         filterFn: multiValueFilter,
       },

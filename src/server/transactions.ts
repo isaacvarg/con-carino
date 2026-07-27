@@ -66,11 +66,6 @@ const TRANSACTION_ACTIVITY_FIELDS = [
 
 const TRANSACTION_TYPES = Object.values(TransactionTypeEnum)
 
-type TaxonomyRef = {
-  id: string
-  name: string
-}
-
 export type { ColoredTaxonomyRef } from '#/lib/taxonomy-types'
 
 const ATTACHMENT_SELECT = {
@@ -95,9 +90,9 @@ export type TransactionListItem = {
   amount: string
   description: string | null
   date: string
-  payee: TaxonomyRef | null
-  category: TaxonomyRef | null
-  tags: TaxonomyRef[]
+  payee: ColoredTaxonomyRef | null
+  category: ColoredTaxonomyRef | null
+  tags: ColoredTaxonomyRef[]
   attachments: AttachmentListItem[]
   reconciliationStatus: ReconciliationStatus
   reconciliationUpdatedAt: string | null
@@ -264,9 +259,9 @@ type TransactionWithTaxonomies = {
   amount: { toString(): string }
   description: string | null
   date: Date
-  payee: TaxonomyRef | null
-  category: TaxonomyRef | null
-  tags: TaxonomyRef[]
+  payee: ColoredTaxonomyRef | null
+  category: ColoredTaxonomyRef | null
+  tags: ColoredTaxonomyRef[]
   attachments?: AttachmentRef[]
   reconciliationStatus: ReconciliationStatus
   reconciliationUpdatedAt: Date | null
@@ -308,11 +303,11 @@ function toTransactionListItem(
     amount: txn.amount.toString(),
     description: txn.description,
     date: txn.date.toISOString(),
-    payee: txn.payee ? { id: txn.payee.id, name: txn.payee.name } : null,
-    category: txn.category
-      ? { id: txn.category.id, name: txn.category.name }
-      : null,
-    tags: txn.tags.map((tag) => ({ id: tag.id, name: tag.name })),
+    payee: toColoredTaxonomyRef(txn.payee),
+    category: toColoredTaxonomyRef(txn.category),
+    tags: txn.tags.map(
+      (tag) => toColoredTaxonomyRef(tag) as ColoredTaxonomyRef,
+    ),
     attachments: (txn.attachments ?? []).map(toAttachmentListItem),
     reconciliationStatus: txn.reconciliationStatus,
     reconciliationUpdatedAt: txn.reconciliationUpdatedAt
@@ -342,9 +337,9 @@ function toVisibleTransactionListItem(
 
 function emptyTaxonomies() {
   return {
-    payee: null as TaxonomyRef | null,
-    category: null as TaxonomyRef | null,
-    tags: [] as TaxonomyRef[],
+    payee: null as ColoredTaxonomyRef | null,
+    category: null as ColoredTaxonomyRef | null,
+    tags: [] as ColoredTaxonomyRef[],
     attachments: [] as AttachmentListItem[],
     reconciliationStatus: 'UNCLEARED' as ReconciliationStatus,
     reconciliationUpdatedAt: null as string | null,
@@ -554,9 +549,9 @@ export const listAccountTransactions = createServerFn({ method: 'GET' })
       where: { financialAccountId: data.accountId },
       orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
       include: {
-        payee: { select: { id: true, name: true } },
-        category: { select: { id: true, name: true } },
-        tags: { select: { id: true, name: true }, orderBy: { name: 'asc' } },
+        payee: { select: TAXONOMY_COLOR_SELECT },
+        category: { select: TAXONOMY_COLOR_SELECT },
+        tags: { select: TAXONOMY_COLOR_SELECT, orderBy: { name: 'asc' } },
         attachments: {
           select: ATTACHMENT_SELECT,
           orderBy: { createdAt: 'asc' },
@@ -581,9 +576,9 @@ export const listVisibleTransactions = createServerFn({ method: 'GET' }).handler
         financialAccount: {
           select: { id: true, name: true, isGlobal: true },
         },
-        payee: { select: { id: true, name: true } },
-        category: { select: { id: true, name: true } },
-        tags: { select: { id: true, name: true }, orderBy: { name: 'asc' } },
+        payee: { select: TAXONOMY_COLOR_SELECT },
+        category: { select: TAXONOMY_COLOR_SELECT },
+        tags: { select: TAXONOMY_COLOR_SELECT, orderBy: { name: 'asc' } },
         reconciliationUpdatedBy: { select: { id: true, name: true } },
       },
     })
@@ -619,9 +614,9 @@ export const listRecentTransactions = createServerFn({ method: 'GET' })
         financialAccount: {
           select: { id: true, name: true, isGlobal: true },
         },
-        payee: { select: { id: true, name: true } },
-        category: { select: { id: true, name: true } },
-        tags: { select: { id: true, name: true }, orderBy: { name: 'asc' } },
+        payee: { select: TAXONOMY_COLOR_SELECT },
+        category: { select: TAXONOMY_COLOR_SELECT },
+        tags: { select: TAXONOMY_COLOR_SELECT, orderBy: { name: 'asc' } },
         reconciliationUpdatedBy: { select: { id: true, name: true } },
       },
     })
@@ -1042,9 +1037,9 @@ export const createTransaction = createServerFn({ method: 'POST' })
           : {}),
       },
       include: {
-        payee: { select: { id: true, name: true } },
-        category: { select: { id: true, name: true } },
-        tags: { select: { id: true, name: true }, orderBy: { name: 'asc' } },
+        payee: { select: TAXONOMY_COLOR_SELECT },
+        category: { select: TAXONOMY_COLOR_SELECT },
+        tags: { select: TAXONOMY_COLOR_SELECT, orderBy: { name: 'asc' } },
         financialAccount: { select: { name: true, isGlobal: true, userId: true } },
       },
     })
@@ -1153,8 +1148,18 @@ export const createTransfer = createServerFn({ method: 'POST' })
     if (!fromPayeeId || !toPayeeId) {
       throw new Error('Failed to resolve transfer payees.')
     }
-    const fromPayee: TaxonomyRef = { id: fromPayeeId, name: toAccount.name }
-    const toPayee: TaxonomyRef = { id: toPayeeId, name: fromAccount.name }
+    const fromPayee: ColoredTaxonomyRef = {
+      id: fromPayeeId,
+      name: toAccount.name,
+      bgColor: null,
+      textColor: null,
+    }
+    const toPayee: ColoredTaxonomyRef = {
+      id: toPayeeId,
+      name: fromAccount.name,
+      bgColor: null,
+      textColor: null,
+    }
 
     const magnitude = parsePositiveAmount(data.amount)
     const date = parseDate(data.date)
@@ -1775,9 +1780,9 @@ export const setTransactionReconciliationStatus = createServerFn({
         financialAccount: {
           select: { id: true, name: true, isGlobal: true, userId: true },
         },
-        payee: { select: { id: true, name: true } },
-        category: { select: { id: true, name: true } },
-        tags: { select: { id: true, name: true }, orderBy: { name: 'asc' } },
+        payee: { select: TAXONOMY_COLOR_SELECT },
+        category: { select: TAXONOMY_COLOR_SELECT },
+        tags: { select: TAXONOMY_COLOR_SELECT, orderBy: { name: 'asc' } },
         reconciliationUpdatedBy: { select: { id: true, name: true } },
       },
     })
@@ -1801,9 +1806,9 @@ export const setTransactionReconciliationStatus = createServerFn({
         reconciliationUpdatedById: userId,
       },
       include: {
-        payee: { select: { id: true, name: true } },
-        category: { select: { id: true, name: true } },
-        tags: { select: { id: true, name: true }, orderBy: { name: 'asc' } },
+        payee: { select: TAXONOMY_COLOR_SELECT },
+        category: { select: TAXONOMY_COLOR_SELECT },
+        tags: { select: TAXONOMY_COLOR_SELECT, orderBy: { name: 'asc' } },
         reconciliationUpdatedBy: { select: { id: true, name: true } },
       },
     })
