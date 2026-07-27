@@ -11,6 +11,7 @@ import {
   FormField,
   FormShell,
 } from '#/components/app/ui/form'
+import { Tabs } from '#/components/app/ui/Tabs'
 import type {
   AppUserOption,
   CarePersonDto,
@@ -68,6 +69,13 @@ type CarePeoplePanelProps = {
   users: AppUserOption[]
 }
 
+type PeopleSettingsTab = 'people' | 'types'
+
+const PEOPLE_SETTINGS_TABS: Array<{ id: PeopleSettingsTab; label: string }> = [
+  { id: 'people', label: 'People' },
+  { id: 'types', label: 'Types' },
+]
+
 export function CarePeoplePanel({
   types,
   people,
@@ -75,6 +83,7 @@ export function CarePeoplePanel({
 }: CarePeoplePanelProps) {
   const router = useRouter()
 
+  const [tab, setTab] = useState<PeopleSettingsTab>('people')
   const [showPersonForm, setShowPersonForm] = useState(false)
   const [editingPersonId, setEditingPersonId] = useState<string | null>(null)
   const [personError, setPersonError] = useState<string | null>(null)
@@ -194,30 +203,47 @@ export function CarePeoplePanel({
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="app-card p-4 sm:p-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h3 className="text-xl font-bold tracking-tight text-base-content">
-              People
-            </h3>
-            <p className="mt-1 text-sm text-base-content/60">
-              Offline caregivers and person types. Linked app users are managed
-              under Users.
-            </p>
-          </div>
-          {!showPersonForm ? (
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              onClick={startAddPerson}
-            >
-              Add person
-            </button>
-          ) : null}
+    <div className="app-card p-4 sm:p-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="text-xl font-bold tracking-tight text-base-content">
+            People
+          </h3>
+          <p className="mt-1 text-sm text-base-content/60">
+            {tab === 'people'
+              ? 'Offline caregivers for the schedule. Linked app users are managed under Users.'
+              : 'Roles used when scheduling people (family, employee, and custom).'}
+          </p>
         </div>
+        {tab === 'people' && !showPersonForm ? (
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={startAddPerson}
+          >
+            Add person
+          </button>
+        ) : null}
+        {tab === 'types' && !showTypeForm ? (
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={startAddType}
+          >
+            Add type
+          </button>
+        ) : null}
+      </div>
 
-        {showPersonForm ? (
+      <Tabs
+        className="mt-4"
+        tabs={PEOPLE_SETTINGS_TABS}
+        value={tab}
+        onChange={setTab}
+      />
+
+      {tab === 'people' ? (
+        showPersonForm ? (
           <FormShell
             card={false}
             onSubmit={savePerson}
@@ -305,111 +331,87 @@ export function CarePeoplePanel({
               </li>
             ))}
           </ul>
-        )}
-      </div>
-
-      <div className="app-card p-4 sm:p-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h3 className="text-xl font-bold tracking-tight text-base-content">
-              Person types
-            </h3>
-            <p className="mt-1 text-sm text-base-content/60">
-              Roles used when scheduling people (family, employee, and custom).
+        )
+      ) : showTypeForm ? (
+        <FormShell
+          card={false}
+          onSubmit={saveType}
+          className="mt-4 rounded-box border border-base-300 p-4"
+        >
+          <FormField label="Name" htmlFor="type-name">
+            <input
+              id="type-name"
+              className={FORM_INPUT_CLASS}
+              value={typeName}
+              onChange={(e) => setTypeName(e.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Must Be Paid" htmlFor="type-is-paid">
+            <input
+              id="type-is-paid"
+              type="checkbox"
+              className="toggle toggle-primary"
+              checked={typeIsPaid}
+              onChange={(e) => setTypeIsPaid(e.target.checked)}
+            />
+          </FormField>
+          {typeIsPaid ? (
+            <p className="text-sm text-base-content/60">
+              Rate and pay type are set on each person of this type.
             </p>
-          </div>
-          {!showTypeForm ? (
+          ) : null}
+          {typeError ? (
+            <p className="text-sm text-error" role="alert">
+              {typeError}
+            </p>
+          ) : null}
+          <FormActions>
             <button
               type="button"
-              className="btn btn-primary btn-sm"
-              onClick={startAddType}
+              className="btn btn-ghost"
+              onClick={resetTypeForm}
             >
-              Add type
+              Cancel
             </button>
-          ) : null}
-        </div>
-
-        {showTypeForm ? (
-          <FormShell
-            card={false}
-            onSubmit={saveType}
-            className="mt-4 rounded-box border border-base-300 p-4"
-          >
-            <FormField label="Name" htmlFor="type-name">
-              <input
-                id="type-name"
-                className={FORM_INPUT_CLASS}
-                value={typeName}
-                onChange={(e) => setTypeName(e.target.value)}
-                required
-              />
-            </FormField>
-            <FormField label="Must Be Paid" htmlFor="type-is-paid">
-              <input
-                id="type-is-paid"
-                type="checkbox"
-                className="toggle toggle-primary"
-                checked={typeIsPaid}
-                onChange={(e) => setTypeIsPaid(e.target.checked)}
-              />
-            </FormField>
-            {typeIsPaid ? (
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={typeSaving}
+            >
+              {typeSaving
+                ? 'Saving…'
+                : editingTypeId
+                  ? 'Update type'
+                  : 'Create type'}
+            </button>
+          </FormActions>
+        </FormShell>
+      ) : types.length === 0 ? (
+        <p className="mt-4 text-sm text-base-content/60">
+          No person types yet.
+        </p>
+      ) : (
+        <ul className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {types.map((t) => (
+            <li key={t.id} className="flex flex-col gap-3 app-card p-4">
+              <p className="font-medium text-base-content">{t.name}</p>
               <p className="text-sm text-base-content/60">
-                Rate and pay type are set on each person of this type.
+                {t.isPaid ? 'Paid' : 'Unpaid'}
               </p>
-            ) : null}
-            {typeError ? (
-              <p className="text-sm text-error" role="alert">
-                {typeError}
-              </p>
-            ) : null}
-            <FormActions>
-              <button
-                type="button"
-                className="btn btn-ghost"
-                onClick={resetTypeForm}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="btn btn-primary"
-                disabled={typeSaving}
-              >
-                {typeSaving
-                  ? 'Saving…'
-                  : editingTypeId
-                    ? 'Update type'
-                    : 'Create type'}
-              </button>
-            </FormActions>
-          </FormShell>
-        ) : types.length === 0 ? (
-          <p className="mt-4 text-sm text-base-content/60">
-            No person types yet.
-          </p>
-        ) : (
-          <ul className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {types.map((t) => (
-              <li key={t.id} className="flex flex-col gap-3 app-card p-4">
-                <p className="font-medium text-base-content">{t.name}</p>
-                <p className="text-sm text-base-content/60">
-                  {t.isPaid ? 'Paid' : 'Unpaid'}
-                </p>
-                <div className="mt-auto flex justify-end">
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    onClick={() => startEditType(t)}
-                  >
-                    Edit
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+              <div className="mt-auto flex justify-end">
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => startEditType(t)}
+                >
+                  Edit
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }

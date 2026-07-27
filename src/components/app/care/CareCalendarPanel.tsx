@@ -23,7 +23,6 @@ import {
   claimOccurrences,
   createCalendarEvent,
   createCoverageAssignmentRule,
-  createCoverageOccurrence,
   createSwapRequest,
   deleteCoverageAssignmentRule,
   deleteCoverageSeries,
@@ -60,7 +59,6 @@ type CareCalendarPanelProps = {
 }
 
 type ModalKind =
-  | 'coverage'
   | 'assignRule'
   | 'event'
   | 'swap'
@@ -281,31 +279,13 @@ export function CareCalendarPanel({
               day: 'numeric',
             })}
           </h3>
-          <div className="dropdown dropdown-end">
-            <button type="button" tabIndex={0} className="btn btn-primary btn-sm">
-              Add
-            </button>
-            <ul
-              tabIndex={0}
-              className="menu dropdown-content z-30 mt-1 w-52 rounded-box bg-base-100 p-2 shadow"
-            >
-              <li>
-                <button type="button" onClick={() => openModal('coverage')}>
-                  Coverage (one-off)
-                </button>
-              </li>
-              <li>
-                <button type="button" onClick={() => openModal('assignRule')}>
-                  Recurring coverage
-                </button>
-              </li>
-              <li>
-                <button type="button" onClick={() => openModal('event')}>
-                  Appointment / event
-                </button>
-              </li>
-            </ul>
-          </div>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => openModal('event')}
+          >
+            Add
+          </button>
         </div>
 
         <section className="mt-4">
@@ -493,16 +473,7 @@ export function CareCalendarPanel({
     setSaving(true)
     setError(null)
     try {
-      if (modal === 'coverage') {
-        await createCoverageOccurrence({
-          data: {
-            assigneeId: assigneeId || null,
-            startsAt: toLocalIsoFromParts(startDate, startTime),
-            endsAt: toLocalIsoFromParts(startDate, endTime),
-            notes: notes || null,
-          },
-        })
-      } else if (modal === 'assignRule') {
+      if (modal === 'assignRule') {
         if (!assigneeId) {
           throw new Error('Pick who will cover these slots.')
         }
@@ -589,19 +560,17 @@ export function CareCalendarPanel({
   })
 
   const modalTitle =
-    modal === 'coverage'
-      ? 'Add coverage'
-      : modal === 'assignRule'
-        ? 'Assign recurring coverage'
-        : modal === 'event'
-          ? 'Add event'
-          : modal === 'swap'
-            ? 'Request swap'
-            : modal === 'assign'
-              ? 'Assign open slot'
-              : modal === 'manage'
-                ? 'Manage recurring coverage'
-                : ''
+    modal === 'assignRule'
+      ? 'Assign recurring coverage'
+      : modal === 'event'
+        ? 'Add event'
+        : modal === 'swap'
+          ? 'Request swap'
+          : modal === 'assign'
+            ? 'Assign open slot'
+            : modal === 'manage'
+              ? 'Manage recurring coverage'
+              : ''
 
   return (
     <div className="relative flex flex-col gap-4 lg:grid lg:grid-cols-[2.5fr_1fr] lg:items-start">
@@ -1123,27 +1092,6 @@ export function CareCalendarPanel({
                 </>
               ) : null}
 
-              {modal === 'coverage' ? (
-                <FormField
-                  label="Assignee (optional = open)"
-                  htmlFor="coverage-assignee"
-                >
-                  <select
-                    id="coverage-assignee"
-                    className={FORM_SELECT_CLASS}
-                    value={assigneeId}
-                    onChange={(e) => setAssigneeId(e.target.value)}
-                  >
-                    <option value="">Open slot</option>
-                    {activePeople.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </select>
-                </FormField>
-              ) : null}
-
               {modal === 'assignRule' ? (
                 <>
                   <p className="text-sm text-base-content/70">
@@ -1172,7 +1120,7 @@ export function CareCalendarPanel({
                 </>
               ) : null}
 
-              {modal === 'coverage' || modal === 'event' || modal === 'assignRule' ? (
+              {modal === 'event' || modal === 'assignRule' ? (
                 <>
                   <FormField
                     label={modal === 'assignRule' ? 'Starts on' : 'Date'}
@@ -1201,7 +1149,7 @@ export function CareCalendarPanel({
                       />
                     </FormField>
                   ) : null}
-                  {modal === 'coverage' || modal === 'event' ? (
+                  {modal === 'event' ? (
                     <FormRow>
                       <FormField label="Start time" htmlFor="coverage-start-time">
                         <input
