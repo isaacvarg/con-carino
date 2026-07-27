@@ -52,6 +52,10 @@ describe('amount helpers', () => {
     expect(directionFromSignedAmount(outLeg)).toBe('out')
     expect(directionFromSignedAmount(inLeg)).toBe('in')
   })
+
+  it('signs withdrawals as negative', () => {
+    expect(toSignedTransactionAmount('WITHDRAWAL', 25)).toBe(-25)
+  })
 })
 
 describe('transaction activity snapshots', () => {

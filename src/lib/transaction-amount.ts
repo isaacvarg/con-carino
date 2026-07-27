@@ -28,6 +28,7 @@ export function toSignedTransactionAmount(
 
   switch (type) {
     case 'EXPENSE':
+    case 'WITHDRAWAL':
       return -magnitude
     case 'INCOME':
     case 'REFUND':

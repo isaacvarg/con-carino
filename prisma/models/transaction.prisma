@@ -5,6 +5,7 @@ enum TransactionType {
   BALANCE_ADJUSTMENT
   REFUND
   REIMBURSEMENT
+  WITHDRAWAL
 }
 
 enum ReconciliationStatus {
