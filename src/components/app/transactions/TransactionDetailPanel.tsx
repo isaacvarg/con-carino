@@ -6,6 +6,7 @@ import {
   HiOutlinePencil,
   HiOutlineSearch,
 } from 'react-icons/hi'
+import { LuBadgeCheck } from 'react-icons/lu'
 import {
   AttachmentsZone,
   type AttachmentsZoneHandle,
@@ -714,7 +715,20 @@ export function TransactionDetailPanel({
         </>
       ) : (
         <div className="grid gap-6 lg:grid-cols-2">
-          <DetailCard title="Summary">
+          <DetailCard
+            title="Summary"
+            actions={
+              isReconciled ? (
+                <span
+                  className="inline-flex text-success"
+                  title="Reconciled"
+                  aria-label="Reconciled"
+                >
+                  <LuBadgeCheck className="size-8" aria-hidden />
+                </span>
+              ) : undefined
+            }
+          >
             <div className="grid gap-4 sm:grid-cols-2">
               <DetailField label="Date">
                 {formatTransactionDate(transaction.date)}
