@@ -1134,6 +1134,28 @@ export const createTransfer = createServerFn({ method: 'POST' })
     await assertAccountVisible(userId, data.fromAccountId)
     await assertAccountVisible(userId, data.toAccountId)
 
+    const [fromAccount, toAccount] = await Promise.all([
+      prisma.financialAccount.findUniqueOrThrow({
+        where: { id: data.fromAccountId },
+        select: { name: true, isGlobal: true, userId: true },
+      }),
+      prisma.financialAccount.findUniqueOrThrow({
+        where: { id: data.toAccountId },
+        select: { name: true, isGlobal: true },
+      }),
+    ])
+
+    const [fromPayeeId, toPayeeId] = await Promise.all([
+      resolvePayeeId(toAccount.name),
+      resolvePayeeId(fromAccount.name),
+    ])
+    // resolvePayeeId returns null only for empty input; account names are non-empty.
+    if (!fromPayeeId || !toPayeeId) {
+      throw new Error('Failed to resolve transfer payees.')
+    }
+    const fromPayee: TaxonomyRef = { id: fromPayeeId, name: toAccount.name }
+    const toPayee: TaxonomyRef = { id: toPayeeId, name: fromAccount.name }
+
     const magnitude = parsePositiveAmount(data.amount)
     const date = parseDate(data.date)
     const outAmount = toSignedTransactionAmount('TRANSFER', magnitude, 'out')
@@ -1150,6 +1172,7 @@ export const createTransfer = createServerFn({ method: 'POST' })
           date,
           description: data.description,
           transferGroupId,
+          payeeId: fromPayeeId,
         },
       })
       const to = await tx.transaction.create({
@@ -1161,19 +1184,9 @@ export const createTransfer = createServerFn({ method: 'POST' })
           date,
           description: data.description,
           transferGroupId,
+          payeeId: toPayeeId,
         },
       })
-
-      const [fromAccount, toAccount] = await Promise.all([
-        tx.financialAccount.findUniqueOrThrow({
-          where: { id: data.fromAccountId },
-          select: { name: true, isGlobal: true, userId: true },
-        }),
-        tx.financialAccount.findUniqueOrThrow({
-          where: { id: data.toAccountId },
-          select: { name: true, isGlobal: true },
-        }),
-      ])
 
       await logActivity(
         {
@@ -1230,6 +1243,7 @@ export const createTransfer = createServerFn({ method: 'POST' })
         description: fromTxn.description,
         date: fromTxn.date.toISOString(),
         ...empty,
+        payee: fromPayee,
         attachments,
       },
       to: {
@@ -1241,6 +1255,7 @@ export const createTransfer = createServerFn({ method: 'POST' })
         description: toTxn.description,
         date: toTxn.date.toISOString(),
         ...empty,
+        payee: toPayee,
         attachments,
       },
     }
