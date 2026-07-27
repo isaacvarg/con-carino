@@ -1,15 +1,33 @@
-import { createFileRoute } from '@tanstack/react-router'
-import ComingSoonFeedback from '#/components/app/ComingSoonFeedback'
+import { createFileRoute, redirect } from '@tanstack/react-router'
+import InsightsPage from '#/components/app/insights/InsightsPage'
+import { listAccounts } from '#/server/accounts'
+import {
+  getSpendingByCategory,
+  getSpendingByPayee,
+} from '#/server/transactions'
 
 export const Route = createFileRoute('/_app/insights')({
-  component: InsightsPage,
+  beforeLoad: ({ context, location }) => {
+    if (!context.session) {
+      throw redirect({
+        to: '/login',
+        search: { redirect: location.href },
+      })
+    }
+  },
+  loader: async () => {
+    const [accounts, categorySpending, payeeSpending] = await Promise.all([
+      listAccounts(),
+      getSpendingByCategory({ data: { range: 'month' } }),
+      getSpendingByPayee({ data: { range: 'month' } }),
+    ])
+
+    return { accounts, categorySpending, payeeSpending }
+  },
+  component: InsightsRoute,
 })
 
-function InsightsPage() {
-  return (
-    <ComingSoonFeedback
-      title="Insights"
-      description="Spending insights and analytics will appear here."
-    />
-  )
+function InsightsRoute() {
+  const data = Route.useLoaderData()
+  return <InsightsPage {...data} />
 }

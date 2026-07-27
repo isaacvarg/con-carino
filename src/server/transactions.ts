@@ -758,6 +758,133 @@ export const getTagTransactionStats = createServerFn({
   return capTaxonomyStats(stats)
 })
 
+export type SpendingRange = 'month' | '30d' | '60d' | 'all'
+
+export type SpendingStat = {
+  id: string | null
+  name: string
+  amount: number
+}
+
+const SPENDING_RANGES = new Set<SpendingRange>(['month', '30d', '60d', 'all'])
+
+const SPENDING_TYPES: TransactionType[] = ['EXPENSE', 'WITHDRAWAL']
+
+function parseSpendingRange(data: unknown): { range: SpendingRange } {
+  const input = (data ?? {}) as Record<string, unknown>
+  const range = input.range
+  if (typeof range !== 'string' || !SPENDING_RANGES.has(range as SpendingRange)) {
+    throw new Error('Invalid spending range.')
+  }
+  return { range: range as SpendingRange }
+}
+
+function spendingDateGte(range: SpendingRange): Date | undefined {
+  const now = new Date()
+  if (range === 'all') return undefined
+  if (range === 'month') {
+    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+  }
+  const days = range === '30d' ? 30 : 60
+  return new Date(now.getTime() - days * 24 * 60 * 60 * 1000)
+}
+
+function spendingWhere(userId: string, range: SpendingRange) {
+  const gte = spendingDateGte(range)
+  return {
+    financialAccount: ownOrGlobal(userId),
+    type: { in: SPENDING_TYPES },
+    ...(gte ? { date: { gte } } : {}),
+  }
+}
+
+function capSpendingStats(stats: SpendingStat[]): SpendingStat[] {
+  const sorted = [...stats]
+    .filter((s) => s.amount > 0)
+    .sort((a, b) => b.amount - a.amount)
+  if (sorted.length <= STATS_TOP) return sorted
+  const head = sorted.slice(0, STATS_TOP)
+  const otherAmount = sorted
+    .slice(STATS_TOP)
+    .reduce((sum, s) => sum + s.amount, 0)
+  return [...head, { id: null, name: 'Other', amount: otherAmount }]
+}
+
+function spendingAmountFromSum(sum: { toString(): string } | null): number {
+  const raw = Number(sum?.toString() ?? '0')
+  if (!Number.isFinite(raw)) return 0
+  // EXPENSE / WITHDRAWAL amounts are stored negative; report positive dollars spent.
+  return -raw
+}
+
+export const getSpendingByCategory = createServerFn({ method: 'GET' })
+  .validator(parseSpendingRange)
+  .handler(async ({ data }): Promise<SpendingStat[]> => {
+    const userId = await requireUserId()
+
+    const groups = await prisma.transaction.groupBy({
+      by: ['categoryId'],
+      where: spendingWhere(userId, data.range),
+      _sum: { amount: true },
+    })
+
+    const categoryIds = groups
+      .map((g) => g.categoryId)
+      .filter((id): id is string => typeof id === 'string')
+
+    const categories =
+      categoryIds.length > 0
+        ? await prisma.category.findMany({
+            where: { id: { in: categoryIds } },
+            select: { id: true, name: true },
+          })
+        : []
+    const nameById = new Map(categories.map((c) => [c.id, c.name]))
+
+    return capSpendingStats(
+      groups.map((g) => ({
+        id: g.categoryId,
+        name: g.categoryId
+          ? (nameById.get(g.categoryId) ?? 'Unknown')
+          : 'No category',
+        amount: spendingAmountFromSum(g._sum.amount),
+      })),
+    )
+  })
+
+export const getSpendingByPayee = createServerFn({ method: 'GET' })
+  .validator(parseSpendingRange)
+  .handler(async ({ data }): Promise<SpendingStat[]> => {
+    const userId = await requireUserId()
+
+    const groups = await prisma.transaction.groupBy({
+      by: ['payeeId'],
+      where: spendingWhere(userId, data.range),
+      _sum: { amount: true },
+    })
+
+    const payeeIds = groups
+      .map((g) => g.payeeId)
+      .filter((id): id is string => typeof id === 'string')
+
+    const payees =
+      payeeIds.length > 0
+        ? await prisma.payee.findMany({
+            where: { id: { in: payeeIds } },
+            select: { id: true, name: true },
+          })
+        : []
+    const nameById = new Map(payees.map((p) => [p.id, p.name]))
+
+    return capSpendingStats(
+      groups.map((g) => ({
+        id: g.payeeId,
+        name: g.payeeId ? (nameById.get(g.payeeId) ?? 'Unknown') : 'No payee',
+        amount: spendingAmountFromSum(g._sum.amount),
+      })),
+    )
+  })
+
 export const getTransaction = createServerFn({ method: 'GET' })
   .validator((data: unknown) => {
     if (!data || typeof data !== 'object') {
