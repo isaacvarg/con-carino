@@ -24,7 +24,6 @@ export function CategoriesSettingsPanel({
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [name, setName] = useState('')
-  const [isExpenditure, setIsExpenditure] = useState(true)
   const [bgColor, setBgColor] = useState('')
   const [textColor, setTextColor] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -33,7 +32,6 @@ export function CategoriesSettingsPanel({
   function resetForm() {
     setEditingId(null)
     setName('')
-    setIsExpenditure(true)
     setBgColor('')
     setTextColor('')
     setError(null)
@@ -48,7 +46,6 @@ export function CategoriesSettingsPanel({
   function startEdit(category: CategoryRecord) {
     setEditingId(category.id)
     setName(category.name)
-    setIsExpenditure(category.isExpenditure)
     setBgColor(category.bgColor ?? '')
     setTextColor(category.textColor ?? '')
     setError(null)
@@ -60,7 +57,7 @@ export function CategoriesSettingsPanel({
     setSaving(true)
     setError(null)
     try {
-      const payload = { name, isExpenditure, bgColor, textColor }
+      const payload = { name, bgColor, textColor }
       if (editingId) {
         await updateCategory({ data: { id: editingId, ...payload } })
       } else {
@@ -85,7 +82,7 @@ export function CategoriesSettingsPanel({
             Categories
           </h3>
           <p className="mt-1 text-sm text-base-content/60">
-            Group transactions by spending or income category.
+            Labels for grouping transactions.
           </p>
         </div>
         {!showForm ? (
@@ -115,15 +112,6 @@ export function CategoriesSettingsPanel({
               autoFocus
             />
           </FormField>
-          <label className="label cursor-pointer justify-start gap-3">
-            <input
-              type="checkbox"
-              className="checkbox checkbox-primary"
-              checked={isExpenditure}
-              onChange={(e) => setIsExpenditure(e.target.checked)}
-            />
-            <span className="label-text font-medium">Expenditure</span>
-          </label>
           <FormRow>
             <ColorField
               id="category-bg-color"
@@ -188,9 +176,6 @@ export function CategoriesSettingsPanel({
                   textColor={category.textColor}
                   size="lg"
                 />
-                <span className="text-xs text-base-content/60">
-                  {category.isExpenditure ? 'Expenditure' : 'Income'}
-                </span>
               </div>
               <div className="mt-auto flex justify-end">
                 <button

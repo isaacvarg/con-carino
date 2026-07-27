@@ -13,7 +13,6 @@ import { ColorField } from './taxonomy-form-fields'
 
 type CreateCategoryFormValues = {
   name: string
-  isExpenditure: boolean
   iconId: string
   bgColor: string
   textColor: string
@@ -31,7 +30,6 @@ export function CreateCategoryForm({
   const form = useForm({
     defaultValues: {
       name: '',
-      isExpenditure: true as boolean,
       iconId: '',
       bgColor: '',
       textColor: '',
@@ -40,7 +38,6 @@ export function CreateCategoryForm({
       const created = await createCategory({
         data: {
           name: value.name,
-          isExpenditure: value.isExpenditure,
           iconId: value.iconId,
           bgColor: value.bgColor,
           textColor: value.textColor,
@@ -97,21 +94,6 @@ export function CreateCategoryForm({
             </FormField>
           )
         }}
-      </form.Field>
-
-      <form.Field name="isExpenditure">
-        {(field) => (
-          <label className="label cursor-pointer justify-start gap-3">
-            <input
-              type="checkbox"
-              className="checkbox checkbox-primary"
-              checked={field.state.value}
-              onBlur={field.handleBlur}
-              onChange={(event) => field.handleChange(event.target.checked)}
-            />
-            <span className="label-text font-medium">Expenditure</span>
-          </label>
-        )}
       </form.Field>
 
       <form.Field name="iconId">

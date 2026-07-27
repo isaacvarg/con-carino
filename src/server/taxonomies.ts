@@ -30,7 +30,6 @@ const PAYEE_SELECT = {
 const CATEGORY_SELECT = {
   id: true,
   name: true,
-  isExpenditure: true,
   iconId: true,
   bgColor: true,
   textColor: true,
@@ -120,8 +119,6 @@ export const createCategory = createServerFn({ method: 'POST' })
     const input = data as Record<string, unknown>
     return {
       name: requireName(input.name),
-      isExpenditure:
-        typeof input.isExpenditure === 'boolean' ? input.isExpenditure : true,
       iconId: optionalString(input.iconId),
       bgColor: optionalString(input.bgColor),
       textColor: optionalString(input.textColor),
@@ -132,7 +129,6 @@ export const createCategory = createServerFn({ method: 'POST' })
     return prisma.category.create({
       data: {
         name: data.name,
-        isExpenditure: data.isExpenditure,
         iconId: data.iconId,
         bgColor: data.bgColor,
         textColor: data.textColor,
@@ -206,8 +202,6 @@ export const updateCategory = createServerFn({ method: 'POST' })
     return {
       id: requireId(input.id),
       name: requireName(input.name),
-      isExpenditure:
-        typeof input.isExpenditure === 'boolean' ? input.isExpenditure : true,
       iconId: optionalString(input.iconId),
       bgColor: optionalString(input.bgColor),
       textColor: optionalString(input.textColor),
@@ -219,7 +213,6 @@ export const updateCategory = createServerFn({ method: 'POST' })
       where: { id: data.id },
       data: {
         name: data.name,
-        isExpenditure: data.isExpenditure,
         iconId: data.iconId,
         bgColor: data.bgColor,
         textColor: data.textColor,

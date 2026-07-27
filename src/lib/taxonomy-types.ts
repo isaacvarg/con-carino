@@ -29,7 +29,6 @@ export type PayeeRecord = TaxonomyListItem & {
 }
 
 export type CategoryRecord = TaxonomyListItem & {
-  isExpenditure: boolean
   iconId: string | null
   bgColor: string | null
   textColor: string | null

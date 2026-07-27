@@ -165,7 +165,7 @@ async function resolveCategoryId(
   if (byName) return byName.id
 
   const created = await prisma.category.create({
-    data: { name: trimmed, isExpenditure: true },
+    data: { name: trimmed },
     select: { id: true },
   })
   return created.id

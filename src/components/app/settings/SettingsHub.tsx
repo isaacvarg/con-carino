@@ -62,7 +62,7 @@ const SETTINGS_CARDS: SettingsCard[] = [
   {
     to: '/settings/categories',
     title: 'Categories',
-    description: 'Spending and income categories for transactions.',
+    description: 'Labels for grouping transactions.',
     icon: HiOutlineCollection,
   },
   {
