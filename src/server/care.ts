@@ -30,6 +30,7 @@ import {
   payPeriodStart,
 } from '#/lib/care-invoice'
 import { occurrenceMatchesRule } from '#/lib/care-assignment'
+import { canReleaseOccurrence } from '#/lib/care-release'
 import { buildRequiredCoverageWindows } from '#/lib/care-required'
 import { expandSeriesOccurrences, parseHhMm } from '#/lib/care-recurrence'
 import {
@@ -39,6 +40,10 @@ import {
 } from '#/lib/activity'
 import { sendEmail } from '#/lib/email'
 import { prisma } from '#/lib/prisma'
+import {
+  buildReleaseEmail,
+  buildReleaseScheduleUrl,
+} from '#/lib/release-notify'
 import type { SwapEmailKind } from '#/lib/swap-notify'
 import {
   buildSwapEmail,
@@ -1141,6 +1146,13 @@ async function deleteRequiredSeries(seriesId: string) {
   await prisma.careCoverageSeries.delete({ where: { id: seriesId } })
 }
 
+/**
+ * Note: released slots are deleted along with the rest, so changing the loved
+ * one's required coverage drops any self-release markers on those windows and
+ * the recreated occurrences become rule-fillable again. Intended — the window
+ * itself changed — but surprising if you are tracing why a released slot
+ * refilled.
+ */
 async function deleteOpenFutureForSeries(seriesId: string) {
   await prisma.careCoverageOccurrence.deleteMany({
     where: {
@@ -1275,6 +1287,7 @@ function dateOnlyToLocalMidnight(d: Date): Date {
 type AssignmentApplyResult = {
   assigned: number
   skippedOverlap: number
+  skippedReleased: number
   alreadyCovered: number
 }
 
@@ -1283,8 +1296,9 @@ type AssignmentApplyResult = {
  * assignment rule, for occurrences within [rangeStart, rangeEnd]. Fills only
  * genuinely open (unassigned, SCHEDULED, not-yet-elapsed) slots that match the
  * rule's days and shift scope, skipping any where the person already has
- * overlapping coverage. Idempotent: assigned slots carry assignedByRuleId and
- * are skipped on later passes.
+ * overlapping coverage or which that same person previously gave up.
+ * Idempotent: assigned slots carry assignedByRuleId and are skipped on later
+ * passes.
  */
 async function applyAssignmentRules(
   rangeStart: Date,
@@ -1294,6 +1308,7 @@ async function applyAssignmentRules(
   const result: AssignmentApplyResult = {
     assigned: 0,
     skippedOverlap: 0,
+    skippedReleased: 0,
     alreadyCovered: 0,
   }
   const rules = await prisma.careCoverageAssignmentRule.findMany({
@@ -1358,6 +1373,12 @@ async function applyAssignmentRules(
         if (occ.assigneeId !== rule.assigneeId) result.alreadyCovered += 1
         continue
       }
+      // This person gave the window up; a rule of theirs must not take it back.
+      // Filtered here rather than in the query so the skip stays countable.
+      if (occ.releasedByPersonId === rule.assigneeId) {
+        result.skippedReleased += 1
+        continue
+      }
       if (
         await occurrencesOverlap(rule.assigneeId, occ.startsAt, occ.endsAt)
       ) {
@@ -1370,6 +1391,9 @@ async function applyAssignmentRules(
           assigneeId: rule.assigneeId,
           assignedByRuleId: rule.id,
           billingStatus,
+          // A different person's rule filling a released slot satisfies the wish.
+          releasedByPersonId: null,
+          releasedAt: null,
         },
       })
       result.assigned += 1
@@ -2417,7 +2441,15 @@ export const updateOccurrence = createServerFn({ method: 'POST' })
     await prisma.careCoverageOccurrence.update({
       where: { id: data.id },
       data: {
-        ...(data.assigneeId !== undefined ? { assigneeId: data.assigneeId } : {}),
+        // Any deliberate assignee edit supersedes a prior self-release, so the
+        // marker never outlives the assignment it was about.
+        ...(data.assigneeId !== undefined
+          ? {
+              assigneeId: data.assigneeId,
+              releasedByPersonId: null,
+              releasedAt: null,
+            }
+          : {}),
         ...(data.status !== undefined ? { status: data.status } : {}),
         ...(data.notes !== undefined ? { notes: data.notes } : {}),
       },
@@ -2513,7 +2545,11 @@ export const claimOccurrences = createServerFn({ method: 'POST' })
       for (const row of sorted) {
         const updated = await tx.careCoverageOccurrence.update({
           where: { id: row.id },
-          data: { assigneeId: data.assigneeId },
+          data: {
+            assigneeId: data.assigneeId,
+            releasedByPersonId: null,
+            releasedAt: null,
+          },
         })
         await logActivity(
           {
@@ -2541,6 +2577,116 @@ export const claimOccurrences = createServerFn({ method: 'POST' })
       orderBy: { startsAt: 'asc' },
     })
     return updated.map(toOccurrenceDto)
+  })
+
+/**
+ * Remove yourself as the assignee of one of your own windows, reopening it for
+ * anyone to claim. Optionally emails everyone that the slot is now open.
+ */
+export const releaseOccurrence = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    if (!data || typeof data !== 'object') throw new Error('Invalid payload.')
+    const input = data as Record<string, unknown>
+    const id = typeof input.id === 'string' ? input.id.trim() : ''
+    if (!id) throw new Error('Occurrence id is required.')
+    // Notifying is the default; only an explicit false opts out.
+    const notify = input.notify === undefined ? true : input.notify === true
+    return { id, notify }
+  })
+  .handler(async ({ data }): Promise<CareCoverageOccurrenceDto> => {
+    const userId = await requireUserId()
+    const person = await personForUser(userId)
+
+    const existing = await prisma.careCoverageOccurrence.findUnique({
+      where: { id: data.id },
+      include: { invoiceLine: { include: { invoice: true } } },
+    })
+    if (!existing) throw new Error('Coverage window not found.')
+
+    // Authoritative permission check: the caller must be the assignee. The
+    // schedule UI hides the button, but that is convenience only.
+    const check = canReleaseOccurrence(existing, person?.id ?? null, new Date())
+    if (!check.ok) throw new Error(check.reason)
+    const releasingPerson = person!
+
+    // syncBillingForAssignee throws on PAID too, but only after assigneeId has
+    // been cleared, which would strand an unassigned window on a paid invoice.
+    if (existing.invoiceLine?.invoice.status === 'PAID') {
+      throw new Error(
+        'This coverage is on a paid invoice and cannot be reassigned. Void the invoice first.',
+      )
+    }
+
+    const promised = await prisma.careSwapItem.findFirst({
+      where: { occurrenceId: data.id, swap: { status: 'PENDING' } },
+      select: { id: true },
+    })
+    if (promised) {
+      throw new Error(
+        'This window is part of a pending swap. Cancel the swap first.',
+      )
+    }
+
+    // Ownership stays in the WHERE so a concurrent rule fill, swap approval, or
+    // admin reassign loses the race loudly instead of being clobbered.
+    const { count } = await prisma.careCoverageOccurrence.updateMany({
+      where: { id: data.id, assigneeId: releasingPerson.id, status: 'SCHEDULED' },
+      data: {
+        assigneeId: null,
+        // The slot is no longer the rule's to revert.
+        assignedByRuleId: null,
+        releasedByPersonId: releasingPerson.id,
+        releasedAt: new Date(),
+        billingStatus: 'NOT_BILLABLE',
+      },
+    })
+    if (count !== 1) {
+      throw new Error(
+        'This window changed while you were working on it. Reload and try again.',
+      )
+    }
+
+    await syncBillingForAssignee(data.id, null)
+
+    const refreshed = await prisma.careCoverageOccurrence.findUniqueOrThrow({
+      where: { id: data.id },
+      include: occurrenceInclude,
+    })
+
+    // Notify before logging so the activity entry records what actually
+    // happened rather than what was intended.
+    const notified = data.notify
+      ? await notifySlotOpened({
+          actorUserId: userId,
+          actorName: releasingPerson.name,
+          startsAt: existing.startsAt,
+          endsAt: existing.endsAt,
+        })
+      : 0
+
+    const windowLabel = formatWindowLabel(refreshed.startsAt, refreshed.endsAt)
+    await logActivity({
+      actorUserId: userId,
+      action: 'UPDATE',
+      entityType: ACTIVITY_ENTITY_TYPES.coverage_occurrence,
+      entityId: refreshed.id,
+      summary: data.notify
+        ? `${releasingPerson.name} gave up coverage on ${windowLabel} and notified everyone that the slot is open.`
+        : `${releasingPerson.name} gave up coverage on ${windowLabel} without notifying anyone.`,
+      changes: {
+        ...diffChanges(existing, refreshed, [
+          'assigneeId',
+          'assignedByRuleId',
+          'billingStatus',
+        ]),
+        notified: { before: null, after: data.notify },
+        notifiedCount: { before: null, after: notified },
+      },
+      linkMeta: { day: toDayKey(refreshed.startsAt), tab: 'calendar' },
+      visibilityUserId: null,
+    })
+
+    return toOccurrenceDto(refreshed)
   })
 
 export const listCoverageSeries = createServerFn({ method: 'GET' }).handler(
@@ -2788,7 +2934,10 @@ export const createCoverageAssignmentRule = createServerFn({ method: 'POST' })
     return {
       rule: dto,
       assigned: applied.assigned,
-      skipped: applied.skippedOverlap + applied.alreadyCovered,
+      skipped:
+        applied.skippedOverlap +
+        applied.alreadyCovered +
+        applied.skippedReleased,
     }
   })
 
@@ -3178,6 +3327,80 @@ async function notifySwapParticipants(
   }
 }
 
+/**
+ * Every app user with a usable email except the actor. Open-slot notices go to
+ * the whole household, not just caregivers linked to a CarePerson.
+ */
+async function mailableUsersExcept(actorUserId: string): Promise<string[]> {
+  const rows = await prisma.user.findMany({
+    where: { id: { not: actorUserId }, email: { not: null } },
+    select: { email: true },
+  })
+  const seen = new Set<string>()
+  const recipients: string[] = []
+  for (const row of rows) {
+    // Postgres IS NOT NULL still lets '' through, and addresses differing only
+    // by case are the same inbox.
+    const email = row.email?.trim()
+    if (!email) continue
+    const key = email.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    recipients.push(email)
+  }
+  return recipients
+}
+
+/**
+ * Broadcast a newly opened slot to everyone but the actor. Returns how many
+ * sends succeeded. A send failure must never fail the mutation that triggered
+ * it, and one bad address must not silence the rest of the household — hence
+ * the per-recipient catch inside the loop.
+ */
+async function notifySlotOpened(input: {
+  actorUserId: string
+  actorName: string | null
+  startsAt: Date
+  endsAt: Date
+}): Promise<number> {
+  try {
+    const recipients = await mailableUsersExcept(input.actorUserId)
+    if (recipients.length === 0) return 0
+
+    const day = toDayKey(input.startsAt)
+    const origin = resolveAppOrigin({
+      authUrl: process.env.AUTH_URL,
+      requestUrl: getRequest().url,
+    })
+    const email = buildReleaseEmail({
+      actorName: input.actorName,
+      startsAt: input.startsAt,
+      endsAt: input.endsAt,
+      scheduleUrl: origin ? buildReleaseScheduleUrl(origin, day) : null,
+      dayLabel: day,
+    })
+
+    let sent = 0
+    for (const to of recipients) {
+      try {
+        const result = await sendEmail({
+          to,
+          subject: email.subject,
+          html: email.html,
+          text: email.text,
+        })
+        if (result.sent) sent += 1
+      } catch (err) {
+        console.error(`[care] Failed to send open-slot email to ${to}:`, err)
+      }
+    }
+    return sent
+  } catch (err) {
+    console.error('[care] Failed to send open-slot emails:', err)
+    return 0
+  }
+}
+
 /** The CarePerson this user acts as, if any. CarePerson.userId is unique. */
 async function personForUser(userId: string) {
   return prisma.carePerson.findUnique({ where: { userId } })
@@ -3551,13 +3774,21 @@ export const reviewSwapRequest = createServerFn({ method: 'POST' })
       if (takeIds.length > 0) {
         await tx.careCoverageOccurrence.updateMany({
           where: { id: { in: takeIds } },
-          data: { assigneeId: existing.requesterPersonId },
+          data: {
+            assigneeId: existing.requesterPersonId,
+            releasedByPersonId: null,
+            releasedAt: null,
+          },
         })
       }
       if (giveIds.length > 0) {
         await tx.careCoverageOccurrence.updateMany({
           where: { id: { in: giveIds } },
-          data: { assigneeId: existing.targetPersonId },
+          data: {
+            assigneeId: existing.targetPersonId,
+            releasedByPersonId: null,
+            releasedAt: null,
+          },
         })
       }
       const updated = await tx.careSwapRequest.update({

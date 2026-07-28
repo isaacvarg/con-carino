@@ -255,6 +255,8 @@ export const ACTIVITY_FIELD_LABELS: Record<string, string> = {
   tagIds: 'Tags',
   attachmentIds: 'Attachments',
   reconciliationStatus: 'Reconciliation status',
+  notified: 'Notified everyone',
+  notifiedCount: 'People notified',
 }
 
 export function formatActivityField(field: string): string {

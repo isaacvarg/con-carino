@@ -137,7 +137,8 @@ model CarePerson {
   user          User?                     @relation(fields: [userId], references: [id], onDelete: SetNull)
   type          CarePersonType            @relation(fields: [typeId], references: [id], onDelete: Restrict)
   series        CareCoverageSeries[]
-  occurrences   CareCoverageOccurrence[]
+  occurrences   CareCoverageOccurrence[]  @relation("OccurrenceAssignee")
+  releasedOccurrences CareCoverageOccurrence[] @relation("OccurrenceReleasedBy")
   assignmentRules CareCoverageAssignmentRule[]
   swapsRequested CareSwapRequest[]        @relation("SwapRequesterPerson")
   swapsTargeted  CareSwapRequest[]        @relation("SwapTargetPerson")
@@ -190,11 +191,16 @@ model CareCoverageOccurrence {
   status        CareOccurrenceStatus  @default(SCHEDULED)
   billingStatus CareBillingStatus     @default(NOT_BILLABLE)
   notes         String?
+  /// Set when the assignee removed themselves from this slot; suppresses
+  /// auto-refill by that same person's assignment rules. Cleared on any assign.
+  releasedByPersonId String?
+  releasedAt         DateTime?
   createdAt     DateTime              @default(now())
   updatedAt     DateTime              @updatedAt
 
   series           CareCoverageSeries? @relation(fields: [seriesId], references: [id], onDelete: Cascade)
-  assignee         CarePerson?         @relation(fields: [assigneeId], references: [id], onDelete: SetNull)
+  assignee         CarePerson?         @relation("OccurrenceAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  releasedBy       CarePerson?         @relation("OccurrenceReleasedBy", fields: [releasedByPersonId], references: [id], onDelete: SetNull)
   assignedByRule   CareCoverageAssignmentRule? @relation(fields: [assignedByRuleId], references: [id], onDelete: SetNull)
   invoiceLine      CareInvoiceLine?
   swapItems        CareSwapItem[]
@@ -202,6 +208,7 @@ model CareCoverageOccurrence {
   @@unique([seriesId, startsAt])
   @@index([startsAt, endsAt])
   @@index([assigneeId])
+  @@index([releasedByPersonId])
   @@index([assignedByRuleId])
   @@index([status])
   @@index([billingStatus])

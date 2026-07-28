@@ -1,6 +1,7 @@
 import { useRouter } from '@tanstack/react-router'
 import { useMemo, useState, type FormEvent } from 'react'
 import { ConfirmDialog } from '#/components/app/ui/confirm-dialog'
+import { canReleaseOccurrence } from '#/lib/care-release'
 import {
   FORM_INPUT_CLASS,
   FORM_SELECT_CLASS,
@@ -28,6 +29,7 @@ import {
   deleteCoverageSeries,
   listCoverageAssignmentRules,
   listCoverageSeries,
+  releaseOccurrence,
   updateOccurrence,
 } from '#/server/care'
 import { SwapWindowPicker } from './SwapWindowPicker'
@@ -119,6 +121,10 @@ export function CareCalendarPanel({
   >(null)
   const [deleting, setDeleting] = useState(false)
   const [ruleSummary, setRuleSummary] = useState<string | null>(null)
+  const [releaseId, setReleaseId] = useState<string | null>(null)
+  const [notifyOnRelease, setNotifyOnRelease] = useState(true)
+  const [releasing, setReleasing] = useState(false)
+  const [releaseError, setReleaseError] = useState<string | null>(null)
 
   const [assigneeId, setAssigneeId] = useState('')
   const [startDate, setStartDate] = useState(selectedDay)
@@ -140,6 +146,24 @@ export function CareCalendarPanel({
   const linkedPerson = viewerUserId
     ? (activePeople.find((p) => p.userId === viewerUserId) ?? null)
     : null
+  /**
+   * Whether the viewer can give this window up. Shares the server's predicate so
+   * the two cannot drift; `hasInvoice` is a cheap extra filter, with the server
+   * still owning the open-vs-paid invoice distinction.
+   */
+  function canRelease(o: CareCoverageOccurrenceDto): boolean {
+    if (selectMode || o.hasInvoice) return false
+    return canReleaseOccurrence(
+      {
+        assigneeId: o.assigneeId,
+        status: o.status,
+        startsAt: new Date(o.startsAt),
+      },
+      linkedPerson?.id ?? null,
+      new Date(),
+    ).ok
+  }
+
   /** Who receives the taken windows. Unlinked users arrange on someone's behalf. */
   const [swapRequesterPersonId, setSwapRequesterPersonId] = useState('')
   const requesterPersonId = linkedPerson?.id ?? swapRequesterPersonId
@@ -370,6 +394,19 @@ export function CareCalendarPanel({
                             Request swap
                           </button>
                         ) : null}
+                        {canRelease(o) ? (
+                          <button
+                            type="button"
+                            className="btn btn-outline btn-xs"
+                            onClick={() => {
+                              setReleaseError(null)
+                              setNotifyOnRelease(true)
+                              setReleaseId(o.id)
+                            }}
+                          >
+                            Give up
+                          </button>
+                        ) : null}
                       </div>
                     </div>
                   </li>
@@ -429,6 +466,23 @@ export function CareCalendarPanel({
       setError(err instanceof Error ? err.message : 'Could not claim slots.')
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function releaseSlot(id: string) {
+    setReleaseError(null)
+    setReleasing(true)
+    try {
+      await releaseOccurrence({ data: { id, notify: notifyOnRelease } })
+      setReleaseId(null)
+      await router.invalidate()
+    } catch (err) {
+      // The day detail has no error region, so the dialog stays open to show it.
+      setReleaseError(
+        err instanceof Error ? err.message : 'Could not give up this slot.',
+      )
+    } finally {
+      setReleasing(false)
     }
   }
 
@@ -932,6 +986,41 @@ export function CareCalendarPanel({
           if (confirmDeleteId) void deleteRule(confirmDeleteId)
         }}
         onCancel={() => setConfirmDeleteId(null)}
+      />
+
+      <ConfirmDialog
+        open={releaseId !== null}
+        tone="danger"
+        title="Give up this slot"
+        message={
+          <div className="space-y-3">
+            <p>
+              This removes you as the assignee. The window becomes an open slot
+              that anyone can pick up.
+            </p>
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-base-content">
+              <input
+                type="checkbox"
+                className="checkbox checkbox-sm"
+                checked={notifyOnRelease}
+                disabled={releasing}
+                onChange={(e) => setNotifyOnRelease(e.target.checked)}
+              />
+              Notify everyone that this slot is open
+            </label>
+            {releaseError ? (
+              <p className="text-sm text-error" role="alert">
+                {releaseError}
+              </p>
+            ) : null}
+          </div>
+        }
+        confirmLabel="Give up slot"
+        busy={releasing}
+        onConfirm={() => {
+          if (releaseId) void releaseSlot(releaseId)
+        }}
+        onCancel={() => setReleaseId(null)}
       />
 
       {modal && modal !== 'manage' ? (

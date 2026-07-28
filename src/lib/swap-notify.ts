@@ -1,3 +1,9 @@
+import {
+  buildScheduleUrl,
+  escapeHtml,
+  formatWindow,
+} from '#/lib/email-format'
+
 export type SwapNotifyParticipant = {
   userId: string | null
   email: string | null
@@ -38,68 +44,8 @@ export function resolveAppOrigin(options: {
   return null
 }
 
-function dayParts(day: string): { year: number; month: number; day: string } {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day)
-  if (!match) {
-    const now = new Date()
-    return {
-      year: now.getFullYear(),
-      month: now.getMonth(),
-      day,
-    }
-  }
-  return {
-    year: Number(match[1]),
-    month: Number(match[2]) - 1,
-    day,
-  }
-}
-
 export function buildSwapScheduleUrl(origin: string, day: string): string {
-  const parts = dayParts(day)
-  const params = new URLSearchParams({
-    tab: 'swaps',
-    year: String(parts.year),
-    month: String(parts.month),
-    day: parts.day,
-  })
-  return `${origin.replace(/\/$/, '')}/schedule?${params.toString()}`
-}
-
-function formatWindow(startsAt: Date, endsAt: Date): string {
-  const timeOpts: Intl.DateTimeFormatOptions = {
-    hour: 'numeric',
-    minute: '2-digit',
-  }
-  const sameDay =
-    startsAt.getFullYear() === endsAt.getFullYear() &&
-    startsAt.getMonth() === endsAt.getMonth() &&
-    startsAt.getDate() === endsAt.getDate()
-  if (sameDay) {
-    const day = startsAt.toLocaleDateString('en-US', {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-    })
-    return `${day} · ${startsAt.toLocaleTimeString('en-US', timeOpts)}–${endsAt.toLocaleTimeString('en-US', timeOpts)}`
-  }
-  return `${startsAt.toLocaleString('en-US', {
-    ...timeOpts,
-    month: 'short',
-    day: 'numeric',
-  })} – ${endsAt.toLocaleString('en-US', {
-    ...timeOpts,
-    month: 'short',
-    day: 'numeric',
-  })}`
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
+  return buildScheduleUrl(origin, day, 'swaps')
 }
 
 export type SwapEmailKind = 'REQUESTED' | 'APPROVED' | 'REJECTED' | 'CANCELLED'
