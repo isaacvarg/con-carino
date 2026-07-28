@@ -5,6 +5,7 @@ enum AccountType {
   LOAN
   CASH
   INVESTMENT
+  VIRTUAL
 }
 
 model AccountGroup {

@@ -8,6 +8,7 @@ export const ACCOUNT_TYPE_OPTIONS: { value: AccountType; label: string }[] = [
   { value: 'CASH', label: 'Cash' },
   { value: 'INVESTMENT', label: 'Investment' },
   { value: 'LOAN', label: 'Loan' },
+  { value: 'VIRTUAL', label: 'Virtual' },
 ]
 
 const TRANSACTION_TYPE_LABELS: Record<TransactionType, string> = {

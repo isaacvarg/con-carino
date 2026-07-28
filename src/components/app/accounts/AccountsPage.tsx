@@ -23,7 +23,7 @@ export function AccountsPage({ accounts }: AccountsPageProps) {
             No accounts yet
           </p>
           <p className="mt-2 text-sm text-base-content/60">
-            Add a checking, savings, or credit account to get started.
+            Add a checking, savings, credit, or virtual account to get started.
           </p>
           <Link to="/accounts/new" className="btn btn-primary mt-5">
             Add your first account
