@@ -1,1 +1,1 @@
-export const FEEDBACK_URL = 'https://feedback.isaacvargas.dev'
+export const FEEDBACK_URL = 'https://con-carino-feedback.isaacvargas.dev'

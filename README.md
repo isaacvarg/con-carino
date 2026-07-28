@@ -8,7 +8,7 @@ This is built for a single family on their own hardware. There is no tenancy mod
 
 ## Features
 
-**[Suggest Features](https://feedback.isaacvargas.dev)**
+**[Suggest Features](https://con-carino-feedback.isaacvargas.dev)**
 
 **Family ledger**
 
