@@ -1,8 +1,8 @@
-import { Link } from '@tanstack/react-router'
-import { useRef } from 'react'
+import { Link, useRouteContext } from '@tanstack/react-router'
+import { useMemo, useRef } from 'react'
 import { LuCoffee, LuGithub, LuHeart, LuMessageSquare } from 'react-icons/lu'
 import { FEEDBACK_URL } from '#/lib/feedback'
-import { APP_NAV, type AppNavLink } from './nav'
+import { visibleNavEntries, type AppNavLink } from './nav'
 
 type AppSidebarProps = {
   onNavigate?: () => void
@@ -136,6 +136,9 @@ function SidebarCredit() {
 }
 
 export default function AppSidebar({ onNavigate }: AppSidebarProps) {
+  const { modules } = useRouteContext({ from: '/_app' })
+  const entries = useMemo(() => visibleNavEntries(modules), [modules])
+
   return (
     <aside className="flex h-full min-h-full w-64 flex-col bg-transparent px-4 pt-6 pb-3 text-base-content">
       <Link
@@ -156,8 +159,8 @@ export default function AppSidebar({ onNavigate }: AppSidebarProps) {
 
       <nav className="min-h-0 flex-1 overflow-y-auto" aria-label="Main">
         <ul className="flex flex-col gap-1 p-0">
-          {APP_NAV.map((entry, index) => {
-            const prev = APP_NAV[index - 1]
+          {entries.map((entry, index) => {
+            const prev = entries[index - 1]
             // Space after a group so trailing links don't read as part of it
             const afterGroup = prev?.kind === 'group'
 

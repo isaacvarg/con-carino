@@ -10,11 +10,14 @@ import {
   HiOutlineTag,
   HiOutlineUser,
   HiOutlineUserGroup,
+  HiOutlineViewGrid,
 } from 'react-icons/hi'
+import { isModuleEnabled, type AppModule } from '#/components/app/nav'
 
 type SettingsCard = {
   to:
     | '/settings/users'
+    | '/settings/modules'
     | '/settings/loved-one'
     | '/settings/people'
     | '/settings/contributions'
@@ -27,6 +30,8 @@ type SettingsCard = {
   description: string
   icon: typeof HiOutlineUserGroup
   adminOnly?: boolean
+  /** When set, this card only appears while that module is enabled. */
+  module?: AppModule
 }
 
 const SETTINGS_CARDS: SettingsCard[] = [
@@ -36,6 +41,12 @@ const SETTINGS_CARDS: SettingsCard[] = [
     description: 'App accounts, profile photos, sessions, and admin access.',
     icon: HiOutlineUser,
     adminOnly: true,
+  },
+  {
+    to: '/settings/modules',
+    title: 'Modules',
+    description: 'Turn invoicing and contributions on or off for your family.',
+    icon: HiOutlineViewGrid,
   },
   {
     to: '/settings/loved-one',
@@ -55,6 +66,7 @@ const SETTINGS_CARDS: SettingsCard[] = [
     description:
       'The coverage pot, who funds it, and how shortfalls are split.',
     icon: HiOutlineCash,
+    module: 'contributions',
   },
   {
     to: '/settings/schedule',
@@ -89,9 +101,13 @@ const SETTINGS_CARDS: SettingsCard[] = [
 ]
 
 export function SettingsHub() {
-  const { session } = useRouteContext({ from: '/_app/settings' })
+  const { session, modules } = useRouteContext({ from: '/_app/settings' })
   const isAdmin = Boolean(session?.user?.isAdmin)
-  const cards = SETTINGS_CARDS.filter((card) => !card.adminOnly || isAdmin)
+  const cards = SETTINGS_CARDS.filter(
+    (card) =>
+      (!card.adminOnly || isAdmin) &&
+      (!card.module || isModuleEnabled(card.module, modules)),
+  )
 
   return (
     <div className="flex flex-col gap-4">

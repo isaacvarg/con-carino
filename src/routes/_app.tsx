@@ -3,8 +3,10 @@ import { useId, useState } from 'react'
 import AppBreadcrumbs from '#/components/app/AppBreadcrumbs'
 import AppHeader from '#/components/app/AppHeader'
 import AppSidebar from '#/components/app/AppSidebar'
+import { getModuleFlagsCached } from '#/lib/care-module-flags'
 
 export const Route = createFileRoute('/_app')({
+  beforeLoad: async () => ({ modules: await getModuleFlagsCached() }),
   component: AppLayout,
 })
 

@@ -1,3 +1,4 @@
+import { useRouteContext } from '@tanstack/react-router'
 import type { CareForecastDto } from '#/server/care'
 
 type Props = {
@@ -20,6 +21,7 @@ function shortDate(iso: string): string {
  * future windows, not invoices, and the schedule can still change.
  */
 export function CareForecastPanel({ forecast }: Props) {
+  const { modules } = useRouteContext({ from: '/_app' })
   const hasAnything =
     forecast.pricedShifts > 0 ||
     forecast.unassignedShifts > 0 ||
@@ -88,7 +90,9 @@ export function CareForecastPanel({ forecast }: Props) {
               </div>
             ) : null}
 
-            {forecast.shares.length > 0 ? (
+            {/* A preview of what contributions would charge — meaningless
+                when nobody is splitting the cost. */}
+            {modules.contributionsEnabled && forecast.shares.length > 0 ? (
               <div>
                 <h3 className="text-sm font-medium text-base-content/70">
                   Projected share per contributor

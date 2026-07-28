@@ -172,6 +172,27 @@ export function crumbsForPath(
     ]
   }
 
+  if (path === '/settings/modules') {
+    return [
+      { label: 'settings', href: { to: '/settings' } },
+      { label: 'modules' },
+    ]
+  }
+
+  if (path === '/settings/contributions') {
+    return [
+      { label: 'settings', href: { to: '/settings' } },
+      { label: 'contributions' },
+    ]
+  }
+
+  if (path === '/settings/document-types') {
+    return [
+      { label: 'settings', href: { to: '/settings' } },
+      { label: 'document types' },
+    ]
+  }
+
   if (path === '/settings/schedule') {
     return [
       { label: 'settings', href: { to: '/settings' } },

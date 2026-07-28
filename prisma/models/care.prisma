@@ -13,6 +13,16 @@ enum CareCoverageWindowKind {
   SHIFTS
 }
 
+/// How much of the invoicing module this install runs.
+enum CareInvoicingMode {
+  /// Hidden entirely. No invoices are generated.
+  OFF
+  /// Read-only pay overview per week or month. Nothing is generated or settled.
+  SIMPLE
+  /// Period invoices, settlement, and voiding.
+  ADVANCED
+}
+
 enum CareOccurrenceStatus {
   SCHEDULED
   COMPLETED
@@ -246,6 +256,13 @@ model CareSettings {
   plannedMonthlyBudget Decimal?               @db.Decimal(19, 4)
   /// 1–28: day of month a funding period starts.
   fundingPeriodDay     Int                    @default(1)
+  /// Which modules this family runs. Invoices and contributions are the two
+  /// heaviest features here and are noise for a family that only wants the
+  /// coverage calendar.
+  invoicingMode        CareInvoicingMode      @default(ADVANCED)
+  /// Only meaningful with ADVANCED invoicing: a period's actual cost is summed
+  /// from real invoice rows, which SIMPLE and OFF never create.
+  contributionsEnabled Boolean                @default(true)
   createdAt            DateTime               @default(now())
   updatedAt            DateTime               @updatedAt
 

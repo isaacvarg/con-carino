@@ -44,6 +44,7 @@ import { Route as AppSettingsTagsRouteImport } from './routes/_app/settings/tags
 import { Route as AppSettingsScheduleRouteImport } from './routes/_app/settings/schedule'
 import { Route as AppSettingsPeopleRouteImport } from './routes/_app/settings/people'
 import { Route as AppSettingsPayeesRouteImport } from './routes/_app/settings/payees'
+import { Route as AppSettingsModulesRouteImport } from './routes/_app/settings/modules'
 import { Route as AppSettingsLovedOneRouteImport } from './routes/_app/settings/loved-one'
 import { Route as AppSettingsDocumentTypesRouteImport } from './routes/_app/settings/document-types'
 import { Route as AppSettingsContributionsRouteImport } from './routes/_app/settings/contributions'
@@ -235,6 +236,11 @@ const AppSettingsPayeesRoute = AppSettingsPayeesRouteImport.update({
   path: '/payees',
   getParentRoute: () => AppSettingsRoute,
 } as any)
+const AppSettingsModulesRoute = AppSettingsModulesRouteImport.update({
+  id: '/modules',
+  path: '/modules',
+  getParentRoute: () => AppSettingsRoute,
+} as any)
 const AppSettingsLovedOneRoute = AppSettingsLovedOneRouteImport.update({
   id: '/loved-one',
   path: '/loved-one',
@@ -348,6 +354,7 @@ export interface FileRoutesByFullPath {
   '/settings/contributions': typeof AppSettingsContributionsRoute
   '/settings/document-types': typeof AppSettingsDocumentTypesRoute
   '/settings/loved-one': typeof AppSettingsLovedOneRoute
+  '/settings/modules': typeof AppSettingsModulesRoute
   '/settings/payees': typeof AppSettingsPayeesRoute
   '/settings/people': typeof AppSettingsPeopleRoute
   '/settings/schedule': typeof AppSettingsScheduleRoute
@@ -393,6 +400,7 @@ export interface FileRoutesByTo {
   '/settings/contributions': typeof AppSettingsContributionsRoute
   '/settings/document-types': typeof AppSettingsDocumentTypesRoute
   '/settings/loved-one': typeof AppSettingsLovedOneRoute
+  '/settings/modules': typeof AppSettingsModulesRoute
   '/settings/payees': typeof AppSettingsPayeesRoute
   '/settings/people': typeof AppSettingsPeopleRoute
   '/settings/schedule': typeof AppSettingsScheduleRoute
@@ -445,6 +453,7 @@ export interface FileRoutesById {
   '/_app/settings/contributions': typeof AppSettingsContributionsRoute
   '/_app/settings/document-types': typeof AppSettingsDocumentTypesRoute
   '/_app/settings/loved-one': typeof AppSettingsLovedOneRoute
+  '/_app/settings/modules': typeof AppSettingsModulesRoute
   '/_app/settings/payees': typeof AppSettingsPayeesRoute
   '/_app/settings/people': typeof AppSettingsPeopleRoute
   '/_app/settings/schedule': typeof AppSettingsScheduleRoute
@@ -498,6 +507,7 @@ export interface FileRouteTypes {
     | '/settings/contributions'
     | '/settings/document-types'
     | '/settings/loved-one'
+    | '/settings/modules'
     | '/settings/payees'
     | '/settings/people'
     | '/settings/schedule'
@@ -543,6 +553,7 @@ export interface FileRouteTypes {
     | '/settings/contributions'
     | '/settings/document-types'
     | '/settings/loved-one'
+    | '/settings/modules'
     | '/settings/payees'
     | '/settings/people'
     | '/settings/schedule'
@@ -594,6 +605,7 @@ export interface FileRouteTypes {
     | '/_app/settings/contributions'
     | '/_app/settings/document-types'
     | '/_app/settings/loved-one'
+    | '/_app/settings/modules'
     | '/_app/settings/payees'
     | '/_app/settings/people'
     | '/_app/settings/schedule'
@@ -874,6 +886,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsPayeesRouteImport
       parentRoute: typeof AppSettingsRoute
     }
+    '/_app/settings/modules': {
+      id: '/_app/settings/modules'
+      path: '/modules'
+      fullPath: '/settings/modules'
+      preLoaderRoute: typeof AppSettingsModulesRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
     '/_app/settings/loved-one': {
       id: '/_app/settings/loved-one'
       path: '/loved-one'
@@ -1062,6 +1081,7 @@ interface AppSettingsRouteChildren {
   AppSettingsContributionsRoute: typeof AppSettingsContributionsRoute
   AppSettingsDocumentTypesRoute: typeof AppSettingsDocumentTypesRoute
   AppSettingsLovedOneRoute: typeof AppSettingsLovedOneRoute
+  AppSettingsModulesRoute: typeof AppSettingsModulesRoute
   AppSettingsPayeesRoute: typeof AppSettingsPayeesRoute
   AppSettingsPeopleRoute: typeof AppSettingsPeopleRoute
   AppSettingsScheduleRoute: typeof AppSettingsScheduleRoute
@@ -1075,6 +1095,7 @@ const AppSettingsRouteChildren: AppSettingsRouteChildren = {
   AppSettingsContributionsRoute: AppSettingsContributionsRoute,
   AppSettingsDocumentTypesRoute: AppSettingsDocumentTypesRoute,
   AppSettingsLovedOneRoute: AppSettingsLovedOneRoute,
+  AppSettingsModulesRoute: AppSettingsModulesRoute,
   AppSettingsPayeesRoute: AppSettingsPayeesRoute,
   AppSettingsPeopleRoute: AppSettingsPeopleRoute,
   AppSettingsScheduleRoute: AppSettingsScheduleRoute,

@@ -32,12 +32,17 @@ export type AppNavPath =
   | '/insights'
   | '/settings'
 
+/** Optional modules a family can turn off under Settings → Modules. */
+export type AppModule = 'invoices' | 'contributions'
+
 export type AppNavLink = {
   kind: 'link'
   label: string
   to: AppNavPath
   icon: IconType
   title: string
+  /** When set, this link only appears while that module is enabled. */
+  module?: AppModule
 }
 
 export type AppNavGroup = {
@@ -94,6 +99,7 @@ export const APP_NAV: AppNavEntry[] = [
         to: '/invoices',
         icon: HiOutlineReceiptTax,
         title: 'Invoices',
+        module: 'invoices',
       },
       {
         kind: 'link',
@@ -101,6 +107,7 @@ export const APP_NAV: AppNavEntry[] = [
         to: '/contributions',
         icon: HiOutlineCash,
         title: 'Contributions',
+        module: 'contributions',
       },
     ],
   },
@@ -167,6 +174,33 @@ export function flattenNavLinks(entries: AppNavEntry[] = APP_NAV): AppNavLink[] 
   )
 }
 
+export function isModuleEnabled(
+  module: AppModule,
+  flags: { invoicingMode: string; contributionsEnabled: boolean },
+): boolean {
+  return module === 'invoices'
+    ? flags.invoicingMode !== 'OFF'
+    : flags.contributionsEnabled
+}
+
+/**
+ * `APP_NAV` minus links whose module is off. A group that empties out drops
+ * with its heading — a lone "Family ledger" label over nothing reads as a bug.
+ */
+export function visibleNavEntries(
+  flags: { invoicingMode: string; contributionsEnabled: boolean },
+  entries: AppNavEntry[] = APP_NAV,
+): AppNavEntry[] {
+  const keep = (item: AppNavLink) =>
+    !item.module || isModuleEnabled(item.module, flags)
+
+  return entries.flatMap<AppNavEntry>((entry) => {
+    if (entry.kind === 'link') return keep(entry) ? [entry] : []
+    const items = entry.items.filter(keep)
+    return items.length > 0 ? [{ ...entry, items }] : []
+  })
+}
+
 export function titleForPath(pathname: string): string {
   const path = pathname.replace(/\/$/, '') || '/'
   if (path === '/accounts/new') return 'Add account'
@@ -195,6 +229,8 @@ export function titleForPath(pathname: string): string {
   if (path === '/settings/users') return 'Users'
   if (/^\/settings\/users\/[^/]+$/.test(path)) return 'User'
   if (path === '/settings/people') return 'People'
+  if (path === '/settings/modules') return 'Modules'
+  if (path === '/settings/contributions') return 'Contributions'
   if (path === '/settings/schedule') return 'Schedule'
   if (path === '/settings/tags') return 'Tags'
   if (path === '/settings/categories') return 'Categories'

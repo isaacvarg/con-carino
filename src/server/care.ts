@@ -40,6 +40,8 @@ import type { StandardSchedule } from '#/lib/care-rate-segments'
 import { segmentCoverageWindow } from '#/lib/care-rate-segments'
 import { allocateCarePeriod } from '#/lib/care-allocation'
 import { projectCareCosts } from '#/lib/care-forecast'
+import type { PayOverviewMode } from '#/lib/care-pay-period'
+import { payOverviewLabel, payOverviewRange } from '#/lib/care-pay-period'
 import { occurrenceMatchesRule } from '#/lib/care-assignment'
 import { canReleaseOccurrence } from '#/lib/care-release'
 import { canTakeResponsibility } from '#/lib/care-responsibility'
@@ -67,6 +69,11 @@ import type { Prisma, PrismaClient } from '#/generated/prisma/client'
 import { toSignedTransactionAmount } from '#/lib/transaction-amount'
 import { requireHexColor } from '#/lib/validators'
 import { logActivity } from '#/server/activity-log'
+import {
+  requireContributionsEnabled,
+  requireInvoicingAdvanced,
+  requireInvoicingEnabled,
+} from '#/server/care-modules'
 import { startDevJobTick } from '#/server/jobs/dev-tick'
 import { authConfig } from '#/utils/auth'
 
@@ -4205,6 +4212,7 @@ export const reviewSwapRequest = createServerFn({ method: 'POST' })
 export const listCareInvoices = createServerFn({ method: 'GET' }).handler(
   async (): Promise<CareInvoiceDto[]> => {
     await requireUserId()
+    await requireInvoicingAdvanced()
     startDevJobTick()
     const rows = await prisma.careInvoice.findMany({
       include: invoiceInclude,
@@ -4230,6 +4238,7 @@ export const settleCareInvoice = createServerFn({ method: 'POST' })
   })
   .handler(async ({ data }): Promise<CareInvoiceDto> => {
     const userId = await requireUserId()
+    await requireInvoicingAdvanced()
     const invoice = await prisma.careInvoice.findUnique({
       where: { id: data.id },
       include: {
@@ -4350,6 +4359,7 @@ export const voidCareInvoice = createServerFn({ method: 'POST' })
   })
   .handler(async ({ data }): Promise<CareInvoiceDto> => {
     const userId = await requireUserId()
+    await requireInvoicingAdvanced()
     const invoice = await prisma.careInvoice.findUnique({
       where: { id: data.id },
       include: {
@@ -4438,6 +4448,7 @@ export const listContributionProfiles = createServerFn({
   method: 'GET',
 }).handler(async (): Promise<CareContributionProfileDto[]> => {
   await requireUserId()
+  await requireContributionsEnabled()
   const [profiles, balances] = await Promise.all([
     prisma.careContributionProfile.findMany({
       include: { carePerson: { select: { name: true } } },
@@ -4547,6 +4558,7 @@ export const upsertContributionProfile = createServerFn({ method: 'POST' })
   })
   .handler(async ({ data }): Promise<CareContributionProfileDto[]> => {
     const userId = await requireUserId()
+    await requireContributionsEnabled()
 
     const person = await prisma.carePerson.findUnique({
       where: { id: data.carePersonId },
@@ -4608,6 +4620,7 @@ export const deleteContributionProfile = createServerFn({ method: 'POST' })
   })
   .handler(async ({ data }): Promise<CareContributionProfileDto[]> => {
     const userId = await requireUserId()
+    await requireContributionsEnabled()
     const existing = await prisma.careContributionProfile.findUnique({
       where: { carePersonId: data.carePersonId },
       include: { carePerson: { select: { name: true } } },
@@ -4678,6 +4691,7 @@ export const updateCareFundingSettings = createServerFn({ method: 'POST' })
   })
   .handler(async ({ data }): Promise<CareSettingsDto> => {
     const userId = await requireUserId()
+    await requireContributionsEnabled()
 
     if (data.coverageAccountId) {
       const account = await prisma.financialAccount.findFirst({
@@ -4790,6 +4804,7 @@ export const getContributionsOverview = createServerFn({
   method: 'GET',
 }).handler(async (): Promise<CareContributionsOverviewDto> => {
   await requireUserId()
+  await requireContributionsEnabled()
   startDevJobTick()
 
   const [profiles, upcoming, recent, periods, settings] = await Promise.all([
@@ -4843,6 +4858,7 @@ export const confirmContribution = createServerFn({ method: 'POST' })
   })
   .handler(async ({ data }): Promise<CareContributionsOverviewDto> => {
     const userId = await requireUserId()
+    await requireContributionsEnabled()
     const { postContribution } = await import('#/server/care-contributions')
     const result = await postContribution({
       scheduledContributionId: data.id,
@@ -4863,6 +4879,7 @@ export const skipContribution = createServerFn({ method: 'POST' })
   })
   .handler(async ({ data }): Promise<CareContributionsOverviewDto> => {
     const userId = await requireUserId()
+    await requireContributionsEnabled()
     const row = await prisma.careScheduledContribution.findUnique({
       where: { id: data.id },
       include: { carePerson: { select: { name: true } } },
@@ -4930,6 +4947,7 @@ export const getCareForecast = createServerFn({ method: 'GET' })
   })
   .handler(async ({ data }): Promise<CareForecastDto> => {
     await requireUserId()
+    await requireInvoicingAdvanced()
     startDevJobTick()
 
     const now = new Date()
@@ -5033,5 +5051,114 @@ export const getCareForecast = createServerFn({ method: 'GET' })
       })),
       shares,
       warnings,
+    }
+  })
+
+// --- Simple pay overview ---
+
+export type CarePayOverviewDto = {
+  mode: PayOverviewMode
+  offset: number
+  rangeStart: string
+  /** Inclusive last day of the period, for display. */
+  rangeEnd: string
+  label: string
+  totalCost: string
+  byCaregiver: Array<{
+    personId: string
+    personName: string
+    amount: string
+    shifts: number
+  }>
+  unassignedShifts: number
+  unpaidShifts: number
+}
+
+/**
+ * What each paid caregiver should be paid for one week or month.
+ *
+ * The read-only half of the invoicing module. Priced by `projectCareCosts` —
+ * the same segmentation an invoice would use — so a family that later switches
+ * to advanced invoicing sees the same numbers they were already looking at.
+ *
+ * Unlike `getCareForecast` this looks at a fixed calendar period rather than a
+ * rolling window from today, so it covers work already done as well as work
+ * still scheduled, and it does not filter out already-invoiced windows: an
+ * install that stepped down from advanced still has them, and leaving them out
+ * would silently under-report the period.
+ */
+export const getCarePayOverview = createServerFn({ method: 'GET' })
+  .validator((data: unknown) => {
+    const input = (data ?? {}) as Record<string, unknown>
+    const mode = input.mode === 'MONTHLY' ? 'MONTHLY' : 'WEEKLY'
+    const offset = Number(input.offset ?? 0)
+    if (!Number.isFinite(offset) || Math.abs(offset) > 520) {
+      throw new Error('Pay period offset is out of range.')
+    }
+    return { mode: mode as PayOverviewMode, offset: Math.trunc(offset) }
+  })
+  .handler(async ({ data }): Promise<CarePayOverviewDto> => {
+    await requireUserId()
+    await requireInvoicingEnabled()
+    startDevJobTick()
+
+    const now = new Date()
+    const range = payOverviewRange(data.mode, data.offset, now)
+
+    // A future period may not have been materialized yet by the rolling window
+    // job, and unfilled slots may still be waiting on assignment rules.
+    await materializeSeriesInRange(range.start, range.end)
+    await applyAssignmentRules(range.start, range.end)
+
+    const [occurrences, people] = await Promise.all([
+      prisma.careCoverageOccurrence.findMany({
+        where: {
+          startsAt: { gte: range.start, lt: range.end },
+          status: { not: 'CANCELLED' },
+        },
+        select: {
+          id: true,
+          startsAt: true,
+          endsAt: true,
+          assigneeId: true,
+          responsiblePersonId: true,
+        },
+      }),
+      prisma.carePerson.findMany({ include: { type: true } }),
+    ])
+
+    const projection = projectCareCosts({
+      occurrences,
+      people: people.map((p) => ({
+        id: p.id,
+        name: p.name,
+        rate: effectiveRate(personRateInput(p)),
+        schedule: {
+          daysOfWeek: p.standardDaysOfWeek,
+          startTime: p.standardStartTime,
+          endTime: p.standardEndTime,
+        },
+        offScheduleRate: decimalToNumber(p.offScheduleRate),
+      })),
+    })
+
+    const lastDay = new Date(range.end)
+    lastDay.setDate(lastDay.getDate() - 1)
+
+    return {
+      mode: range.mode,
+      offset: range.offset,
+      rangeStart: range.start.toISOString(),
+      rangeEnd: lastDay.toISOString(),
+      label: payOverviewLabel(range, now),
+      totalCost: projection.totalCost.toFixed(2),
+      byCaregiver: projection.byCaregiver.map((c) => ({
+        personId: c.personId,
+        personName: c.personName,
+        amount: c.amount.toFixed(2),
+        shifts: c.shifts,
+      })),
+      unassignedShifts: projection.unassignedShifts,
+      unpaidShifts: projection.unpaidShifts,
     }
   })

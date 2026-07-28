@@ -8,6 +8,22 @@
  * which reaches the runner, which reaches this registry.
  */
 
+/**
+ * What a job returns when its module is switched off. Recorded like any other
+ * result, so `/api/jobs` shows a disabled module rather than silence.
+ */
+const SKIPPED = { skipped: 'module-disabled' } as const
+
+async function invoicingIsAdvanced() {
+  const { loadModuleFlags } = await import('#/server/care-modules')
+  return (await loadModuleFlags()).invoicingMode === 'ADVANCED'
+}
+
+async function contributionsAreEnabled() {
+  const { loadModuleFlags } = await import('#/server/care-modules')
+  return (await loadModuleFlags()).contributionsEnabled
+}
+
 export type JobDefinition = {
   name: string
   /** Bucket size. A job runs at most once per bucket, across all processes. */
@@ -41,6 +57,9 @@ export const JOBS: readonly JobDefinition[] = [
     intervalMs: HOUR,
     staleAfterMs: 30 * MINUTE,
     run: async (now) => {
+      // Simple invoicing prices the schedule on view instead; generating rows
+      // nobody can see or settle would just accrue a hidden backlog.
+      if (!(await invoicingIsAdvanced())) return SKIPPED
       const { runCreatePayPeriodInvoices } = await import('#/server/care')
       return runCreatePayPeriodInvoices(now)
     },
@@ -62,6 +81,7 @@ export const JOBS: readonly JobDefinition[] = [
     intervalMs: 6 * HOUR,
     staleAfterMs: 15 * MINUTE,
     run: async (now) => {
+      if (!(await contributionsAreEnabled())) return SKIPPED
       const { runOpenFundingPeriod } = await import(
         '#/server/care-contributions'
       )
@@ -75,6 +95,7 @@ export const JOBS: readonly JobDefinition[] = [
     intervalMs: 6 * HOUR,
     staleAfterMs: 30 * MINUTE,
     run: async (now) => {
+      if (!(await contributionsAreEnabled())) return SKIPPED
       const { runCloseFundingPeriods } = await import(
         '#/server/care-contributions'
       )
@@ -86,6 +107,7 @@ export const JOBS: readonly JobDefinition[] = [
     intervalMs: 6 * HOUR,
     staleAfterMs: 15 * MINUTE,
     run: async (now) => {
+      if (!(await contributionsAreEnabled())) return SKIPPED
       const { runGenerateContributions } = await import(
         '#/server/care-contributions'
       )
@@ -97,6 +119,7 @@ export const JOBS: readonly JobDefinition[] = [
     intervalMs: 6 * HOUR,
     staleAfterMs: 15 * MINUTE,
     run: async (now) => {
+      if (!(await contributionsAreEnabled())) return SKIPPED
       const { runAutoPostContributions } = await import(
         '#/server/care-contributions'
       )

@@ -1,4 +1,4 @@
-import { Link, useNavigate } from '@tanstack/react-router'
+import { Link, useNavigate, useRouteContext } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 import { HiOutlineExternalLink, HiOutlineSearch } from 'react-icons/hi'
 import { TaxonomyBadge } from '#/components/app/transactions/TaxonomyBadge'
@@ -49,6 +49,16 @@ function relativeTime(iso: string): string {
   return formatWhen(iso)
 }
 
+/**
+ * An invoice row logged before invoicing was switched off still exists, but
+ * `/invoices` will bounce back to the dashboard — so the entry stays, it just
+ * stops being a link.
+ */
+function useInvoiceLinksEnabled(): boolean {
+  const { modules } = useRouteContext({ from: '/_app' })
+  return modules.invoicingMode === 'ADVANCED'
+}
+
 export function ActivityEntityLink({
   href,
   children,
@@ -58,6 +68,8 @@ export function ActivityEntityLink({
   children: ReactNode
   className?: string
 }) {
+  const invoiceLinksEnabled = useInvoiceLinksEnabled()
+
   if (!href) return null
   if (href.to === '/transactions/$transactionId') {
     return (
@@ -83,6 +95,7 @@ export function ActivityEntityLink({
     )
   }
   if (href.to === '/invoices') {
+    if (!invoiceLinksEnabled) return <>{children}</>
     return (
       <Link to="/invoices" search={href.search} className={className}>
         {children}
@@ -101,6 +114,7 @@ export function ActivityEntityLink({
 
 export function useNavigateToActivityEntity() {
   const navigate = useNavigate()
+  const invoiceLinksEnabled = useInvoiceLinksEnabled()
   return (item: Pick<ActivityListItem, 'entityType' | 'entityId' | 'linkMeta'>) => {
     const href = resolveActivityHref(item)
     if (!href) return
@@ -113,6 +127,7 @@ export function useNavigateToActivityEntity() {
       return
     }
     if (href.to === '/invoices') {
+      if (!invoiceLinksEnabled) return
       void navigate({ to: href.to, search: href.search })
       return
     }

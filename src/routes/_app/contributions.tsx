@@ -7,6 +7,10 @@ export const Route = createFileRoute('/_app/contributions')({
     if (!context.session) {
       throw redirect({ to: '/login' })
     }
+    // Hiding the sidebar link does not make the URL unreachable.
+    if (!context.modules.contributionsEnabled) {
+      throw redirect({ to: '/' })
+    }
   },
   loader: async () => ({ overview: await getContributionsOverview() }),
   component: ContributionsPage,

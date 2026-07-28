@@ -1,5 +1,5 @@
 import { useForm } from '@tanstack/react-form'
-import { Link, useRouter } from '@tanstack/react-router'
+import { Link, useRouteContext, useRouter } from '@tanstack/react-router'
 import { useRef, useState, type ReactNode } from 'react'
 import {
   HiOutlineDocument,
@@ -290,6 +290,7 @@ export function TransactionDetailPanel({
   tags: initialTags,
 }: TransactionDetailPanelProps) {
   const router = useRouter()
+  const { modules } = useRouteContext({ from: '/_app' })
   const [editing, setEditing] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [attachmentsUploading, setAttachmentsUploading] = useState(false)
@@ -839,12 +840,17 @@ export function TransactionDetailPanel({
                 This transaction settled a care invoice (
                 {transaction.careInvoice.status}).
               </p>
-              <Link
-                to="/invoices"
-                className="link link-hover mt-2 inline-block text-sm font-medium"
-              >
-                View invoices
-              </Link>
+              {/* The settlement is a real part of this transaction's history
+                  even after invoicing is switched off — but the page it links
+                  to is gone, so only the link is dropped. */}
+              {modules.invoicingMode === 'ADVANCED' ? (
+                <Link
+                  to="/invoices"
+                  className="link link-hover mt-2 inline-block text-sm font-medium"
+                >
+                  View invoices
+                </Link>
+              ) : null}
             </DetailCard>
           ) : null}
 
