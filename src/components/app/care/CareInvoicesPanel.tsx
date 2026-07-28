@@ -34,15 +34,27 @@ function settledTransactionLink(invoice: CareInvoiceDto) {
   }
 }
 
+/**
+ * Count distinct shifts, not lines: one shift straddling the assignee's
+ * typical schedule contributes several priced segments and must not read as
+ * several shifts.
+ */
+function shiftCount(invoice: CareInvoiceDto): number {
+  return new Set(invoice.lines.map((line) => line.occurrenceId)).size
+}
+
 function periodLabel(invoice: CareInvoiceDto): string {
   if (invoice.periodStart && invoice.periodEnd) {
     return formatTimeRange(invoice.periodStart, invoice.periodEnd)
   }
-  if (invoice.lines.length === 1) {
-    return formatTimeRange(invoice.lines[0]!.startsAt, invoice.lines[0]!.endsAt)
+  const shifts = shiftCount(invoice)
+  if (shifts === 1) {
+    const starts = invoice.lines.map((line) => line.startsAt).sort()
+    const ends = invoice.lines.map((line) => line.endsAt).sort()
+    return formatTimeRange(starts[0]!, ends[ends.length - 1]!)
   }
-  if (invoice.lines.length > 1) {
-    return `${invoice.lines.length} shifts`
+  if (shifts > 1) {
+    return `${shifts} shifts`
   }
   return '—'
 }
@@ -60,8 +72,16 @@ function InvoiceLines({ invoice }: { invoice: CareInvoiceDto }) {
           key={line.id}
           className="flex flex-wrap items-baseline justify-between gap-2 text-sm"
         >
-          <span className="text-base-content/70">
+          <span className="flex items-center gap-1.5 text-base-content/70">
             {formatTimeRange(line.startsAt, line.endsAt)}
+            {line.rateBand === 'OFF_SCHEDULE' ? (
+              <span
+                className="badge badge-warning badge-sm"
+                title="Outside this person's typical schedule — charged at the off-schedule rate"
+              >
+                Off-schedule
+              </span>
+            ) : null}
           </span>
           <span className="tabular-nums text-base-content/60">
             {Number(line.hoursSnapshot).toFixed(2)}{' '}

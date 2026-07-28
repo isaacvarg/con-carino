@@ -15,6 +15,7 @@ import { Route as AboutRouteImport } from './routes/about'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as ApiUploadsRouteImport } from './routes/api/uploads'
+import { Route as ApiJobsRouteImport } from './routes/api/jobs'
 import { Route as ApiFilesRouteImport } from './routes/api/files'
 import { Route as AppTransactionsRouteImport } from './routes/_app/transactions'
 import { Route as AppShoppingRouteImport } from './routes/_app/shopping'
@@ -26,6 +27,7 @@ import { Route as AppMealsRouteImport } from './routes/_app/meals'
 import { Route as AppInvoicesRouteImport } from './routes/_app/invoices'
 import { Route as AppInsightsRouteImport } from './routes/_app/insights'
 import { Route as AppDocumentsRouteImport } from './routes/_app/documents'
+import { Route as AppContributionsRouteImport } from './routes/_app/contributions'
 import { Route as AppCareRouteImport } from './routes/_app/care'
 import { Route as AppActivityRouteImport } from './routes/_app/activity'
 import { Route as AppAccountsRouteImport } from './routes/_app/accounts'
@@ -44,6 +46,7 @@ import { Route as AppSettingsPeopleRouteImport } from './routes/_app/settings/pe
 import { Route as AppSettingsPayeesRouteImport } from './routes/_app/settings/payees'
 import { Route as AppSettingsLovedOneRouteImport } from './routes/_app/settings/loved-one'
 import { Route as AppSettingsDocumentTypesRouteImport } from './routes/_app/settings/document-types'
+import { Route as AppSettingsContributionsRouteImport } from './routes/_app/settings/contributions'
 import { Route as AppSettingsCategoriesRouteImport } from './routes/_app/settings/categories'
 import { Route as AppDocumentsDocumentIdRouteImport } from './routes/_app/documents/$documentId'
 import { Route as AppActivityActivityIdRouteImport } from './routes/_app/activity/$activityId'
@@ -84,6 +87,11 @@ const AppIndexRoute = AppIndexRouteImport.update({
 const ApiUploadsRoute = ApiUploadsRouteImport.update({
   id: '/api/uploads',
   path: '/api/uploads',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiJobsRoute = ApiJobsRouteImport.update({
+  id: '/api/jobs',
+  path: '/api/jobs',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiFilesRoute = ApiFilesRouteImport.update({
@@ -139,6 +147,11 @@ const AppInsightsRoute = AppInsightsRouteImport.update({
 const AppDocumentsRoute = AppDocumentsRouteImport.update({
   id: '/documents',
   path: '/documents',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppContributionsRoute = AppContributionsRouteImport.update({
+  id: '/contributions',
+  path: '/contributions',
   getParentRoute: () => AppRoute,
 } as any)
 const AppCareRoute = AppCareRouteImport.update({
@@ -233,6 +246,12 @@ const AppSettingsDocumentTypesRoute =
     path: '/document-types',
     getParentRoute: () => AppSettingsRoute,
   } as any)
+const AppSettingsContributionsRoute =
+  AppSettingsContributionsRouteImport.update({
+    id: '/contributions',
+    path: '/contributions',
+    getParentRoute: () => AppSettingsRoute,
+  } as any)
 const AppSettingsCategoriesRoute = AppSettingsCategoriesRouteImport.update({
   id: '/categories',
   path: '/categories',
@@ -307,6 +326,7 @@ export interface FileRoutesByFullPath {
   '/accounts': typeof AppAccountsRouteWithChildren
   '/activity': typeof AppActivityRouteWithChildren
   '/care': typeof AppCareRoute
+  '/contributions': typeof AppContributionsRoute
   '/documents': typeof AppDocumentsRouteWithChildren
   '/insights': typeof AppInsightsRoute
   '/invoices': typeof AppInvoicesRoute
@@ -318,12 +338,14 @@ export interface FileRoutesByFullPath {
   '/shopping': typeof AppShoppingRoute
   '/transactions': typeof AppTransactionsRouteWithChildren
   '/api/files': typeof ApiFilesRoute
+  '/api/jobs': typeof ApiJobsRoute
   '/api/uploads': typeof ApiUploadsRoute
   '/accounts/$accountId': typeof AppAccountsAccountIdRouteWithChildren
   '/accounts/new': typeof AppAccountsNewRoute
   '/activity/$activityId': typeof AppActivityActivityIdRoute
   '/documents/$documentId': typeof AppDocumentsDocumentIdRoute
   '/settings/categories': typeof AppSettingsCategoriesRoute
+  '/settings/contributions': typeof AppSettingsContributionsRoute
   '/settings/document-types': typeof AppSettingsDocumentTypesRoute
   '/settings/loved-one': typeof AppSettingsLovedOneRoute
   '/settings/payees': typeof AppSettingsPayeesRoute
@@ -352,6 +374,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/verify-request': typeof VerifyRequestRoute
   '/care': typeof AppCareRoute
+  '/contributions': typeof AppContributionsRoute
   '/insights': typeof AppInsightsRoute
   '/invoices': typeof AppInvoicesRoute
   '/meals': typeof AppMealsRoute
@@ -360,12 +383,14 @@ export interface FileRoutesByTo {
   '/schedule': typeof AppScheduleRoute
   '/shopping': typeof AppShoppingRoute
   '/api/files': typeof ApiFilesRoute
+  '/api/jobs': typeof ApiJobsRoute
   '/api/uploads': typeof ApiUploadsRoute
   '/': typeof AppIndexRoute
   '/accounts/new': typeof AppAccountsNewRoute
   '/activity/$activityId': typeof AppActivityActivityIdRoute
   '/documents/$documentId': typeof AppDocumentsDocumentIdRoute
   '/settings/categories': typeof AppSettingsCategoriesRoute
+  '/settings/contributions': typeof AppSettingsContributionsRoute
   '/settings/document-types': typeof AppSettingsDocumentTypesRoute
   '/settings/loved-one': typeof AppSettingsLovedOneRoute
   '/settings/payees': typeof AppSettingsPayeesRoute
@@ -397,6 +422,7 @@ export interface FileRoutesById {
   '/_app/accounts': typeof AppAccountsRouteWithChildren
   '/_app/activity': typeof AppActivityRouteWithChildren
   '/_app/care': typeof AppCareRoute
+  '/_app/contributions': typeof AppContributionsRoute
   '/_app/documents': typeof AppDocumentsRouteWithChildren
   '/_app/insights': typeof AppInsightsRoute
   '/_app/invoices': typeof AppInvoicesRoute
@@ -408,6 +434,7 @@ export interface FileRoutesById {
   '/_app/shopping': typeof AppShoppingRoute
   '/_app/transactions': typeof AppTransactionsRouteWithChildren
   '/api/files': typeof ApiFilesRoute
+  '/api/jobs': typeof ApiJobsRoute
   '/api/uploads': typeof ApiUploadsRoute
   '/_app/': typeof AppIndexRoute
   '/_app/accounts/$accountId': typeof AppAccountsAccountIdRouteWithChildren
@@ -415,6 +442,7 @@ export interface FileRoutesById {
   '/_app/activity/$activityId': typeof AppActivityActivityIdRoute
   '/_app/documents/$documentId': typeof AppDocumentsDocumentIdRoute
   '/_app/settings/categories': typeof AppSettingsCategoriesRoute
+  '/_app/settings/contributions': typeof AppSettingsContributionsRoute
   '/_app/settings/document-types': typeof AppSettingsDocumentTypesRoute
   '/_app/settings/loved-one': typeof AppSettingsLovedOneRoute
   '/_app/settings/payees': typeof AppSettingsPayeesRoute
@@ -448,6 +476,7 @@ export interface FileRouteTypes {
     | '/accounts'
     | '/activity'
     | '/care'
+    | '/contributions'
     | '/documents'
     | '/insights'
     | '/invoices'
@@ -459,12 +488,14 @@ export interface FileRouteTypes {
     | '/shopping'
     | '/transactions'
     | '/api/files'
+    | '/api/jobs'
     | '/api/uploads'
     | '/accounts/$accountId'
     | '/accounts/new'
     | '/activity/$activityId'
     | '/documents/$documentId'
     | '/settings/categories'
+    | '/settings/contributions'
     | '/settings/document-types'
     | '/settings/loved-one'
     | '/settings/payees'
@@ -493,6 +524,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/verify-request'
     | '/care'
+    | '/contributions'
     | '/insights'
     | '/invoices'
     | '/meals'
@@ -501,12 +533,14 @@ export interface FileRouteTypes {
     | '/schedule'
     | '/shopping'
     | '/api/files'
+    | '/api/jobs'
     | '/api/uploads'
     | '/'
     | '/accounts/new'
     | '/activity/$activityId'
     | '/documents/$documentId'
     | '/settings/categories'
+    | '/settings/contributions'
     | '/settings/document-types'
     | '/settings/loved-one'
     | '/settings/payees'
@@ -537,6 +571,7 @@ export interface FileRouteTypes {
     | '/_app/accounts'
     | '/_app/activity'
     | '/_app/care'
+    | '/_app/contributions'
     | '/_app/documents'
     | '/_app/insights'
     | '/_app/invoices'
@@ -548,6 +583,7 @@ export interface FileRouteTypes {
     | '/_app/shopping'
     | '/_app/transactions'
     | '/api/files'
+    | '/api/jobs'
     | '/api/uploads'
     | '/_app/'
     | '/_app/accounts/$accountId'
@@ -555,6 +591,7 @@ export interface FileRouteTypes {
     | '/_app/activity/$activityId'
     | '/_app/documents/$documentId'
     | '/_app/settings/categories'
+    | '/_app/settings/contributions'
     | '/_app/settings/document-types'
     | '/_app/settings/loved-one'
     | '/_app/settings/payees'
@@ -585,6 +622,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   VerifyRequestRoute: typeof VerifyRequestRoute
   ApiFilesRoute: typeof ApiFilesRoute
+  ApiJobsRoute: typeof ApiJobsRoute
   ApiUploadsRoute: typeof ApiUploadsRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
@@ -631,6 +669,13 @@ declare module '@tanstack/react-router' {
       path: '/api/uploads'
       fullPath: '/api/uploads'
       preLoaderRoute: typeof ApiUploadsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/jobs': {
+      id: '/api/jobs'
+      path: '/api/jobs'
+      fullPath: '/api/jobs'
+      preLoaderRoute: typeof ApiJobsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/files': {
@@ -708,6 +753,13 @@ declare module '@tanstack/react-router' {
       path: '/documents'
       fullPath: '/documents'
       preLoaderRoute: typeof AppDocumentsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/contributions': {
+      id: '/_app/contributions'
+      path: '/contributions'
+      fullPath: '/contributions'
+      preLoaderRoute: typeof AppContributionsRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/care': {
@@ -834,6 +886,13 @@ declare module '@tanstack/react-router' {
       path: '/document-types'
       fullPath: '/settings/document-types'
       preLoaderRoute: typeof AppSettingsDocumentTypesRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
+    '/_app/settings/contributions': {
+      id: '/_app/settings/contributions'
+      path: '/contributions'
+      fullPath: '/settings/contributions'
+      preLoaderRoute: typeof AppSettingsContributionsRouteImport
       parentRoute: typeof AppSettingsRoute
     }
     '/_app/settings/categories': {
@@ -1000,6 +1059,7 @@ const AppSettingsUsersRouteWithChildren =
 
 interface AppSettingsRouteChildren {
   AppSettingsCategoriesRoute: typeof AppSettingsCategoriesRoute
+  AppSettingsContributionsRoute: typeof AppSettingsContributionsRoute
   AppSettingsDocumentTypesRoute: typeof AppSettingsDocumentTypesRoute
   AppSettingsLovedOneRoute: typeof AppSettingsLovedOneRoute
   AppSettingsPayeesRoute: typeof AppSettingsPayeesRoute
@@ -1012,6 +1072,7 @@ interface AppSettingsRouteChildren {
 
 const AppSettingsRouteChildren: AppSettingsRouteChildren = {
   AppSettingsCategoriesRoute: AppSettingsCategoriesRoute,
+  AppSettingsContributionsRoute: AppSettingsContributionsRoute,
   AppSettingsDocumentTypesRoute: AppSettingsDocumentTypesRoute,
   AppSettingsLovedOneRoute: AppSettingsLovedOneRoute,
   AppSettingsPayeesRoute: AppSettingsPayeesRoute,
@@ -1048,6 +1109,7 @@ interface AppRouteChildren {
   AppAccountsRoute: typeof AppAccountsRouteWithChildren
   AppActivityRoute: typeof AppActivityRouteWithChildren
   AppCareRoute: typeof AppCareRoute
+  AppContributionsRoute: typeof AppContributionsRoute
   AppDocumentsRoute: typeof AppDocumentsRouteWithChildren
   AppInsightsRoute: typeof AppInsightsRoute
   AppInvoicesRoute: typeof AppInvoicesRoute
@@ -1065,6 +1127,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppAccountsRoute: AppAccountsRouteWithChildren,
   AppActivityRoute: AppActivityRouteWithChildren,
   AppCareRoute: AppCareRoute,
+  AppContributionsRoute: AppContributionsRoute,
   AppDocumentsRoute: AppDocumentsRouteWithChildren,
   AppInsightsRoute: AppInsightsRoute,
   AppInvoicesRoute: AppInvoicesRoute,
@@ -1086,6 +1149,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   VerifyRequestRoute: VerifyRequestRoute,
   ApiFilesRoute: ApiFilesRoute,
+  ApiJobsRoute: ApiJobsRoute,
   ApiUploadsRoute: ApiUploadsRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }

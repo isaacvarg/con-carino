@@ -28,6 +28,7 @@ services:
       AUTH_DISCORD_SECRET: ${AUTH_DISCORD_SECRET}
       AUTH_RESEND_KEY: ${AUTH_RESEND_KEY}
       AUTH_EMAIL_FROM: ${AUTH_EMAIL_FROM}
+      JOB_SECRET: ${JOB_SECRET:?JOB_SECRET is required}
       S3_ENDPOINT: http://rustfs:9000
       S3_REGION: ${S3_REGION:-us-east-1}
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
@@ -80,6 +81,36 @@ services:
     command: ['/data']
     networks:
       - backend
+
+  # Drives scheduled work by POSTing /api/jobs on a loop. The app claims each
+  # job's time bucket in the job_runs table, so a duplicate or late tick is a
+  # no-op rather than a double run — this loop only has to be roughly on time.
+  #
+  # A stock curl image with a sleep loop rather than a crond image, so this
+  # needs no Dockerfile stage, no CI build, and no third GHCR package. The
+  # -m 300 timeout means the effective interval can stretch to ~6 minutes,
+  # which is irrelevant for jobs whose finest granularity is "shifts that
+  # already ended".
+  #
+  # $$JOB_SECRET is doubled so Compose passes the literal through to the shell
+  # instead of interpolating it at parse time.
+  cron:
+    image: curlimages/curl:8.11.1
+    container_name: con-carino-cron
+    restart: unless-stopped
+    environment:
+      JOB_SECRET: ${JOB_SECRET:?JOB_SECRET is required}
+    networks:
+      - backend
+    depends_on:
+      app:
+        condition: service_started
+    entrypoint: ['/bin/sh', '-c']
+    # Kept on one line on purpose: a YAML folded block (>) preserves newlines
+    # around more-indented lines, which would split the curl invocation across
+    # lines and silently run it without a URL.
+    command:
+      - 'while :; do curl -fsS -m 300 -X POST -H "Authorization: Bearer $$JOB_SECRET" http://app:3000/api/jobs || echo "[cron] job tick failed"; sleep 60; done'
 
   # One-shot: runs `prisma migrate deploy` on every stack up (idempotent —
   # exits immediately when no migrations are pending). The app waits for it

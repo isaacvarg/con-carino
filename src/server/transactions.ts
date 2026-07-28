@@ -1,4 +1,4 @@
-import { createServerFn } from '@tanstack/react-start'
+import { createServerFn, createServerOnlyFn } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
 import { getSession } from 'start-authjs'
 import {
@@ -9,6 +9,7 @@ import type {
   ReconciliationStatus,
   TransactionType,
 } from '#/generated/prisma/enums'
+import type { PrismaClient } from '#/generated/prisma/client'
 import {
   ACTIVITY_ENTITY_TYPES,
   createChanges,
@@ -1214,6 +1215,106 @@ export type TransferCreateResult = {
   to: TransactionListItem
 }
 
+// Derived from the PrismaClient *type*, not `typeof prisma`: referencing the
+// runtime binding in a type position keeps the `#/lib/prisma` import alive in
+// this module's client build, which is what we just went to the trouble of
+// removing.
+type TransferTxClient = Parameters<
+  Parameters<PrismaClient['$transaction']>[0]
+>[0]
+
+export type TransferRowsInput = {
+  userId: string
+  fromAccountId: string
+  toAccountId: string
+  /** Positive magnitude; the signs are applied here. */
+  magnitude: number
+  date: Date
+  description: string | null
+  fromPayeeId: string
+  toPayeeId: string
+  fromAccount: { name: string; isGlobal: boolean; userId: string | null }
+  toAccount: { name: string; isGlobal: boolean }
+}
+
+/**
+ * Create the two rows that make up a transfer, plus its activity entry.
+ *
+ * Extracted from `createTransfer` so server-side callers that already hold a
+ * transaction — notably the contribution jobs moving money into the coverage
+ * pot — can post a transfer without going back through HTTP. Validation and
+ * account-visibility checks stay with the caller.
+ */
+// createServerOnlyFn, not a bare export — see the note on runCompleteDueShifts
+// in src/server/care.ts. A plain export here keeps `prisma` reachable from the
+// client build of this module and breaks hydration app-wide.
+export const createTransferRows = createServerOnlyFn(async (
+  tx: TransferTxClient,
+  input: TransferRowsInput,
+) => {
+  const transferGroupId = crypto.randomUUID()
+  const outAmount = toSignedTransactionAmount('TRANSFER', input.magnitude, 'out')
+  const inAmount = toSignedTransactionAmount('TRANSFER', input.magnitude, 'in')
+
+  const from = await tx.transaction.create({
+    data: {
+      userId: input.userId,
+      financialAccountId: input.fromAccountId,
+      type: 'TRANSFER',
+      amount: outAmount,
+      date: input.date,
+      description: input.description,
+      transferGroupId,
+      payeeId: input.fromPayeeId,
+    },
+  })
+  const to = await tx.transaction.create({
+    data: {
+      userId: input.userId,
+      financialAccountId: input.toAccountId,
+      type: 'TRANSFER',
+      amount: inAmount,
+      date: input.date,
+      description: input.description,
+      transferGroupId,
+      payeeId: input.toPayeeId,
+    },
+  })
+
+  await logActivity(
+    {
+      actorUserId: input.userId,
+      action: 'CREATE',
+      entityType: ACTIVITY_ENTITY_TYPES.transaction,
+      entityId: from.id,
+      summary: `Transferred $${input.magnitude.toFixed(2)} from ${input.fromAccount.name} to ${input.toAccount.name}`,
+      changes: createChanges(
+        {
+          financialAccountId: from.financialAccountId,
+          type: from.type,
+          amount: from.amount.toString(),
+          description: from.description,
+          date: from.date.toISOString(),
+          payeeId: from.payeeId,
+          categoryId: from.categoryId,
+          transferGroupId: from.transferGroupId,
+          toTransactionId: to.id,
+          toAccountId: to.financialAccountId,
+        },
+        [...TRANSACTION_ACTIVITY_FIELDS, 'toTransactionId', 'toAccountId'],
+      ),
+      linkMeta: {
+        isGlobal: input.fromAccount.isGlobal || input.toAccount.isGlobal,
+        accountName: input.fromAccount.name,
+      },
+      visibilityUserId: input.fromAccount.userId,
+    },
+    tx,
+  )
+
+  return { transferGroupId, from, to }
+})
+
 export const createTransfer = createServerFn({ method: 'POST' })
   .validator((data: unknown) => {
     if (!data || typeof data !== 'object') {
@@ -1290,73 +1391,22 @@ export const createTransfer = createServerFn({ method: 'POST' })
 
     const magnitude = parsePositiveAmount(data.amount)
     const date = parseDate(data.date)
-    const outAmount = toSignedTransactionAmount('TRANSFER', magnitude, 'out')
-    const inAmount = toSignedTransactionAmount('TRANSFER', magnitude, 'in')
-    const transferGroupId = crypto.randomUUID()
 
-    const [fromTxn, toTxn] = await prisma.$transaction(async (tx) => {
-      const from = await tx.transaction.create({
-        data: {
+    const { transferGroupId, from: fromTxn, to: toTxn } =
+      await prisma.$transaction((tx) =>
+        createTransferRows(tx, {
           userId,
-          financialAccountId: data.fromAccountId,
-          type: 'TRANSFER',
-          amount: outAmount,
+          fromAccountId: data.fromAccountId,
+          toAccountId: data.toAccountId,
+          magnitude,
           date,
           description: data.description,
-          transferGroupId,
-          payeeId: fromPayeeId,
-        },
-      })
-      const to = await tx.transaction.create({
-        data: {
-          userId,
-          financialAccountId: data.toAccountId,
-          type: 'TRANSFER',
-          amount: inAmount,
-          date,
-          description: data.description,
-          transferGroupId,
-          payeeId: toPayeeId,
-        },
-      })
-
-      await logActivity(
-        {
-          actorUserId: userId,
-          action: 'CREATE',
-          entityType: ACTIVITY_ENTITY_TYPES.transaction,
-          entityId: from.id,
-          summary: `Transferred $${magnitude.toFixed(2)} from ${fromAccount.name} to ${toAccount.name}`,
-          changes: createChanges(
-            {
-              financialAccountId: from.financialAccountId,
-              type: from.type,
-              amount: from.amount.toString(),
-              description: from.description,
-              date: from.date.toISOString(),
-              payeeId: from.payeeId,
-              categoryId: from.categoryId,
-              transferGroupId: from.transferGroupId,
-              toTransactionId: to.id,
-              toAccountId: to.financialAccountId,
-            },
-            [
-              ...TRANSACTION_ACTIVITY_FIELDS,
-              'toTransactionId',
-              'toAccountId',
-            ],
-          ),
-          linkMeta: {
-            isGlobal: fromAccount.isGlobal || toAccount.isGlobal,
-            accountName: fromAccount.name,
-          },
-          visibilityUserId: fromAccount.userId,
-        },
-        tx,
+          fromPayeeId,
+          toPayeeId,
+          fromAccount,
+          toAccount,
+        }),
       )
-
-      return [from, to] as const
-    })
 
     const attachments = await linkAttachments(userId, data.attachments, [
       fromTxn.id,

@@ -37,6 +37,8 @@ model FinancialAccount {
   accountGroup AccountGroup? @relation(fields: [accountGroupId], references: [id], onDelete: SetNull)
   transactions Transaction[]
   careInvoices CareInvoice[]
+  careSettings         CareSettings[]            @relation("CareCoverageAccount")
+  contributionProfiles CareContributionProfile[]
 
   @@index([userId])
   @@index([accountGroupId])

@@ -2,6 +2,7 @@ import { useRouter } from '@tanstack/react-router'
 import { useMemo, useState, type FormEvent } from 'react'
 import { ConfirmDialog } from '#/components/app/ui/confirm-dialog'
 import { canReleaseOccurrence } from '#/lib/care-release'
+import { canTakeResponsibility } from '#/lib/care-responsibility'
 import {
   FORM_INPUT_CLASS,
   FORM_SELECT_CLASS,
@@ -28,6 +29,7 @@ import {
   deleteCoverageAssignmentRule,
   deleteCoverageSeries,
   listCoverageAssignmentRules,
+  hireCoverageForWindow,
   listCoverageSeries,
   releaseOccurrence,
   updateOccurrence,
@@ -125,6 +127,10 @@ export function CareCalendarPanel({
   const [notifyOnRelease, setNotifyOnRelease] = useState(true)
   const [releasing, setReleasing] = useState(false)
   const [releaseError, setReleaseError] = useState<string | null>(null)
+  const [hireId, setHireId] = useState<string | null>(null)
+  const [hireAssigneeId, setHireAssigneeId] = useState('')
+  const [hiring, setHiring] = useState(false)
+  const [hireError, setHireError] = useState<string | null>(null)
 
   const [assigneeId, setAssigneeId] = useState('')
   const [startDate, setStartDate] = useState(selectedDay)
@@ -154,6 +160,25 @@ export function CareCalendarPanel({
   function canRelease(o: CareCoverageOccurrenceDto): boolean {
     if (selectMode || o.hasInvoice) return false
     return canReleaseOccurrence(
+      {
+        assigneeId: o.assigneeId,
+        status: o.status,
+        startsAt: new Date(o.startsAt),
+      },
+      linkedPerson?.id ?? null,
+      new Date(),
+    ).ok
+  }
+
+  /**
+   * Whether the viewer can hand this window to paid help and pick up the whole
+   * cost. Same shape as canRelease — the server owns the invoice and swap
+   * checks.
+   */
+  function canHire(o: CareCoverageOccurrenceDto): boolean {
+    if (selectMode || o.hasInvoice) return false
+    if (o.responsiblePersonId) return false
+    return canTakeResponsibility(
       {
         assigneeId: o.assigneeId,
         status: o.status,
@@ -366,6 +391,16 @@ export function CareCalendarPanel({
                             />
                             {o.assigneeName ?? 'Open slot'}
                           </p>
+                          {o.responsiblePersonName ? (
+                            <p className="mt-0.5">
+                              <span
+                                className="badge badge-warning badge-sm"
+                                title={`${o.responsiblePersonName} hired this cover and pays the full cost of this window`}
+                              >
+                                {o.responsiblePersonName} pays
+                              </span>
+                            </p>
+                          ) : null}
                           <p className="text-xs text-base-content/50">
                             {o.status}
                           </p>
@@ -405,6 +440,19 @@ export function CareCalendarPanel({
                             }}
                           >
                             Give up
+                          </button>
+                        ) : null}
+                        {canHire(o) ? (
+                          <button
+                            type="button"
+                            className="btn btn-outline btn-xs"
+                            onClick={() => {
+                              setHireError(null)
+                              setHireAssigneeId('')
+                              setHireId(o.id)
+                            }}
+                          >
+                            Hire cover
                           </button>
                         ) : null}
                       </div>
@@ -483,6 +531,26 @@ export function CareCalendarPanel({
       )
     } finally {
       setReleasing(false)
+    }
+  }
+
+  async function hireCover() {
+    if (!hireId || !hireAssigneeId) return
+    setHireError(null)
+    setHiring(true)
+    try {
+      await hireCoverageForWindow({
+        data: { id: hireId, assigneeId: hireAssigneeId },
+      })
+      setHireId(null)
+      setHireAssigneeId('')
+      await router.invalidate()
+    } catch (err) {
+      setHireError(
+        err instanceof Error ? err.message : 'Could not hire cover.',
+      )
+    } finally {
+      setHiring(false)
     }
   }
 
@@ -1021,6 +1089,60 @@ export function CareCalendarPanel({
           if (releaseId) void releaseSlot(releaseId)
         }}
         onCancel={() => setReleaseId(null)}
+      />
+
+      <ConfirmDialog
+        open={hireId !== null}
+        tone="warning"
+        title="Hire cover for this slot"
+        message={
+          <div className="space-y-3">
+            <p>
+              This hands the window to someone paid and keeps it as your
+              allotment — <strong>you cover 100% of the cost</strong> rather than
+              splitting it across contributors.
+            </p>
+            <label className="block text-sm">
+              <span className="mb-1 block text-base-content/70">
+                Who is covering?
+              </span>
+              <select
+                className={FORM_SELECT_CLASS}
+                value={hireAssigneeId}
+                disabled={hiring}
+                onChange={(e) => setHireAssigneeId(e.target.value)}
+              >
+                <option value="">Select someone…</option>
+                {activePeople
+                  .filter(
+                    (p) =>
+                      p.isPaid &&
+                      p.effectiveHourlyRate !== null &&
+                      p.id !== linkedPerson?.id,
+                  )
+                  .map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} — ${Number(p.effectiveHourlyRate).toFixed(2)}
+                      {p.effectiveRateType === 'DAILY' ? '/day' : '/hr'}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            {hireError ? (
+              <p className="text-sm text-error" role="alert">
+                {hireError}
+              </p>
+            ) : null}
+          </div>
+        }
+        confirmLabel="Hire and take the cost"
+        confirmDisabled={!hireAssigneeId}
+        busy={hiring}
+        onConfirm={() => void hireCover()}
+        onCancel={() => {
+          setHireId(null)
+          setHireAssigneeId('')
+        }}
       />
 
       {modal && modal !== 'manage' ? (

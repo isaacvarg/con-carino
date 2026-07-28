@@ -20,6 +20,7 @@ import type {
 import {
   createCarePerson,
   createCarePersonType,
+  createCoverageAssignmentRule,
   updateCarePerson,
   updateCarePersonType,
 } from '#/server/care'
@@ -53,6 +54,10 @@ function emptyPersonForm(types: CarePersonTypeDto[]): CarePersonFormValues {
     hourlyRate: '',
     rateType: 'HOURLY',
     flatDailyRate: false,
+    standardDaysOfWeek: [],
+    standardStartTime: '',
+    standardEndTime: '',
+    offScheduleRate: '',
     payInterval: 'PER_SHIFT',
     payWeekday: '5',
     payAnchorDate: '',
@@ -91,6 +96,11 @@ export function CarePeoplePanel({
   const [personForm, setPersonForm] = useState<CarePersonFormValues>(() =>
     emptyPersonForm(types),
   )
+  const [seedOffer, setSeedOffer] = useState<{
+    personId: string
+    days: number[]
+  } | null>(null)
+  const [seedBusy, setSeedBusy] = useState(false)
 
   const [showTypeForm, setShowTypeForm] = useState(false)
   const [editingTypeId, setEditingTypeId] = useState<string | null>(null)
@@ -123,6 +133,10 @@ export function CarePeoplePanel({
       hourlyRate: person.hourlyRate ?? '',
       rateType: person.rateType,
       flatDailyRate: person.flatDailyRate,
+      standardDaysOfWeek: person.standardDaysOfWeek,
+      standardStartTime: person.standardStartTime ?? '',
+      standardEndTime: person.standardEndTime ?? '',
+      offScheduleRate: person.offScheduleRate ?? '',
       payInterval: person.payInterval,
       payWeekday: String(person.payWeekday ?? 5),
       payAnchorDate: person.payAnchorDate ?? '',
@@ -139,13 +153,22 @@ export function CarePeoplePanel({
     setPersonSaving(true)
     setPersonError(null)
     const payload = carePersonFormPayload(personForm)
+    const days = personForm.standardDaysOfWeek
     try {
+      let personId = editingPersonId
       if (editingPersonId) {
         await updateCarePerson({ data: { id: editingPersonId, ...payload } })
       } else {
-        await createCarePerson({ data: payload })
+        const created = await createCarePerson({ data: payload })
+        personId = created.id
       }
       resetPersonForm()
+      // Offer to mirror the typical schedule as a recurring assignment. The
+      // two are deliberately separate records — this is a shortcut, not a link,
+      // so either can be edited afterwards without disturbing the other.
+      if (personId && days.length > 0) {
+        setSeedOffer({ personId, days })
+      }
       await router.invalidate()
     } catch (err) {
       setPersonError(
@@ -153,6 +176,37 @@ export function CarePeoplePanel({
       )
     } finally {
       setPersonSaving(false)
+    }
+  }
+
+  async function seedAssignmentRule() {
+    if (!seedOffer) return
+    setSeedBusy(true)
+    try {
+      const today = new Date()
+      const startsOn = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+      await createCoverageAssignmentRule({
+        data: {
+          assigneeId: seedOffer.personId,
+          startsOn,
+          endsOn: null,
+          daysOfWeek: seedOffer.days,
+          intervalWeeks: 1,
+          scope: 'ALL_SHIFTS',
+          shiftIds: [],
+        },
+      })
+      setSeedOffer(null)
+      await router.invalidate()
+    } catch (err) {
+      setPersonError(
+        err instanceof Error
+          ? err.message
+          : 'Could not create the recurring assignment.',
+      )
+      setSeedOffer(null)
+    } finally {
+      setSeedBusy(false)
     }
   }
 
@@ -241,6 +295,39 @@ export function CarePeoplePanel({
           </button>
         ) : null}
       </div>
+
+      {tab === 'people' && seedOffer ? (
+        <div className="alert alert-info mb-4">
+          <div className="flex-1">
+            <p className="text-sm font-medium">
+              Also assign them to those days on the calendar?
+            </p>
+            <p className="text-xs opacity-80">
+              The typical schedule only decides which rate applies. This creates
+              a matching weekly recurring assignment so they are actually filled
+              in — the same thing as Manage recurring on the calendar.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => setSeedOffer(null)}
+              disabled={seedBusy}
+            >
+              No thanks
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={seedAssignmentRule}
+              disabled={seedBusy}
+            >
+              {seedBusy ? 'Creating…' : 'Create assignment'}
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {tab === 'people' ? (
         showPersonForm ? (

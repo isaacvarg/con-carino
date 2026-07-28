@@ -37,6 +37,10 @@ export type CarePersonFormValues = {
   hourlyRate: string
   rateType: CareRateType
   flatDailyRate: boolean
+  standardDaysOfWeek: number[]
+  standardStartTime: string
+  standardEndTime: string
+  offScheduleRate: string
   payInterval: CarePayInterval
   payWeekday: string
   payAnchorDate: string
@@ -183,6 +187,104 @@ export function CarePersonFormFields({
       ) : null}
       {selectedTypeIsPaid ? (
         <>
+          <FormField label="Typical schedule">
+            <div className="flex flex-wrap gap-1">
+              {WEEKDAYS.map((d) => {
+                const on = values.standardDaysOfWeek.includes(d.value)
+                return (
+                  <button
+                    key={d.value}
+                    type="button"
+                    className={`btn btn-xs ${on ? 'btn-primary' : 'btn-ghost'}`}
+                    aria-pressed={on}
+                    onClick={() =>
+                      onChange({
+                        standardDaysOfWeek: on
+                          ? values.standardDaysOfWeek.filter(
+                              (v) => v !== d.value,
+                            )
+                          : [...values.standardDaysOfWeek, d.value].sort(
+                              (a, b) => a - b,
+                            ),
+                      })
+                    }
+                  >
+                    {d.label.slice(0, 3)}
+                  </button>
+                )
+              })}
+            </div>
+            <p className="mt-1 text-xs text-base-content/60">
+              Days this person normally works. Used only to decide which rate
+              applies — recurring assignment is still set up under Manage
+              recurring on the calendar. Leave empty to bill everything at the
+              standard rate.
+            </p>
+          </FormField>
+          {values.standardDaysOfWeek.length > 0 ? (
+            <>
+              <FormRow>
+                <FormField
+                  label="Typical start"
+                  htmlFor={`${idPrefix}-standard-start`}
+                >
+                  <input
+                    id={`${idPrefix}-standard-start`}
+                    type="time"
+                    className={FORM_INPUT_CLASS}
+                    value={values.standardStartTime}
+                    onChange={(e) =>
+                      onChange({ standardStartTime: e.target.value })
+                    }
+                  />
+                </FormField>
+                <FormField
+                  label="Typical end"
+                  htmlFor={`${idPrefix}-standard-end`}
+                >
+                  <input
+                    id={`${idPrefix}-standard-end`}
+                    type="time"
+                    className={FORM_INPUT_CLASS}
+                    value={values.standardEndTime}
+                    onChange={(e) =>
+                      onChange({ standardEndTime: e.target.value })
+                    }
+                  />
+                </FormField>
+              </FormRow>
+              <p className="-mt-2 text-xs text-base-content/60">
+                Leave both blank to treat the whole of a typical day as standard.
+                An end at or before the start means an overnight window.
+              </p>
+              <FormField
+                label="Off-schedule rate"
+                htmlFor={`${idPrefix}-off-schedule-rate`}
+              >
+                <input
+                  id={`${idPrefix}-off-schedule-rate`}
+                  className={FORM_INPUT_CLASS}
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  inputMode="decimal"
+                  value={values.offScheduleRate}
+                  onChange={(e) =>
+                    onChange({ offScheduleRate: e.target.value })
+                  }
+                />
+                <p className="mt-1 text-xs text-base-content/60">
+                  Charged for work outside the typical schedule — for example
+                  covering someone else&rsquo;s weekend. Same{' '}
+                  {values.rateType === 'DAILY' ? 'per-day' : 'per-hour'} basis as
+                  the standard rate. Leave blank for no premium.
+                  {values.rateType === 'DAILY' && values.flatDailyRate
+                    ? ' With a flat daily rate a whole day takes whichever rate covers more of it.'
+                    : ' A shift crossing the boundary is split and each part billed at its own rate.'}
+                </p>
+              </FormField>
+            </>
+          ) : null}
           <FormRow>
             <FormField
               label="Pay Interval"
@@ -294,6 +396,10 @@ export function carePersonFormPayload(values: CarePersonFormValues) {
     hourlyRate: values.hourlyRate,
     rateType: values.rateType,
     flatDailyRate: values.flatDailyRate,
+    standardDaysOfWeek: values.standardDaysOfWeek,
+    standardStartTime: values.standardStartTime,
+    standardEndTime: values.standardEndTime,
+    offScheduleRate: values.offScheduleRate,
     payInterval: values.payInterval,
     payWeekday: values.payWeekday,
     payAnchorDate: values.payAnchorDate,

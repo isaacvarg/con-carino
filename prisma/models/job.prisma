@@ -1,0 +1,27 @@
+enum JobRunStatus {
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+/// One row per claimed scheduling bucket. The `[jobName, scheduledFor]` unique
+/// IS the lock: a runner claims a bucket by inserting, and a duplicate insert
+/// (P2002) means another runner already owns it. That makes double-fires from
+/// the dev tick and the prod cron container harmless, and leaves an audit trail
+/// of when each job ran and what it returned.
+model JobRun {
+  id           String       @id @default(uuid())
+  jobName      String
+  /// Start of the interval bucket this run claims — the idempotency key.
+  scheduledFor DateTime
+  status       JobRunStatus @default(RUNNING)
+  startedAt    DateTime     @default(now())
+  finishedAt   DateTime?
+  durationMs   Int?
+  result       Json?
+  error        String?
+
+  @@unique([jobName, scheduledFor])
+  @@index([jobName, startedAt])
+  @@map("job_runs")
+}

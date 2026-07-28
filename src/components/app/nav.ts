@@ -6,6 +6,7 @@ import {
   HiOutlineClipboardList,
   HiOutlineClock,
   HiOutlineCog,
+  HiOutlineCash,
   HiOutlineCreditCard,
   HiOutlineDocumentText,
   HiOutlineLightBulb,
@@ -26,6 +27,7 @@ export type AppNavPath =
   | '/notes'
   | '/shopping'
   | '/invoices'
+  | '/contributions'
   | '/documents'
   | '/insights'
   | '/settings'
@@ -92,6 +94,13 @@ export const APP_NAV: AppNavEntry[] = [
         to: '/invoices',
         icon: HiOutlineReceiptTax,
         title: 'Invoices',
+      },
+      {
+        kind: 'link',
+        label: 'Contributions',
+        to: '/contributions',
+        icon: HiOutlineCash,
+        title: 'Contributions',
       },
     ],
   },

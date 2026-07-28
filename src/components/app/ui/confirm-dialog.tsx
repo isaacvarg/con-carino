@@ -1,13 +1,21 @@
 import type { ReactNode } from 'react'
 
+const CONFIRM_TONE_CLASS = {
+  default: 'btn-primary',
+  danger: 'btn-error',
+  warning: 'btn-warning',
+} as const
+
 type ConfirmDialogProps = {
   open: boolean
   title: string
   message: ReactNode
   confirmLabel?: string
   cancelLabel?: string
-  tone?: 'default' | 'danger'
+  tone?: 'default' | 'danger' | 'warning'
   busy?: boolean
+  /** Blocks confirming while the dialog's own input is incomplete. */
+  confirmDisabled?: boolean
   onConfirm: () => void
   onCancel: () => void
 }
@@ -20,6 +28,7 @@ export function ConfirmDialog({
   cancelLabel = 'Cancel',
   tone = 'default',
   busy = false,
+  confirmDisabled = false,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -41,9 +50,9 @@ export function ConfirmDialog({
           </button>
           <button
             type="button"
-            className={`btn ${tone === 'danger' ? 'btn-error' : 'btn-primary'}`}
+            className={`btn ${CONFIRM_TONE_CLASS[tone]}`}
             onClick={onConfirm}
-            disabled={busy}
+            disabled={busy || confirmDisabled}
           >
             {busy ? 'Working…' : confirmLabel}
           </button>

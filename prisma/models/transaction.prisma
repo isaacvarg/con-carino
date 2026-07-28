@@ -41,6 +41,7 @@ model Transaction {
   tags                    Tag[]
   attachments             Attachment[]
   careInvoice             CareInvoice?
+  careLedgerEntry         CareContributionLedgerEntry?
 
   @@index([userId, date])
   @@index([financialAccountId, date])

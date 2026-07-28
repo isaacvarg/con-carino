@@ -1,7 +1,8 @@
 import { createFileRoute, redirect } from '@tanstack/react-router'
+import { CareForecastPanel } from '#/components/app/care/CareForecastPanel'
 import { CareInvoicesPanel } from '#/components/app/care/CareInvoicesPanel'
 import { listAccounts } from '#/server/accounts'
-import { listCareInvoices } from '#/server/care'
+import { getCareForecast, listCareInvoices } from '#/server/care'
 
 type InvoicesSearch = {
   invoiceId?: string
@@ -26,21 +27,23 @@ export const Route = createFileRoute('/_app/invoices')({
   },
   validateSearch: validateInvoicesSearch,
   loader: async () => {
-    const [invoices, accounts] = await Promise.all([
+    const [invoices, accounts, forecast] = await Promise.all([
       listCareInvoices(),
       listAccounts(),
+      getCareForecast({ data: { days: 60 } }),
     ])
-    return { invoices, accounts }
+    return { invoices, accounts, forecast }
   },
   component: InvoicesPage,
 })
 
 function InvoicesPage() {
-  const { invoices, accounts } = Route.useLoaderData()
+  const { invoices, accounts, forecast } = Route.useLoaderData()
   const { invoiceId } = Route.useSearch()
 
   return (
     <div className="flex flex-col gap-4">
+      <CareForecastPanel forecast={forecast} />
       <CareInvoicesPanel
         invoices={invoices}
         accounts={accounts}

@@ -1,4 +1,4 @@
-import { createServerFn } from '@tanstack/react-start'
+import { createServerFn, createServerOnlyFn } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
 import { getSession } from 'start-authjs'
 import type {
@@ -9,12 +9,21 @@ import type {
   CareInvoiceStatus,
   CareOccurrenceStatus,
   CarePayInterval,
+  CareContributionBasis,
+  CareContributionCadence,
+  CareContributionStatus,
+  CareFundingPeriodStatus,
+  CareRateBand,
   CareRateType,
+  CareSplitPolicy,
   CareSwapItemRole,
   CareSwapStatus,
 } from '#/generated/prisma/enums'
 import {
   CareAssignmentScope as CareAssignmentScopeEnum,
+  CareContributionBasis as CareContributionBasisEnum,
+  CareContributionCadence as CareContributionCadenceEnum,
+  CareSplitPolicy as CareSplitPolicyEnum,
   CareCoverageFrequency as CareCoverageFrequencyEnum,
   CareCoverageNeed as CareCoverageNeedEnum,
   CareCoverageWindowKind as CareCoverageWindowKindEnum,
@@ -23,14 +32,17 @@ import {
   CareRateType as CareRateTypeEnum,
 } from '#/generated/prisma/enums'
 import {
-  billableQuantity,
-  computeInvoiceAmount,
   effectiveRate,
   lastClosedPayPeriodEnd,
   payPeriodStart,
 } from '#/lib/care-invoice'
+import type { StandardSchedule } from '#/lib/care-rate-segments'
+import { segmentCoverageWindow } from '#/lib/care-rate-segments'
+import { allocateCarePeriod } from '#/lib/care-allocation'
+import { projectCareCosts } from '#/lib/care-forecast'
 import { occurrenceMatchesRule } from '#/lib/care-assignment'
 import { canReleaseOccurrence } from '#/lib/care-release'
+import { canTakeResponsibility } from '#/lib/care-responsibility'
 import { buildRequiredCoverageWindows } from '#/lib/care-required'
 import { expandSeriesOccurrences, parseHhMm } from '#/lib/care-recurrence'
 import {
@@ -55,6 +67,7 @@ import type { Prisma, PrismaClient } from '#/generated/prisma/client'
 import { toSignedTransactionAmount } from '#/lib/transaction-amount'
 import { requireHexColor } from '#/lib/validators'
 import { logActivity } from '#/server/activity-log'
+import { startDevJobTick } from '#/server/jobs/dev-tick'
 import { authConfig } from '#/utils/auth'
 
 const FREQUENCIES = Object.values(CareCoverageFrequencyEnum)
@@ -76,6 +89,14 @@ async function requireUserId() {
 function decimalToString(value: { toString(): string } | null | undefined): string | null {
   if (value === null || value === undefined) return null
   return value.toString()
+}
+
+function decimalToNumber(
+  value: { toString(): string } | null | undefined,
+): number | null {
+  if (value === null || value === undefined) return null
+  const n = Number(value.toString())
+  return Number.isFinite(n) ? n : null
 }
 
 /** Build the effectiveRate input from a person joined with its type. */
@@ -251,6 +272,60 @@ function ownOrGlobal(userId: string) {
   return { OR: [{ userId }, { isGlobal: true }] }
 }
 
+type StandardScheduleFields = {
+  standardDaysOfWeek: number[]
+  standardStartTime: string | null
+  standardEndTime: string | null
+  offScheduleRate: string | null
+}
+
+/**
+ * Parse the typical-schedule fields off a person payload.
+ *
+ * Unpaid people and people with no schedule days get everything cleared —
+ * there is no premium to apply, so leaving stale times or a stale rate around
+ * would only be misleading.
+ */
+function parseStandardSchedule(
+  input: Record<string, unknown>,
+  isPaid: boolean,
+): StandardScheduleFields {
+  const empty: StandardScheduleFields = {
+    standardDaysOfWeek: [],
+    standardStartTime: null,
+    standardEndTime: null,
+    offScheduleRate: null,
+  }
+  if (!isPaid) return empty
+
+  const raw = input.standardDaysOfWeek
+  const days = Array.isArray(raw) && raw.length > 0 ? parseDaysOfWeek(raw) : []
+  if (days.length === 0) return empty
+
+  const hasStart =
+    typeof input.standardStartTime === 'string' &&
+    input.standardStartTime.trim() !== ''
+  const hasEnd =
+    typeof input.standardEndTime === 'string' &&
+    input.standardEndTime.trim() !== ''
+  if (hasStart !== hasEnd) {
+    throw new Error(
+      'Set both a typical start and end time, or leave both blank for a whole day.',
+    )
+  }
+
+  return {
+    standardDaysOfWeek: days,
+    standardStartTime: hasStart
+      ? parseTime(input.standardStartTime, 'Typical start')
+      : null,
+    standardEndTime: hasEnd
+      ? parseTime(input.standardEndTime, 'Typical end')
+      : null,
+    offScheduleRate: parseOptionalRate(input.offScheduleRate),
+  }
+}
+
 function toDayKey(d: Date): string {
   const y = d.getFullYear()
   const m = String(d.getMonth() + 1).padStart(2, '0')
@@ -284,6 +359,12 @@ export type CareSettingsDto = {
   coverageWindowKind: CareCoverageWindowKind
   partialDaysOfWeek: number[]
   shifts: CareRequiredShiftDto[]
+  /** The joint pot: contributions transfer in, invoices settle out. */
+  coverageAccountId: string | null
+  splitPolicy: CareSplitPolicy
+  backstopPersonId: string | null
+  plannedMonthlyBudget: string | null
+  fundingPeriodDay: number
 }
 
 export type CareCoverageSeriesDto = {
@@ -339,6 +420,10 @@ export type CarePersonDto = {
   hourlyRate: string | null
   rateType: CareRateType
   flatDailyRate: boolean
+  standardDaysOfWeek: number[]
+  standardStartTime: string | null
+  standardEndTime: string | null
+  offScheduleRate: string | null
   effectiveHourlyRate: string | null
   effectiveRateType: CareRateType
   payInterval: CarePayInterval
@@ -365,6 +450,9 @@ export type CareCoverageOccurrenceDto = {
   billingStatus: CareBillingStatus
   notes: string | null
   hasInvoice: boolean
+  /// Set when someone hired paid help for their own window and owes 100% of it.
+  responsiblePersonId: string | null
+  responsiblePersonName: string | null
 }
 
 export type CareEventTypeDto = {
@@ -425,6 +513,12 @@ export type CareInvoiceLineDto = {
   hourlyRateSnapshot: string
   hoursSnapshot: string
   rateType: CareRateType
+  rateBand: CareRateBand
+  /**
+   * Bounds of the priced segment, not of the whole occurrence. An occurrence
+   * straddling the assignee's typical schedule contributes several lines whose
+   * ranges tile it.
+   */
   startsAt: string
   endsAt: string
 }
@@ -457,6 +551,10 @@ export function toPersonDto(person: {
   hourlyRate: { toString(): string } | null
   rateType: CareRateType
   flatDailyRate: boolean
+  standardDaysOfWeek: number[]
+  standardStartTime: string | null
+  standardEndTime: string | null
+  offScheduleRate: { toString(): string } | null
   payInterval: CarePayInterval
   payWeekday: number | null
   payAnchorDate: Date | null
@@ -486,6 +584,10 @@ export function toPersonDto(person: {
     hourlyRate: decimalToString(person.hourlyRate),
     rateType: person.rateType,
     flatDailyRate: person.flatDailyRate,
+    standardDaysOfWeek: person.standardDaysOfWeek,
+    standardStartTime: person.standardStartTime,
+    standardEndTime: person.standardEndTime,
+    offScheduleRate: decimalToString(person.offScheduleRate),
     effectiveHourlyRate: rate !== null ? rate.amount.toFixed(4) : null,
     effectiveRateType: rate?.rateType ?? 'HOURLY',
     payInterval: person.payInterval,
@@ -516,7 +618,9 @@ function toOccurrenceDto(row: {
     bgColor: string | null
     textColor: string | null
   } | null
-  invoiceLine: { id: string } | null
+  invoiceLines: Array<{ id: string }>
+  responsiblePersonId: string | null
+  responsiblePerson: { name: string } | null
 }): CareCoverageOccurrenceDto {
   return {
     id: row.id,
@@ -530,7 +634,10 @@ function toOccurrenceDto(row: {
     status: row.status,
     billingStatus: row.billingStatus,
     notes: row.notes,
-    hasInvoice: Boolean(row.invoiceLine) || row.billingStatus === 'INVOICED',
+    hasInvoice:
+      row.invoiceLines.length > 0 || row.billingStatus === 'INVOICED',
+    responsiblePersonId: row.responsiblePersonId,
+    responsiblePersonName: row.responsiblePerson?.name ?? null,
   }
 }
 
@@ -552,7 +659,9 @@ function toInvoiceDto(row: {
     hourlyRateSnapshot: { toString(): string }
     hoursSnapshot: { toString(): string }
     rateType: CareRateType
-    occurrence: { startsAt: Date; endsAt: Date }
+    rateBand: CareRateBand
+    segmentStart: Date
+    segmentEnd: Date
   }>
 }): CareInvoiceDto {
   return {
@@ -573,27 +682,29 @@ function toInvoiceDto(row: {
       hourlyRateSnapshot: line.hourlyRateSnapshot.toString(),
       hoursSnapshot: line.hoursSnapshot.toString(),
       rateType: line.rateType,
-      startsAt: line.occurrence.startsAt.toISOString(),
-      endsAt: line.occurrence.endsAt.toISOString(),
+      rateBand: line.rateBand,
+      startsAt: line.segmentStart.toISOString(),
+      endsAt: line.segmentEnd.toISOString(),
     })),
   }
 }
 
 const invoiceInclude = {
   carePerson: { select: { name: true } },
-  lines: {
-    include: {
-      occurrence: { select: { startsAt: true, endsAt: true } },
-    },
-    orderBy: { occurrence: { startsAt: 'asc' as const } },
-  },
+  // Ordering by segmentStart rather than through the occurrence relation keeps
+  // multiple segments of one occurrence in chronological order, and avoids a
+  // join just to sort.
+  lines: { orderBy: { segmentStart: 'asc' as const } },
 } as const
 
 const occurrenceInclude = {
   assignee: {
     select: { name: true, bgColor: true, textColor: true },
   },
-  invoiceLine: { select: { id: true } },
+  // take: 1 — callers only need "is this invoiced at all", and this include
+  // runs for every occurrence rendered on the calendar.
+  invoiceLines: { select: { id: true }, take: 1 },
+  responsiblePerson: { select: { name: true } },
 } as const
 
 function optionalColor(value: unknown): string | null {
@@ -691,43 +802,54 @@ async function billingStatusForAssigneeId(
 
 type DbClient = PrismaClient
 
+/**
+ * Detach an occurrence from any invoice it is on.
+ *
+ * An occurrence can now contribute several lines (one per rate-band segment),
+ * and in principle to more than one invoice, so this works in sets. The PAID
+ * check runs across every line *before* anything is deleted — with N lines a
+ * mid-loop throw would otherwise leave the occurrence half-detached.
+ */
 async function removeOccurrenceFromOpenInvoice(
   occurrenceId: string,
   db: DbClient = prisma,
 ) {
-  const line = await db.careInvoiceLine.findUnique({
+  const lines = await db.careInvoiceLine.findMany({
     where: { occurrenceId },
     include: { invoice: true },
   })
-  if (!line) return
-  if (line.invoice.status === 'PAID') {
+  if (lines.length === 0) return
+
+  if (lines.some((line) => line.invoice.status === 'PAID')) {
     throw new Error(
       'This coverage is on a paid invoice and cannot be reassigned. Void the invoice first.',
     )
   }
-  if (line.invoice.status === 'VOID') {
-    await db.careInvoiceLine.delete({ where: { id: line.id } })
-    return
-  }
 
-  await db.careInvoiceLine.delete({ where: { id: line.id } })
-  const remaining = await db.careInvoiceLine.findMany({
-    where: { invoiceId: line.invoiceId },
-  })
-  if (remaining.length === 0) {
-    await db.careInvoice.update({
-      where: { id: line.invoiceId },
-      data: { status: 'VOID', amount: 0 },
+  const invoiceIds = [...new Set(lines.map((line) => line.invoiceId))]
+
+  await db.careInvoiceLine.deleteMany({ where: { occurrenceId } })
+
+  for (const invoiceId of invoiceIds) {
+    const invoice = lines.find((line) => line.invoiceId === invoiceId)!.invoice
+    // A VOID invoice has no total worth maintaining; dropping its lines is enough.
+    if (invoice.status !== 'OPEN') continue
+
+    const remaining = await db.careInvoiceLine.findMany({
+      where: { invoiceId },
     })
-  } else {
-    const amount = remaining.reduce(
-      (sum, row) => sum + Number(row.amount.toString()),
-      0,
-    )
-    await db.careInvoice.update({
-      where: { id: line.invoiceId },
-      data: { amount },
-    })
+    if (remaining.length === 0) {
+      await db.careInvoice.update({
+        where: { id: invoiceId },
+        data: { status: 'VOID', amount: 0 },
+      })
+    } else {
+      const amount = remaining.reduce(
+        (sum, row) => sum + Number(row.amount.toString()),
+        0,
+      )
+      await db.careInvoice.update({ where: { id: invoiceId }, data: { amount } })
+    }
   }
 }
 
@@ -742,22 +864,21 @@ async function syncBillingForAssignee(
 ) {
   const existing = await prisma.careCoverageOccurrence.findUniqueOrThrow({
     where: { id: occurrenceId },
-    include: { invoiceLine: { include: { invoice: true } } },
+    include: { invoiceLines: { include: { invoice: true } } },
   })
 
-  if (existing.invoiceLine) {
-    const status = existing.invoiceLine.invoice.status
-    if (status === 'PAID') {
+  if (existing.invoiceLines.length > 0) {
+    const statuses = existing.invoiceLines.map((line) => line.invoice.status)
+    if (statuses.includes('PAID')) {
       throw new Error(
         'This coverage is on a paid invoice and cannot be reassigned. Void the invoice first.',
       )
     }
-    if (status === 'OPEN') {
+    if (statuses.includes('OPEN')) {
+      // Handles every line, including any that belong to VOID invoices.
       await removeOccurrenceFromOpenInvoice(occurrenceId)
     } else {
-      await prisma.careInvoiceLine.delete({
-        where: { id: existing.invoiceLine.id },
-      })
+      await prisma.careInvoiceLine.deleteMany({ where: { occurrenceId } })
     }
   }
 
@@ -800,7 +921,7 @@ async function materializeSeriesInRange(rangeStart: Date, rangeEnd: Date) {
   }
 }
 
-async function completeDueShifts(now = new Date()) {
+async function completeDueShifts(now = new Date()): Promise<number> {
   const due = await prisma.careCoverageOccurrence.findMany({
     where: {
       status: 'SCHEDULED',
@@ -825,6 +946,8 @@ async function completeDueShifts(now = new Date()) {
       visibilityUserId: null,
     })
   }
+
+  return due.length
 }
 
 async function createInvoiceForOccurrences(input: {
@@ -832,33 +955,43 @@ async function createInvoiceForOccurrences(input: {
   carePersonName: string
   rateType: CareRateType
   flatDaily: boolean
+  standardRate: number
+  offScheduleRate: number | null
+  schedule: StandardSchedule
   occurrences: Array<{
     id: string
     startsAt: Date
     endsAt: Date
-    hourlyRate: number
   }>
   periodStart: Date | null
   periodEnd: Date | null
-}) {
-  if (input.occurrences.length === 0) return
+}): Promise<boolean> {
+  if (input.occurrences.length === 0) return false
 
-  const lines = input.occurrences.map((occ) => {
-    const quantity = billableQuantity(
-      occ.startsAt,
-      occ.endsAt,
-      input.rateType,
-      input.flatDaily,
-    )
-    const computed = computeInvoiceAmount(occ.hourlyRate, quantity)
-    return {
-      occurrenceId: occ.id,
-      amount: computed.amount,
-      hourlyRateSnapshot: computed.hourlyRate,
-      hoursSnapshot: computed.hours,
+  // One occurrence can yield several lines: a window straddling the assignee's
+  // typical schedule is cut at the boundary and each part priced at its band.
+  const lines = input.occurrences.flatMap((occ) =>
+    segmentCoverageWindow({
+      startsAt: occ.startsAt,
+      endsAt: occ.endsAt,
+      schedule: input.schedule,
       rateType: input.rateType,
-    }
-  })
+      flatDaily: input.flatDaily,
+      standardRate: input.standardRate,
+      offScheduleRate: input.offScheduleRate,
+    }).map((segment) => ({
+      occurrenceId: occ.id,
+      segmentStart: segment.startsAt,
+      segmentEnd: segment.endsAt,
+      rateBand: segment.band,
+      amount: segment.amount,
+      hourlyRateSnapshot: segment.rate,
+      hoursSnapshot: segment.quantity,
+      rateType: input.rateType,
+    })),
+  )
+  // The header total is always the sum of the persisted lines, never an
+  // independently recomputed figure.
   const amount = lines.reduce((sum, line) => sum + line.amount, 0)
 
   const invoice = await prisma.careInvoice.create({
@@ -898,15 +1031,22 @@ async function createInvoiceForOccurrences(input: {
     },
     visibilityUserId: null,
   })
+
+  return true
 }
 
-async function createPayPeriodInvoices(now = new Date()) {
+async function createPayPeriodInvoices(
+  now = new Date(),
+): Promise<{ invoicesCreated: number; strandedRepaired: number }> {
+  let invoicesCreated = 0
+  let strandedRepaired = 0
+
   // Repair: assigned paid shifts left as NOT_BILLABLE (e.g. pre-migration rows)
   const stranded = await prisma.careCoverageOccurrence.findMany({
     where: {
       assigneeId: { not: null },
       billingStatus: 'NOT_BILLABLE',
-      invoiceLine: null,
+      invoiceLines: { none: {} },
     },
     include: {
       assignee: { include: { type: true } },
@@ -920,6 +1060,7 @@ async function createPayPeriodInvoices(now = new Date()) {
       where: { id: occ.id },
       data: { billingStatus: 'ACCRUED' },
     })
+    strandedRepaired += 1
   }
 
   const people = await prisma.carePerson.findMany({
@@ -932,6 +1073,12 @@ async function createPayPeriodInvoices(now = new Date()) {
     const rate = resolved.amount
     const rateType = resolved.rateType
     const flatDaily = resolved.flatDaily
+    const offScheduleRate = decimalToNumber(person.offScheduleRate)
+    const schedule: StandardSchedule = {
+      daysOfWeek: person.standardDaysOfWeek,
+      startTime: person.standardStartTime,
+      endTime: person.standardEndTime,
+    }
 
     const cutoff = lastClosedPayPeriodEnd(
       {
@@ -956,22 +1103,21 @@ async function createPayPeriodInvoices(now = new Date()) {
 
     if (person.payInterval === 'PER_SHIFT') {
       for (const occ of accrued) {
-        await createInvoiceForOccurrences({
+        const created = await createInvoiceForOccurrences({
           carePersonId: person.id,
           carePersonName: person.name,
           rateType,
           flatDaily,
+          standardRate: rate,
+          offScheduleRate,
+          schedule,
           occurrences: [
-            {
-              id: occ.id,
-              startsAt: occ.startsAt,
-              endsAt: occ.endsAt,
-              hourlyRate: rate,
-            },
+            { id: occ.id, startsAt: occ.startsAt, endsAt: occ.endsAt },
           ],
           periodStart: occ.startsAt,
           periodEnd: occ.endsAt,
         })
+        if (created) invoicesCreated += 1
       }
       continue
     }
@@ -986,60 +1132,79 @@ async function createPayPeriodInvoices(now = new Date()) {
       cutoff,
     )
 
-    await createInvoiceForOccurrences({
+    const created = await createInvoiceForOccurrences({
       carePersonId: person.id,
       carePersonName: person.name,
       rateType,
       flatDaily,
+      standardRate: rate,
+      offScheduleRate,
+      schedule,
       occurrences: accrued.map((occ) => ({
         id: occ.id,
         startsAt: occ.startsAt,
         endsAt: occ.endsAt,
-        hourlyRate: rate,
       })),
       periodStart,
       periodEnd: cutoff,
     })
+    if (created) invoicesCreated += 1
   }
+
+  return { invoicesCreated, strandedRepaired }
 }
 
-const DUE_SHIFTS_TTL_MS = 30_000
+// --- Job entry points ---
+//
+// These replace the old ensureDueShiftsCompleted() TTL lock, which ran shift
+// completion and invoice generation opportunistically on page load. They are
+// registered in src/server/jobs/registry.ts and driven by the job runner —
+// the in-process tick in dev, the cron container in production. Concurrency
+// is handled there by the job_runs bucket claim, so none of these need their
+// own in-process lock.
+//
+// Trade-off this accepts: a dev server nobody visits creates no invoices until
+// the tick fires.
 
-let dueShiftsInFlight: Promise<void> | null = null
-let dueShiftsCompletedAt = 0
+/** How far ahead the rolling-window job materializes coverage occurrences. */
+const ROLLING_WINDOW_DAYS = 120
+
+// createServerOnlyFn, not a bare export. Route files import the server fns
+// below, which puts this module in the client graph; the compiler strips
+// server fn handler bodies there, but a plain exported function keeps its
+// references alive — including `prisma`, which then fails to evaluate in the
+// browser (`Buffer is not defined`) and takes hydration down with it. Wrapping
+// these lets the compiler stub them out on the client too.
+export const runCompleteDueShifts = createServerOnlyFn(
+  async (now = new Date()) => {
+    return { completed: await completeDueShifts(now) }
+  },
+)
+
+export const runCreatePayPeriodInvoices = createServerOnlyFn(
+  async (now = new Date()) => {
+    return createPayPeriodInvoices(now)
+  },
+)
 
 /**
- * Share one completeDueShifts + pay-period run across concurrent loaders.
- * Skips when a run finished within the TTL window.
+ * Keep a rolling window of occurrences materialized so assignment rules have
+ * slots to fill even when nobody opens the calendar. Mirrors the work
+ * ensureCalendarMaintenance does for the range the user is actually viewing.
  */
-async function ensureDueShiftsCompleted() {
-  const now = Date.now()
-  if (now - dueShiftsCompletedAt < DUE_SHIFTS_TTL_MS) {
-    return
-  }
+export const runMaterializeRollingWindow = createServerOnlyFn(
+  async (now = new Date()) => {
+    const rangeEnd = new Date(now)
+    rangeEnd.setDate(rangeEnd.getDate() + ROLLING_WINDOW_DAYS)
 
-  if (dueShiftsInFlight) {
-    await dueShiftsInFlight
-    if (Date.now() - dueShiftsCompletedAt < DUE_SHIFTS_TTL_MS) {
-      return
-    }
-  }
+    await ensureDefaultTypes()
+    await syncRequiredCoverageSeries()
+    await materializeSeriesInRange(now, rangeEnd)
+    const applied = await applyAssignmentRules(now, rangeEnd)
 
-  const run = (async () => {
-    await completeDueShifts()
-    await createPayPeriodInvoices()
-    dueShiftsCompletedAt = Date.now()
-  })()
-
-  dueShiftsInFlight = run
-  try {
-    await run
-  } finally {
-    if (dueShiftsInFlight === run) {
-      dueShiftsInFlight = null
-    }
-  }
-}
+    return { rangeEnd: rangeEnd.toISOString(), ...applied }
+  },
+)
 
 async function occurrencesOverlap(
   personId: string,
@@ -1076,6 +1241,11 @@ function toSettingsDto(settings: {
   coverageNeed: CareCoverageNeed
   coverageWindowKind: CareCoverageWindowKind
   partialDaysOfWeek: number[]
+  coverageAccountId: string | null
+  splitPolicy: CareSplitPolicy
+  backstopPersonId: string | null
+  plannedMonthlyBudget: { toString(): string } | null
+  fundingPeriodDay: number
   shifts: Array<{
     id: string
     label: string | null
@@ -1090,6 +1260,11 @@ function toSettingsDto(settings: {
     coverageNeed: settings.coverageNeed,
     coverageWindowKind: settings.coverageWindowKind,
     partialDaysOfWeek: settings.partialDaysOfWeek,
+    coverageAccountId: settings.coverageAccountId,
+    splitPolicy: settings.splitPolicy,
+    backstopPersonId: settings.backstopPersonId,
+    plannedMonthlyBudget: decimalToString(settings.plannedMonthlyBudget),
+    fundingPeriodDay: settings.fundingPeriodDay,
     shifts: settings.shifts.map((s) => ({
       id: s.id,
       label: s.label,
@@ -1115,7 +1290,7 @@ async function detachProtectedOccurrences(seriesId: string) {
       OR: [
         { assigneeId: { not: null } },
         { status: { not: 'SCHEDULED' } },
-        { invoiceLine: { isNot: null } },
+        { invoiceLines: { some: {} } },
         { swapItems: { some: { swap: { status: 'PENDING' } } } },
         { startsAt: { lt: startOfLocalToday() } },
       ],
@@ -1160,7 +1335,7 @@ async function deleteOpenFutureForSeries(seriesId: string) {
       assigneeId: null,
       status: 'SCHEDULED',
       startsAt: { gte: startOfLocalToday() },
-      invoiceLine: null,
+      invoiceLines: { none: {} },
       swapItems: { none: { swap: { status: 'PENDING' } } },
     },
   })
@@ -1178,7 +1353,7 @@ async function deleteManualCoverageSeries(seriesId: string) {
       seriesId,
       status: 'SCHEDULED',
       startsAt: { gte: startOfLocalToday() },
-      invoiceLine: null,
+      invoiceLines: { none: {} },
       swapItems: { none: { swap: { status: 'PENDING' } } },
     },
   })
@@ -1823,6 +1998,7 @@ export const createCarePerson = createServerFn({ method: 'POST' })
       if (!user) throw new Error('Linked user not found.')
     }
     const pay = parsePaySchedule(data.payRaw, type.isPaid)
+    const schedule = parseStandardSchedule(data.payRaw, type.isPaid)
     const created = await prisma.carePerson.create({
       data: {
         name: data.name,
@@ -1832,6 +2008,7 @@ export const createCarePerson = createServerFn({ method: 'POST' })
         rateType: type.isPaid ? data.rateType : 'HOURLY',
         flatDailyRate:
           type.isPaid && data.rateType === 'DAILY' ? data.flatDailyRate : false,
+        ...schedule,
         payInterval: pay.payInterval,
         payWeekday: pay.payWeekday,
         payAnchorDate: pay.payAnchorDate,
@@ -1858,6 +2035,10 @@ export const createCarePerson = createServerFn({ method: 'POST' })
         'hourlyRate',
         'rateType',
         'flatDailyRate',
+        'standardDaysOfWeek',
+        'standardStartTime',
+        'standardEndTime',
+        'offScheduleRate',
         'payInterval',
         'payWeekday',
         'payAnchorDate',
@@ -1909,6 +2090,7 @@ export const updateCarePerson = createServerFn({ method: 'POST' })
       throw new Error('Rate is required for paid people.')
     }
     const pay = parsePaySchedule(data.payRaw, type.isPaid)
+    const schedule = parseStandardSchedule(data.payRaw, type.isPaid)
     const before = await prisma.carePerson.findUniqueOrThrow({
       where: { id: data.id },
     })
@@ -1922,6 +2104,7 @@ export const updateCarePerson = createServerFn({ method: 'POST' })
         rateType: type.isPaid ? data.rateType : 'HOURLY',
         flatDailyRate:
           type.isPaid && data.rateType === 'DAILY' ? data.flatDailyRate : false,
+        ...schedule,
         payInterval: pay.payInterval,
         payWeekday: pay.payWeekday,
         payAnchorDate: pay.payAnchorDate,
@@ -1942,6 +2125,10 @@ export const updateCarePerson = createServerFn({ method: 'POST' })
       'hourlyRate',
       'rateType',
       'flatDailyRate',
+      'standardDaysOfWeek',
+      'standardStartTime',
+      'standardEndTime',
+      'offScheduleRate',
       'payInterval',
       'payWeekday',
       'payAnchorDate',
@@ -1991,6 +2178,7 @@ let calendarMaintenanceCache: CalendarMaintenanceCache | null = null
  * Skips when the same (or wider) range finished within the TTL window.
  */
 async function ensureCalendarMaintenance(padStart: Date, padEnd: Date) {
+  startDevJobTick()
   const padStartMs = padStart.getTime()
   const padEndMs = padEnd.getTime()
   const now = Date.now()
@@ -2022,7 +2210,6 @@ async function ensureCalendarMaintenance(padStart: Date, padEnd: Date) {
     await syncRequiredCoverageSeries()
     await materializeSeriesInRange(padStart, padEnd)
     await applyAssignmentRules(padStart, padEnd)
-    await ensureDueShiftsCompleted()
     calendarMaintenanceCache = {
       padStartMs,
       padEndMs,
@@ -2185,12 +2372,7 @@ export const listCareCalendar = createServerFn({ method: 'GET' })
             endsAt: { gte: data.rangeStart },
             status: { not: 'CANCELLED' },
           },
-          include: {
-            assignee: {
-              select: { name: true, bgColor: true, textColor: true },
-            },
-            invoiceLine: { select: { id: true } },
-          },
+          include: occurrenceInclude,
           orderBy: { startsAt: 'asc' },
         }),
         prisma.careCalendarEvent.findMany({
@@ -2409,7 +2591,7 @@ export const updateOccurrence = createServerFn({ method: 'POST' })
     const userId = await requireUserId()
     const existing = await prisma.careCoverageOccurrence.findUnique({
       where: { id: data.id },
-      include: { invoiceLine: { include: { invoice: true } } },
+      include: { invoiceLines: { include: { invoice: true } } },
     })
     if (!existing) throw new Error('Occurrence not found.')
 
@@ -2419,7 +2601,7 @@ export const updateOccurrence = createServerFn({ method: 'POST' })
       data.assigneeId !== undefined &&
       data.assigneeId !== existing.assigneeId
     ) {
-      if (existing.invoiceLine?.invoice.status === 'PAID') {
+      if (existing.invoiceLines.some((line) => line.invoice.status === 'PAID')) {
         throw new Error(
           'This coverage is on a paid invoice and cannot be reassigned. Void the invoice first.',
         )
@@ -2599,7 +2781,7 @@ export const releaseOccurrence = createServerFn({ method: 'POST' })
 
     const existing = await prisma.careCoverageOccurrence.findUnique({
       where: { id: data.id },
-      include: { invoiceLine: { include: { invoice: true } } },
+      include: { invoiceLines: { include: { invoice: true } } },
     })
     if (!existing) throw new Error('Coverage window not found.')
 
@@ -2611,7 +2793,7 @@ export const releaseOccurrence = createServerFn({ method: 'POST' })
 
     // syncBillingForAssignee throws on PAID too, but only after assigneeId has
     // been cleared, which would strand an unassigned window on a paid invoice.
-    if (existing.invoiceLine?.invoice.status === 'PAID') {
+    if (existing.invoiceLines.some((line) => line.invoice.status === 'PAID')) {
       throw new Error(
         'This coverage is on a paid invoice and cannot be reassigned. Void the invoice first.',
       )
@@ -2638,6 +2820,10 @@ export const releaseOccurrence = createServerFn({ method: 'POST' })
         releasedByPersonId: releasingPerson.id,
         releasedAt: new Date(),
         billingStatus: 'NOT_BILLABLE',
+        // No assignee means no cost, so there is nothing to be responsible for.
+        responsiblePersonId: null,
+        responsibleSetAt: null,
+        responsibleSetByUserId: null,
       },
     })
     if (count !== 1) {
@@ -2687,6 +2873,187 @@ export const releaseOccurrence = createServerFn({ method: 'POST' })
     })
 
     return toOccurrenceDto(refreshed)
+  })
+
+/**
+ * Hand one of your own windows to paid help and take sole responsibility for
+ * its cost.
+ *
+ * Deliberately separate from releaseOccurrence: giving a window back to the
+ * pool costs you nothing, whereas hiring someone to cover it bills the whole
+ * window to you rather than splitting it across contributors.
+ */
+export const hireCoverageForWindow = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    if (!data || typeof data !== 'object') throw new Error('Invalid payload.')
+    const input = data as Record<string, unknown>
+    const id = typeof input.id === 'string' ? input.id.trim() : ''
+    if (!id) throw new Error('Occurrence id is required.')
+    const assigneeId =
+      typeof input.assigneeId === 'string' ? input.assigneeId.trim() : ''
+    if (!assigneeId) throw new Error('Choose who will cover the window.')
+    return { id, assigneeId }
+  })
+  .handler(async ({ data }): Promise<CareCoverageOccurrenceDto> => {
+    const userId = await requireUserId()
+    const person = await personForUser(userId)
+
+    const existing = await prisma.careCoverageOccurrence.findUnique({
+      where: { id: data.id },
+      include: { invoiceLines: { include: { invoice: true } } },
+    })
+    if (!existing) throw new Error('Coverage window not found.')
+
+    const check = canTakeResponsibility(existing, person?.id ?? null, new Date())
+    if (!check.ok) throw new Error(check.reason)
+    const responsible = person!
+
+    if (data.assigneeId === responsible.id) {
+      throw new Error('That window is already yours.')
+    }
+
+    const target = await prisma.carePerson.findUnique({
+      where: { id: data.assigneeId },
+      include: { type: true },
+    })
+    if (!target || !target.isActive) {
+      throw new Error('That person is not available.')
+    }
+    // Responsibility only means something when the cover actually costs money.
+    if (effectiveRate(personRateInput(target)) === null) {
+      throw new Error(
+        'That person has no pay rate, so there is no cost to take responsibility for. Give the window up instead.',
+      )
+    }
+
+    if (existing.invoiceLines.some((line) => line.invoice.status === 'PAID')) {
+      throw new Error(
+        'This coverage is on a paid invoice and cannot be reassigned. Void the invoice first.',
+      )
+    }
+
+    const promised = await prisma.careSwapItem.findFirst({
+      where: { occurrenceId: data.id, swap: { status: 'PENDING' } },
+      select: { id: true },
+    })
+    if (promised) {
+      throw new Error(
+        'This window is part of a pending swap. Cancel the swap first.',
+      )
+    }
+
+    if (
+      await occurrencesOverlap(
+        data.assigneeId,
+        existing.startsAt,
+        existing.endsAt,
+        data.id,
+      )
+    ) {
+      throw new Error('They already have overlapping coverage then.')
+    }
+
+    // Ownership stays in the WHERE so a concurrent reassign loses the race
+    // loudly rather than being clobbered.
+    const { count } = await prisma.careCoverageOccurrence.updateMany({
+      where: { id: data.id, assigneeId: responsible.id, status: 'SCHEDULED' },
+      data: {
+        assigneeId: data.assigneeId,
+        assignedByRuleId: null,
+        releasedByPersonId: null,
+        releasedAt: null,
+        responsiblePersonId: responsible.id,
+        responsibleSetAt: new Date(),
+        responsibleSetByUserId: userId,
+      },
+    })
+    if (count !== 1) {
+      throw new Error(
+        'This window changed while you were working on it. Reload and try again.',
+      )
+    }
+
+    await syncBillingForAssignee(data.id, data.assigneeId)
+
+    const refreshed = await prisma.careCoverageOccurrence.findUniqueOrThrow({
+      where: { id: data.id },
+      include: occurrenceInclude,
+    })
+
+    await logActivity({
+      actorUserId: userId,
+      action: 'UPDATE',
+      entityType: ACTIVITY_ENTITY_TYPES.coverage_occurrence,
+      entityId: refreshed.id,
+      summary: `${responsible.name} hired ${target.name} to cover ${formatWindowLabel(refreshed.startsAt, refreshed.endsAt)} and is responsible for the cost.`,
+      changes: diffChanges(existing, refreshed, [
+        'assigneeId',
+        'assignedByRuleId',
+        'billingStatus',
+        'responsiblePersonId',
+      ]),
+      linkMeta: { day: toDayKey(refreshed.startsAt), tab: 'calendar' },
+      visibilityUserId: null,
+    })
+
+    return toOccurrenceDto(refreshed)
+  })
+
+/**
+ * Clear a sole-responsibility marker, returning the window's cost to the
+ * shared pool. Blocked once the cost has been invoiced, since the carve-out
+ * has already been billed.
+ */
+export const clearCoverageResponsibility = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    if (!data || typeof data !== 'object') throw new Error('Invalid payload.')
+    const input = data as Record<string, unknown>
+    const id = typeof input.id === 'string' ? input.id.trim() : ''
+    if (!id) throw new Error('Occurrence id is required.')
+    return { id }
+  })
+  .handler(async ({ data }): Promise<CareCoverageOccurrenceDto> => {
+    const userId = await requireUserId()
+
+    const existing = await prisma.careCoverageOccurrence.findUnique({
+      where: { id: data.id },
+      include: {
+        invoiceLines: { select: { id: true } },
+        responsiblePerson: { select: { name: true } },
+      },
+    })
+    if (!existing) throw new Error('Coverage window not found.')
+    if (!existing.responsiblePersonId) {
+      throw new Error('Nobody is marked responsible for this window.')
+    }
+    if (existing.invoiceLines.length > 0) {
+      throw new Error(
+        'This window has already been invoiced. Void the invoice first.',
+      )
+    }
+
+    const updated = await prisma.careCoverageOccurrence.update({
+      where: { id: data.id },
+      data: {
+        responsiblePersonId: null,
+        responsibleSetAt: null,
+        responsibleSetByUserId: null,
+      },
+      include: occurrenceInclude,
+    })
+
+    await logActivity({
+      actorUserId: userId,
+      action: 'UPDATE',
+      entityType: ACTIVITY_ENTITY_TYPES.coverage_occurrence,
+      entityId: updated.id,
+      summary: `Returned the cost of ${formatWindowLabel(updated.startsAt, updated.endsAt)} to the shared pool.`,
+      changes: diffChanges(existing, updated, ['responsiblePersonId']),
+      linkMeta: { day: toDayKey(updated.startsAt), tab: 'calendar' },
+      visibilityUserId: null,
+    })
+
+    return toOccurrenceDto(updated)
   })
 
 export const listCoverageSeries = createServerFn({ method: 'GET' }).handler(
@@ -2964,7 +3331,7 @@ export const deleteCoverageAssignmentRule = createServerFn({ method: 'POST' })
         assignedByRuleId: rule.id,
         status: 'SCHEDULED',
         startsAt: { gte: startOfLocalToday() },
-        invoiceLine: null,
+        invoiceLines: { none: {} },
         swapItems: { none: { swap: { status: 'PENDING' } } },
       },
       data: {
@@ -3838,7 +4205,7 @@ export const reviewSwapRequest = createServerFn({ method: 'POST' })
 export const listCareInvoices = createServerFn({ method: 'GET' }).handler(
   async (): Promise<CareInvoiceDto[]> => {
     await requireUserId()
-    await ensureDueShiftsCompleted()
+    startDevJobTick()
     const rows = await prisma.careInvoice.findMany({
       include: invoiceInclude,
       orderBy: { createdAt: 'desc' },
@@ -3852,13 +4219,13 @@ export const settleCareInvoice = createServerFn({ method: 'POST' })
     if (!data || typeof data !== 'object') throw new Error('Invalid payload.')
     const input = data as Record<string, unknown>
     const id = typeof input.id === 'string' ? input.id : ''
+    if (!id) throw new Error('Invoice id is required.')
+    // Optional: falls back to the configured coverage pot.
     const financialAccountId =
-      typeof input.financialAccountId === 'string'
-        ? input.financialAccountId
-        : ''
-    if (!id || !financialAccountId) {
-      throw new Error('Invoice id and account are required.')
-    }
+      typeof input.financialAccountId === 'string' &&
+      input.financialAccountId.trim()
+        ? input.financialAccountId.trim()
+        : null
     return { id, financialAccountId }
   })
   .handler(async ({ data }): Promise<CareInvoiceDto> => {
@@ -3867,12 +4234,7 @@ export const settleCareInvoice = createServerFn({ method: 'POST' })
       where: { id: data.id },
       include: {
         carePerson: true,
-        lines: {
-          include: {
-            occurrence: { select: { startsAt: true, endsAt: true } },
-          },
-          orderBy: { occurrence: { startsAt: 'asc' } },
-        },
+        lines: { orderBy: { segmentStart: 'asc' } },
       },
     })
     if (!invoice) throw new Error('Invoice not found.')
@@ -3883,10 +4245,25 @@ export const settleCareInvoice = createServerFn({ method: 'POST' })
       throw new Error('Invoice has no coverage lines.')
     }
 
+    // Default to the coverage pot so real spend reconciles against one
+    // account, which is what makes a funding period's actual cost meaningful.
+    // An explicit account still wins.
+    let accountId = data.financialAccountId
+    if (!accountId) {
+      const settings = await prisma.careSettings.findUnique({
+        where: { id: 'default' },
+        select: { coverageAccountId: true },
+      })
+      accountId = settings?.coverageAccountId ?? null
+    }
+    if (!accountId) {
+      throw new Error(
+        'Choose an account, or set a coverage account in care settings.',
+      )
+    }
+
     const account = await prisma.financialAccount.findFirst({
-      where: {
-        AND: [{ id: data.financialAccountId }, ownOrGlobal(userId)],
-      },
+      where: { AND: [{ id: accountId }, ownOrGlobal(userId)] },
     })
     if (!account) throw new Error('Account not found or not visible.')
 
@@ -3903,15 +4280,19 @@ export const settleCareInvoice = createServerFn({ method: 'POST' })
 
     const amount = Number(invoice.amount.toString())
     const signedAmount = toSignedTransactionAmount('EXPENSE', amount)
+    // Lines are ordered by segmentStart, which no longer implies the last one
+    // has the latest end — segments of different occurrences can overlap.
     const settleDate =
       invoice.periodEnd ??
-      invoice.lines[invoice.lines.length - 1]!.occurrence.endsAt
+      new Date(
+        Math.max(...invoice.lines.map((line) => line.segmentEnd.getTime())),
+      )
 
     const result = await prisma.$transaction(async (tx) => {
       const createdTxn = await tx.transaction.create({
         data: {
           userId,
-          financialAccountId: data.financialAccountId,
+          financialAccountId: accountId,
           type: 'EXPENSE',
           amount: signedAmount,
           date: settleDate,
@@ -3924,7 +4305,7 @@ export const settleCareInvoice = createServerFn({ method: 'POST' })
         where: { id: invoice.id },
         data: {
           status: 'PAID',
-          financialAccountId: data.financialAccountId,
+          financialAccountId: accountId,
           settledTransactionId: createdTxn.id,
         },
         include: invoiceInclude,
@@ -3944,7 +4325,7 @@ export const settleCareInvoice = createServerFn({ method: 'POST' })
           linkMeta: {
             day: toDayKey(
               updated.periodEnd ??
-                updated.lines[0]?.occurrence.startsAt ??
+                updated.lines[0]?.segmentStart ??
                 new Date(),
             ),
             tab: 'calendar',
@@ -4017,4 +4398,640 @@ export const voidCareInvoice = createServerFn({ method: 'POST' })
     })
 
     return toInvoiceDto(result)
+  })
+
+// --- Contributions ---
+
+export type CareContributionProfileDto = {
+  carePersonId: string
+  carePersonName: string
+  basis: CareContributionBasis
+  percent: string | null
+  fixedAmount: string | null
+  fundingAccountId: string | null
+  cadence: CareContributionCadence
+  intervalWeeks: number
+  anchorDate: string | null
+  monthDay: number | null
+  autoPost: boolean
+  isActive: boolean
+  /** SUM of the person's ledger entries. Positive means they owe the pot. */
+  balance: string
+}
+
+const CONTRIBUTION_BASES = Object.values(CareContributionBasisEnum)
+const CONTRIBUTION_CADENCES = Object.values(CareContributionCadenceEnum)
+const SPLIT_POLICIES = Object.values(CareSplitPolicyEnum)
+
+/** Running balances keyed by person, straight from the append-only ledger. */
+async function contributionBalances(): Promise<Map<string, number>> {
+  const rows = await prisma.careContributionLedgerEntry.groupBy({
+    by: ['carePersonId'],
+    _sum: { amount: true },
+  })
+  return new Map(
+    rows.map((r) => [r.carePersonId, Number(r._sum.amount?.toString() ?? 0)]),
+  )
+}
+
+export const listContributionProfiles = createServerFn({
+  method: 'GET',
+}).handler(async (): Promise<CareContributionProfileDto[]> => {
+  await requireUserId()
+  const [profiles, balances] = await Promise.all([
+    prisma.careContributionProfile.findMany({
+      include: { carePerson: { select: { name: true } } },
+      orderBy: { carePerson: { name: 'asc' } },
+    }),
+    contributionBalances(),
+  ])
+  return profiles.map((p) => ({
+    carePersonId: p.carePersonId,
+    carePersonName: p.carePerson.name,
+    basis: p.basis,
+    percent: decimalToString(p.percent),
+    fixedAmount: decimalToString(p.fixedAmount),
+    fundingAccountId: p.fundingAccountId,
+    cadence: p.cadence,
+    intervalWeeks: p.intervalWeeks,
+    anchorDate: p.anchorDate ? p.anchorDate.toISOString().slice(0, 10) : null,
+    monthDay: p.monthDay,
+    autoPost: p.autoPost,
+    isActive: p.isActive,
+    balance: (balances.get(p.carePersonId) ?? 0).toFixed(4),
+  }))
+})
+
+export const upsertContributionProfile = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    if (!data || typeof data !== 'object') throw new Error('Invalid payload.')
+    const input = data as Record<string, unknown>
+
+    const carePersonId =
+      typeof input.carePersonId === 'string' ? input.carePersonId.trim() : ''
+    if (!carePersonId) throw new Error('Person is required.')
+
+    const basisRaw = input.basis
+    if (
+      typeof basisRaw !== 'string' ||
+      !CONTRIBUTION_BASES.includes(basisRaw as CareContributionBasis)
+    ) {
+      throw new Error('Contribution basis is invalid.')
+    }
+    const basis = basisRaw as CareContributionBasis
+
+    let percent: string | null = null
+    let fixedAmount: string | null = null
+    if (basis === 'PERCENT') {
+      const raw =
+        typeof input.percent === 'number'
+          ? input.percent
+          : Number(String(input.percent ?? '').trim())
+      if (!Number.isFinite(raw) || raw < 0 || raw > 100) {
+        throw new Error('Percentage must be between 0 and 100.')
+      }
+      percent = raw.toFixed(6)
+    } else {
+      fixedAmount = parseOptionalRate(input.fixedAmount)
+      if (fixedAmount === null) {
+        throw new Error('A fixed contribution amount is required.')
+      }
+    }
+
+    const cadenceRaw = input.cadence
+    if (
+      typeof cadenceRaw !== 'string' ||
+      !CONTRIBUTION_CADENCES.includes(cadenceRaw as CareContributionCadence)
+    ) {
+      throw new Error('Cadence is invalid.')
+    }
+    const cadence = cadenceRaw as CareContributionCadence
+
+    let intervalWeeks = 1
+    let anchorDate: Date | null = null
+    let monthDay: number | null = null
+    if (cadence === 'MONTHLY') {
+      const n = Number(input.monthDay ?? 1)
+      if (!Number.isInteger(n) || n < 1 || n > 28) {
+        throw new Error('Day of month must be a whole number from 1 to 28.')
+      }
+      monthDay = n
+    } else {
+      const n = Number(input.intervalWeeks ?? 1)
+      if (!Number.isInteger(n) || n < 1 || n > 12) {
+        throw new Error('Repeat interval must be a whole number of 1–12 weeks.')
+      }
+      intervalWeeks = cadence === 'WEEKLY' ? 1 : n
+      anchorDate = parseDateOnly(input.anchorDate, 'Anchor date')
+    }
+
+    const fundingAccountId =
+      typeof input.fundingAccountId === 'string' &&
+      input.fundingAccountId.trim()
+        ? input.fundingAccountId.trim()
+        : null
+
+    return {
+      carePersonId,
+      basis,
+      percent,
+      fixedAmount,
+      fundingAccountId,
+      cadence,
+      intervalWeeks,
+      anchorDate,
+      monthDay,
+      autoPost: input.autoPost === true,
+      isActive: input.isActive === undefined ? true : input.isActive === true,
+    }
+  })
+  .handler(async ({ data }): Promise<CareContributionProfileDto[]> => {
+    const userId = await requireUserId()
+
+    const person = await prisma.carePerson.findUnique({
+      where: { id: data.carePersonId },
+      select: { id: true, name: true },
+    })
+    if (!person) throw new Error('Person not found.')
+
+    if (data.fundingAccountId) {
+      const account = await prisma.financialAccount.findFirst({
+        where: { AND: [{ id: data.fundingAccountId }, ownOrGlobal(userId)] },
+        select: { id: true },
+      })
+      if (!account) throw new Error('Funding account not found or not visible.')
+    }
+
+    const { carePersonId, ...fields } = data
+    const before = await prisma.careContributionProfile.findUnique({
+      where: { carePersonId },
+    })
+    const saved = await prisma.careContributionProfile.upsert({
+      where: { carePersonId },
+      create: { carePersonId, ...fields },
+      update: fields,
+    })
+
+    await logActivity({
+      actorUserId: userId,
+      action: before ? 'UPDATE' : 'CREATE',
+      entityType: ACTIVITY_ENTITY_TYPES.care_person,
+      entityId: carePersonId,
+      summary: `${before ? 'Updated' : 'Set'} the care contribution for ${person.name}`,
+      changes: before
+        ? diffChanges(before, saved, [
+            'basis',
+            'percent',
+            'fixedAmount',
+            'fundingAccountId',
+            'cadence',
+            'intervalWeeks',
+            'monthDay',
+            'autoPost',
+            'isActive',
+          ])
+        : createChanges(saved, ['basis', 'percent', 'fixedAmount', 'cadence']),
+      visibilityUserId: null,
+    })
+
+    return listContributionProfiles()
+  })
+
+export const deleteContributionProfile = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    if (!data || typeof data !== 'object') throw new Error('Invalid payload.')
+    const input = data as Record<string, unknown>
+    const carePersonId =
+      typeof input.carePersonId === 'string' ? input.carePersonId.trim() : ''
+    if (!carePersonId) throw new Error('Person is required.')
+    return { carePersonId }
+  })
+  .handler(async ({ data }): Promise<CareContributionProfileDto[]> => {
+    const userId = await requireUserId()
+    const existing = await prisma.careContributionProfile.findUnique({
+      where: { carePersonId: data.carePersonId },
+      include: { carePerson: { select: { name: true } } },
+    })
+    if (!existing) return listContributionProfiles()
+
+    await prisma.careContributionProfile.delete({
+      where: { carePersonId: data.carePersonId },
+    })
+    await logActivity({
+      actorUserId: userId,
+      action: 'DELETE',
+      entityType: ACTIVITY_ENTITY_TYPES.care_person,
+      entityId: data.carePersonId,
+      summary: `Removed the care contribution for ${existing.carePerson.name}`,
+      visibilityUserId: null,
+    })
+    return listContributionProfiles()
+  })
+
+/**
+ * Funding configuration: the coverage pot, how shortfalls are split, and the
+ * planned budget that sizes recurring transfers.
+ *
+ * Separate from upsertCareSettings, which owns the loved-one coverage form —
+ * these are different screens and folding them together would mean each form
+ * had to round-trip the other's fields.
+ */
+export const updateCareFundingSettings = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    if (!data || typeof data !== 'object') throw new Error('Invalid payload.')
+    const input = data as Record<string, unknown>
+
+    const policyRaw = input.splitPolicy
+    if (
+      typeof policyRaw !== 'string' ||
+      !SPLIT_POLICIES.includes(policyRaw as CareSplitPolicy)
+    ) {
+      throw new Error('Split policy is invalid.')
+    }
+    const splitPolicy = policyRaw as CareSplitPolicy
+
+    const backstopPersonId =
+      typeof input.backstopPersonId === 'string' &&
+      input.backstopPersonId.trim()
+        ? input.backstopPersonId.trim()
+        : null
+    if (splitPolicy === 'BACKSTOP' && !backstopPersonId) {
+      throw new Error('Choose who absorbs the remainder.')
+    }
+
+    const day = Number(input.fundingPeriodDay ?? 1)
+    if (!Number.isInteger(day) || day < 1 || day > 28) {
+      throw new Error('Funding period day must be a whole number from 1 to 28.')
+    }
+
+    return {
+      coverageAccountId:
+        typeof input.coverageAccountId === 'string' &&
+        input.coverageAccountId.trim()
+          ? input.coverageAccountId.trim()
+          : null,
+      splitPolicy,
+      backstopPersonId,
+      plannedMonthlyBudget: parseOptionalRate(input.plannedMonthlyBudget),
+      fundingPeriodDay: day,
+    }
+  })
+  .handler(async ({ data }): Promise<CareSettingsDto> => {
+    const userId = await requireUserId()
+
+    if (data.coverageAccountId) {
+      const account = await prisma.financialAccount.findFirst({
+        where: { AND: [{ id: data.coverageAccountId }, ownOrGlobal(userId)] },
+        select: { id: true },
+      })
+      if (!account) throw new Error('Coverage account not found or not visible.')
+    }
+    if (data.backstopPersonId) {
+      const person = await prisma.carePerson.findUnique({
+        where: { id: data.backstopPersonId },
+        select: { id: true },
+      })
+      if (!person) throw new Error('Backstop person not found.')
+    }
+
+    const before = await prisma.careSettings.findUnique({
+      where: { id: 'default' },
+    })
+    const updated = await prisma.careSettings.update({
+      where: { id: 'default' },
+      data,
+      include: { shifts: { orderBy: { sortOrder: 'asc' } } },
+    })
+
+    if (before) {
+      const changes = diffChanges(before, updated, [
+        'coverageAccountId',
+        'splitPolicy',
+        'backstopPersonId',
+        'plannedMonthlyBudget',
+        'fundingPeriodDay',
+      ])
+      if (Object.keys(changes).length > 0) {
+        await logActivity({
+          actorUserId: userId,
+          action: 'UPDATE',
+          entityType: ACTIVITY_ENTITY_TYPES.care_settings,
+          entityId: updated.id,
+          summary: 'Updated care funding settings',
+          changes,
+          visibilityUserId: null,
+        })
+      }
+    }
+
+    return toSettingsDto(updated)
+  })
+
+export type CareScheduledContributionDto = {
+  id: string
+  carePersonId: string
+  carePersonName: string
+  dueOn: string
+  baseAmount: string
+  carriedBalance: string
+  amount: string
+  status: CareContributionStatus
+  fundingAccountId: string | null
+  transferGroupId: string | null
+  postedAt: string | null
+}
+
+export type CareFundingPeriodDto = {
+  id: string
+  periodStart: string
+  periodEnd: string
+  plannedBudget: string
+  actualCost: string | null
+  status: CareFundingPeriodStatus
+}
+
+export type CareContributionsOverviewDto = {
+  profiles: CareContributionProfileDto[]
+  upcoming: CareScheduledContributionDto[]
+  recent: CareScheduledContributionDto[]
+  periods: CareFundingPeriodDto[]
+  coverageAccountId: string | null
+}
+
+function toScheduledDto(row: {
+  id: string
+  carePersonId: string
+  dueOn: Date
+  baseAmount: { toString(): string }
+  carriedBalance: { toString(): string }
+  amount: { toString(): string }
+  status: CareContributionStatus
+  fundingAccountIdSnapshot: string | null
+  transferGroupId: string | null
+  postedAt: Date | null
+  carePerson: { name: string }
+}): CareScheduledContributionDto {
+  return {
+    id: row.id,
+    carePersonId: row.carePersonId,
+    carePersonName: row.carePerson.name,
+    dueOn: row.dueOn.toISOString().slice(0, 10),
+    baseAmount: row.baseAmount.toString(),
+    carriedBalance: row.carriedBalance.toString(),
+    amount: row.amount.toString(),
+    status: row.status,
+    fundingAccountId: row.fundingAccountIdSnapshot,
+    transferGroupId: row.transferGroupId,
+    postedAt: row.postedAt?.toISOString() ?? null,
+  }
+}
+
+export const getContributionsOverview = createServerFn({
+  method: 'GET',
+}).handler(async (): Promise<CareContributionsOverviewDto> => {
+  await requireUserId()
+  startDevJobTick()
+
+  const [profiles, upcoming, recent, periods, settings] = await Promise.all([
+    listContributionProfiles(),
+    prisma.careScheduledContribution.findMany({
+      where: { status: 'PROPOSED' },
+      include: { carePerson: { select: { name: true } } },
+      orderBy: { dueOn: 'asc' },
+      take: 25,
+    }),
+    prisma.careScheduledContribution.findMany({
+      where: { status: { in: ['POSTED', 'SKIPPED'] } },
+      include: { carePerson: { select: { name: true } } },
+      orderBy: { dueOn: 'desc' },
+      take: 15,
+    }),
+    prisma.careFundingPeriod.findMany({
+      orderBy: { periodStart: 'desc' },
+      take: 12,
+    }),
+    prisma.careSettings.findUnique({
+      where: { id: 'default' },
+      select: { coverageAccountId: true },
+    }),
+  ])
+
+  return {
+    profiles,
+    upcoming: upcoming.map(toScheduledDto),
+    recent: recent.map(toScheduledDto),
+    periods: periods.map((p) => ({
+      id: p.id,
+      periodStart: p.periodStart.toISOString().slice(0, 10),
+      periodEnd: p.periodEnd.toISOString().slice(0, 10),
+      plannedBudget: p.plannedBudget.toString(),
+      actualCost: decimalToString(p.actualCost),
+      status: p.status,
+    })),
+    coverageAccountId: settings?.coverageAccountId ?? null,
+  }
+})
+
+/** Confirm a proposed contribution, creating the transfer into the pot. */
+export const confirmContribution = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    if (!data || typeof data !== 'object') throw new Error('Invalid payload.')
+    const input = data as Record<string, unknown>
+    const id = typeof input.id === 'string' ? input.id.trim() : ''
+    if (!id) throw new Error('Contribution id is required.')
+    return { id }
+  })
+  .handler(async ({ data }): Promise<CareContributionsOverviewDto> => {
+    const userId = await requireUserId()
+    const { postContribution } = await import('#/server/care-contributions')
+    const result = await postContribution({
+      scheduledContributionId: data.id,
+      actorUserId: userId,
+    })
+    if (!result.posted) throw new Error(result.reason)
+    return getContributionsOverview()
+  })
+
+/** Skip a proposed contribution without moving money. */
+export const skipContribution = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    if (!data || typeof data !== 'object') throw new Error('Invalid payload.')
+    const input = data as Record<string, unknown>
+    const id = typeof input.id === 'string' ? input.id.trim() : ''
+    if (!id) throw new Error('Contribution id is required.')
+    return { id }
+  })
+  .handler(async ({ data }): Promise<CareContributionsOverviewDto> => {
+    const userId = await requireUserId()
+    const row = await prisma.careScheduledContribution.findUnique({
+      where: { id: data.id },
+      include: { carePerson: { select: { name: true } } },
+    })
+    if (!row) throw new Error('Contribution not found.')
+    if (row.status !== 'PROPOSED') {
+      throw new Error('This contribution is no longer pending.')
+    }
+    await prisma.careScheduledContribution.update({
+      where: { id: data.id },
+      data: { status: 'SKIPPED' },
+    })
+    await logActivity({
+      actorUserId: userId,
+      action: 'UPDATE',
+      entityType: ACTIVITY_ENTITY_TYPES.care_person,
+      entityId: row.carePersonId,
+      summary: `Skipped the ${row.dueOn.toISOString().slice(0, 10)} care contribution for ${row.carePerson.name}`,
+      visibilityUserId: null,
+    })
+    return getContributionsOverview()
+  })
+
+// --- Forecast ---
+
+export type CareForecastDto = {
+  rangeStart: string
+  rangeEnd: string
+  totalCost: string
+  pricedShifts: number
+  unassignedShifts: number
+  unpaidShifts: number
+  byCaregiver: Array<{
+    personId: string
+    personName: string
+    amount: string
+    shifts: number
+  }>
+  /** Each contributor's projected share, same split policy as a real close. */
+  shares: Array<{
+    personId: string
+    personName: string
+    carveOut: string
+    poolShare: string
+    amountDue: string
+  }>
+  warnings: string[]
+}
+
+/**
+ * What upcoming care is projected to cost, and who would owe what.
+ *
+ * Entirely derived — no CareInvoice rows are written and nothing here is
+ * settleable. It reprices future windows with the same segmentation the
+ * invoice job uses, so the projection cannot drift from the eventual bill.
+ */
+export const getCareForecast = createServerFn({ method: 'GET' })
+  .validator((data: unknown) => {
+    const input = (data ?? {}) as Record<string, unknown>
+    const days = Number(input.days ?? 60)
+    if (!Number.isFinite(days) || days < 1 || days > 365) {
+      throw new Error('Forecast range must be between 1 and 365 days.')
+    }
+    return { days: Math.floor(days) }
+  })
+  .handler(async ({ data }): Promise<CareForecastDto> => {
+    await requireUserId()
+    startDevJobTick()
+
+    const now = new Date()
+    const rangeStart = new Date(now)
+    const rangeEnd = new Date(now)
+    rangeEnd.setDate(rangeEnd.getDate() + data.days)
+
+    // Make sure the window actually has occurrences to price; the rolling
+    // materialize job may not have reached this far ahead yet.
+    await materializeSeriesInRange(rangeStart, rangeEnd)
+    await applyAssignmentRules(rangeStart, rangeEnd)
+
+    const [occurrences, people, settings, profiles] = await Promise.all([
+      prisma.careCoverageOccurrence.findMany({
+        where: {
+          startsAt: { gte: rangeStart, lte: rangeEnd },
+          status: { not: 'CANCELLED' },
+          // Already-invoiced windows belong to a real invoice, not a forecast.
+          billingStatus: { not: 'INVOICED' },
+        },
+        select: {
+          id: true,
+          startsAt: true,
+          endsAt: true,
+          assigneeId: true,
+          responsiblePersonId: true,
+        },
+      }),
+      prisma.carePerson.findMany({ include: { type: true } }),
+      prisma.careSettings.findUnique({ where: { id: 'default' } }),
+      prisma.careContributionProfile.findMany({
+        where: { isActive: true },
+        include: { carePerson: { select: { name: true } } },
+      }),
+    ])
+
+    const projection = projectCareCosts({
+      occurrences,
+      people: people.map((p) => ({
+        id: p.id,
+        name: p.name,
+        rate: effectiveRate(personRateInput(p)),
+        schedule: {
+          daysOfWeek: p.standardDaysOfWeek,
+          startTime: p.standardStartTime,
+          endTime: p.standardEndTime,
+        },
+        offScheduleRate: decimalToNumber(p.offScheduleRate),
+      })),
+    })
+
+    const nameById = new Map(people.map((p) => [p.id, p.name]))
+    const warnings: string[] = []
+
+    let shares: CareForecastDto['shares'] = []
+    if (profiles.length > 0) {
+      const allocation = allocateCarePeriod({
+        periodTotal: projection.totalCost,
+        carveOuts: projection.carveOuts,
+        contributors: profiles.map((p) => ({
+          personId: p.carePersonId,
+          basis: p.basis,
+          percent: p.percent === null ? null : Number(p.percent.toString()),
+          fixedAmount:
+            p.fixedAmount === null ? null : Number(p.fixedAmount.toString()),
+        })),
+        policy: settings?.splitPolicy ?? 'FIXED_FIRST_THEN_PERCENT',
+        backstopPersonId: settings?.backstopPersonId ?? null,
+      })
+      shares = allocation.allocations.map((a) => ({
+        personId: a.personId,
+        personName: nameById.get(a.personId) ?? 'Unknown',
+        carveOut: a.carveOut.toFixed(2),
+        poolShare: a.poolShare.toFixed(2),
+        amountDue: a.amountDue.toFixed(2),
+      }))
+      if (allocation.unallocated !== 0) {
+        warnings.push(
+          `$${Math.abs(allocation.unallocated).toFixed(2)} is not assigned to anyone.`,
+        )
+      }
+      if (allocation.warnings.includes('fixed-exceeds-pool')) {
+        warnings.push(
+          'Fixed contributions alone exceed the projected cost, so they have been scaled down.',
+        )
+      }
+    }
+
+    return {
+      rangeStart: rangeStart.toISOString(),
+      rangeEnd: rangeEnd.toISOString(),
+      totalCost: projection.totalCost.toFixed(2),
+      pricedShifts: projection.pricedShifts,
+      unassignedShifts: projection.unassignedShifts,
+      unpaidShifts: projection.unpaidShifts,
+      byCaregiver: projection.byCaregiver.map((c) => ({
+        personId: c.personId,
+        personName: c.personName,
+        amount: c.amount.toFixed(2),
+        shifts: c.shifts,
+      })),
+      shares,
+      warnings,
+    }
   })

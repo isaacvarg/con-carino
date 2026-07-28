@@ -2,6 +2,7 @@ import { Link, useRouteContext } from '@tanstack/react-router'
 import {
   HiChevronRight,
   HiOutlineCalendar,
+  HiOutlineCash,
   HiOutlineCollection,
   HiOutlineDocumentText,
   HiOutlineHeart,
@@ -16,6 +17,7 @@ type SettingsCard = {
     | '/settings/users'
     | '/settings/loved-one'
     | '/settings/people'
+    | '/settings/contributions'
     | '/settings/schedule'
     | '/settings/tags'
     | '/settings/categories'
@@ -46,6 +48,13 @@ const SETTINGS_CARDS: SettingsCard[] = [
     title: 'People',
     description: 'Offline caregivers and person types for the schedule.',
     icon: HiOutlineUserGroup,
+  },
+  {
+    to: '/settings/contributions',
+    title: 'Contributions',
+    description:
+      'The coverage pot, who funds it, and how shortfalls are split.',
+    icon: HiOutlineCash,
   },
   {
     to: '/settings/schedule',

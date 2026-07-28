@@ -51,6 +51,12 @@ enum CareRateType {
   DAILY
 }
 
+/// Which of a person's two rates a priced segment was charged at.
+enum CareRateBand {
+  STANDARD
+  OFF_SCHEDULE
+}
+
 enum CareBillingStatus {
   NOT_BILLABLE
   ACCRUED
@@ -62,6 +68,167 @@ enum CareAssignmentScope {
   SPECIFIC_SHIFTS
 }
 
+enum CareContributionBasis {
+  PERCENT
+  FIXED
+}
+
+/// How to reconcile contributions when fixed amounts and percentages do not
+/// add up to the period total.
+enum CareSplitPolicy {
+  /// Fixed pledges come off the top; percentage contributors split the rest,
+  /// renormalised against each other so the pool is always fully covered.
+  FIXED_FIRST_THEN_PERCENT
+  /// Percentages and fixed amounts apply literally; one nominated person
+  /// absorbs whatever is left over or short.
+  BACKSTOP
+}
+
+enum CareContributionCadence {
+  WEEKLY
+  EVERY_N_WEEKS
+  MONTHLY
+}
+
+enum CareContributionStatus {
+  /// Raised and waiting on a human; writes nothing to the ledger.
+  PROPOSED
+  /// Transfer created; a matching CONTRIBUTION ledger entry exists.
+  POSTED
+  SKIPPED
+  CANCELLED
+}
+
+enum CareFundingPeriodStatus {
+  OPEN
+  CLOSED
+}
+
+enum CareLedgerEntryKind {
+  /// What a person owed for a closed period.
+  CHARGE
+  /// Money they actually moved into the pot.
+  CONTRIBUTION
+  /// Correction after a period was re-closed with different actuals.
+  TRUE_UP
+  /// Manual correction by a person.
+  ADJUSTMENT
+}
+
+/// A person's standing agreement to fund care.
+model CareContributionProfile {
+  id               String                  @id @default(uuid())
+  carePersonId     String                  @unique
+  basis            CareContributionBasis   @default(PERCENT)
+  /// 0–100. 6dp so an awkward split like 33.333333% renormalises cleanly.
+  percent          Decimal?                @db.Decimal(9, 6)
+  fixedAmount      Decimal?                @db.Decimal(19, 4)
+  /// Account their contribution transfers out of. Null for someone who
+  /// contributes but has no account in this app.
+  fundingAccountId String?
+  cadence          CareContributionCadence @default(MONTHLY)
+  /// Used with EVERY_N_WEEKS; WEEKLY is simply intervalWeeks = 1.
+  intervalWeeks    Int                     @default(1)
+  /// Anchors the EVERY_N_WEEKS cycle.
+  anchorDate       DateTime?               @db.Date
+  /// 1–28, used with MONTHLY.
+  monthDay         Int?
+  /// Create the transfer automatically, or propose it for one-click confirm.
+  autoPost         Boolean                 @default(false)
+  isActive         Boolean                 @default(true)
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+
+  carePerson     CarePerson        @relation(fields: [carePersonId], references: [id], onDelete: Cascade)
+  fundingAccount FinancialAccount? @relation(fields: [fundingAccountId], references: [id], onDelete: SetNull)
+
+  @@index([fundingAccountId])
+  @@map("care_contribution_profiles")
+}
+
+/// One budgeting window. Opens with a planned budget, closes on real cost.
+model CareFundingPeriod {
+  id            String                  @id @default(uuid())
+  periodStart   DateTime                @db.Date
+  /// Inclusive.
+  periodEnd     DateTime                @db.Date
+  plannedBudget Decimal                 @db.Decimal(19, 4)
+  /// Real invoiced cost, computed at close.
+  actualCost    Decimal?                @db.Decimal(19, 4)
+  status        CareFundingPeriodStatus @default(OPEN)
+  closedAt      DateTime?
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+
+  entries CareContributionLedgerEntry[]
+
+  @@unique([periodStart])
+  @@index([status, periodEnd])
+  @@map("care_funding_periods")
+}
+
+/// Append-only. A person's running balance is exactly SUM(amount) over their
+/// entries — nothing is cached and nothing is derived twice.
+/// Positive means they owe the pot; negative means the pot owes them.
+model CareContributionLedgerEntry {
+  id                      String              @id @default(uuid())
+  carePersonId            String
+  fundingPeriodId         String?
+  kind                    CareLedgerEntryKind
+  amount                  Decimal             @db.Decimal(19, 4)
+  description             String
+  scheduledContributionId String?             @unique
+  /// The inbound (coverage-account) leg of the posted transfer.
+  transactionId           String?             @unique
+  createdByUserId         String?
+  createdAt               DateTime            @default(now())
+
+  carePerson            CarePerson                 @relation(fields: [carePersonId], references: [id], onDelete: Restrict)
+  fundingPeriod         CareFundingPeriod?         @relation(fields: [fundingPeriodId], references: [id], onDelete: SetNull)
+  scheduledContribution CareScheduledContribution? @relation(fields: [scheduledContributionId], references: [id], onDelete: SetNull)
+  transaction           Transaction?               @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+  createdByUser         User?                      @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  /// NOTE: a partial unique index enforcing one CHARGE per person per period
+  /// is created by hand in the migration. Do not promote this to @@unique —
+  /// Prisma would generate a full unique index and the two would conflict on
+  /// every `migrate dev`.
+  @@index([fundingPeriodId, carePersonId])
+  @@index([carePersonId, createdAt])
+  @@map("care_contribution_ledger_entries")
+}
+
+/// A due (or already made) transfer into the coverage pot.
+model CareScheduledContribution {
+  id                       String                 @id @default(uuid())
+  carePersonId             String
+  dueOn                    DateTime               @db.Date
+  /// Share of the planned budget under the split policy, pro-rated to cadence.
+  baseAmount               Decimal                @db.Decimal(19, 4)
+  /// Running balance snapshotted when this row was generated.
+  carriedBalance           Decimal                @db.Decimal(19, 4)
+  /// max(0, baseAmount + carriedBalance) — the figure actually transferred.
+  /// Snapshotted rather than recomputed on view so the number in a confirm
+  /// dialog cannot shift between render and click.
+  amount                   Decimal                @db.Decimal(19, 4)
+  status                   CareContributionStatus @default(PROPOSED)
+  fundingAccountIdSnapshot String?
+  transferGroupId          String?
+  postedAt                 DateTime?
+  postedByUserId           String?
+  createdAt                DateTime               @default(now())
+  updatedAt                DateTime               @updatedAt
+
+  carePerson   CarePerson                   @relation(fields: [carePersonId], references: [id], onDelete: Cascade)
+  postedByUser User?                        @relation(fields: [postedByUserId], references: [id], onDelete: SetNull)
+  ledgerEntry  CareContributionLedgerEntry?
+
+  @@unique([carePersonId, dueOn])
+  @@index([status, dueOn])
+  @@index([transferGroupId])
+  @@map("care_scheduled_contributions")
+}
+
 /// Singleton settings for the one loved one on this app instance.
 model CareSettings {
   id                   String                 @id @default("default")
@@ -70,10 +237,23 @@ model CareSettings {
   coverageWindowKind   CareCoverageWindowKind @default(ALL_DAY)
   /// Days of week 0=Sun … 6=Sat; used when coverageNeed is PARTIAL
   partialDaysOfWeek    Int[]                  @default([])
+  /// The joint "coverage pot": contributions transfer in, invoices settle out.
+  coverageAccountId    String?
+  splitPolicy          CareSplitPolicy        @default(FIXED_FIRST_THEN_PERCENT)
+  /// Absorbs the remainder when splitPolicy is BACKSTOP.
+  backstopPersonId     String?
+  /// Planned care spend per funding period; sizes the recurring transfers.
+  plannedMonthlyBudget Decimal?               @db.Decimal(19, 4)
+  /// 1–28: day of month a funding period starts.
+  fundingPeriodDay     Int                    @default(1)
   createdAt            DateTime               @default(now())
   updatedAt            DateTime               @updatedAt
 
   shifts CareRequiredShift[]
+  /// SetNull, not Restrict: deleting the pot account should blank this field
+  /// rather than make the account undeletable.
+  coverageAccount FinancialAccount? @relation("CareCoverageAccount", fields: [coverageAccountId], references: [id], onDelete: SetNull)
+  backstopPerson  CarePerson?       @relation("SettingsBackstop", fields: [backstopPersonId], references: [id], onDelete: SetNull)
 
   @@map("care_settings")
 }
@@ -128,6 +308,21 @@ model CarePerson {
   payAnchorDate DateTime?       @db.Date
   /// 1–28; used for MONTHLY
   payMonthDay   Int?
+  /// Typical working schedule, 0=Sun … 6=Sat. Empty means no schedule is
+  /// configured, which makes every window bill at the standard rate.
+  /// Rate classification only — recurring assignment is still driven by
+  /// CareCoverageAssignmentRule, so a person can be regularly assigned to a
+  /// day that bills off-schedule.
+  standardDaysOfWeek Int[]      @default([])
+  /// Local wall time "HH:mm" bounding the standard part of a standard day.
+  /// Both null = the whole of a standard day is standard. An end at or before
+  /// the start means the window runs overnight into the next day.
+  standardStartTime  String?
+  standardEndTime    String?
+  /// Rate for work outside the typical schedule. Uses the same rateType and
+  /// flatDailyRate as hourlyRate — only the amount differs. Null means no
+  /// premium, so everything bills at the standard rate.
+  offScheduleRate    Decimal?   @db.Decimal(19, 4)
   isActive      Boolean         @default(true)
   bgColor       String?
   textColor     String?
@@ -139,6 +334,11 @@ model CarePerson {
   series        CareCoverageSeries[]
   occurrences   CareCoverageOccurrence[]  @relation("OccurrenceAssignee")
   releasedOccurrences CareCoverageOccurrence[] @relation("OccurrenceReleasedBy")
+  responsibleOccurrences CareCoverageOccurrence[] @relation("OccurrenceResponsible")
+  contributionProfile    CareContributionProfile?
+  ledgerEntries          CareContributionLedgerEntry[]
+  scheduledContributions CareScheduledContribution[]
+  backstopForSettings    CareSettings[]           @relation("SettingsBackstop")
   assignmentRules CareCoverageAssignmentRule[]
   swapsRequested CareSwapRequest[]        @relation("SwapRequesterPerson")
   swapsTargeted  CareSwapRequest[]        @relation("SwapTargetPerson")
@@ -195,20 +395,31 @@ model CareCoverageOccurrence {
   /// auto-refill by that same person's assignment rules. Cleared on any assign.
   releasedByPersonId String?
   releasedAt         DateTime?
+  /// Sole responsibility: this person owes 100% of this window's cost, carved
+  /// out of the shared pool before contribution percentages are applied. Set
+  /// when someone hires paid help to cover a window that was theirs.
+  ///
+  /// Distinct from releasedByPersonId — giving a window back to the pool costs
+  /// you nothing, hiring someone to cover it makes it entirely yours.
+  responsiblePersonId    String?
+  responsibleSetAt       DateTime?
+  responsibleSetByUserId String?
   createdAt     DateTime              @default(now())
   updatedAt     DateTime              @updatedAt
 
   series           CareCoverageSeries? @relation(fields: [seriesId], references: [id], onDelete: Cascade)
   assignee         CarePerson?         @relation("OccurrenceAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   releasedBy       CarePerson?         @relation("OccurrenceReleasedBy", fields: [releasedByPersonId], references: [id], onDelete: SetNull)
+  responsiblePerson CarePerson?        @relation("OccurrenceResponsible", fields: [responsiblePersonId], references: [id], onDelete: SetNull)
   assignedByRule   CareCoverageAssignmentRule? @relation(fields: [assignedByRuleId], references: [id], onDelete: SetNull)
-  invoiceLine      CareInvoiceLine?
+  invoiceLines     CareInvoiceLine[]
   swapItems        CareSwapItem[]
 
   @@unique([seriesId, startsAt])
   @@index([startsAt, endsAt])
   @@index([assigneeId])
   @@index([releasedByPersonId])
+  @@index([responsiblePersonId])
   @@index([assignedByRuleId])
   @@index([status])
   @@index([billingStatus])
@@ -341,10 +552,22 @@ model CareInvoice {
   @@map("care_invoices")
 }
 
+/// One priced sub-window of a coverage occurrence.
+///
+/// An occurrence yields more than one line when it straddles the boundary of
+/// its assignee's typical schedule — e.g. a Fri 22:00 → Sat 08:00 window for
+/// someone who works Mon–Fri bills the Friday part at the standard rate and
+/// the Saturday part at the off-schedule rate. Occurrences that sit wholly
+/// inside or wholly outside the schedule still produce exactly one line.
 model CareInvoiceLine {
   id                 String       @id @default(uuid())
   invoiceId          String
-  occurrenceId       String       @unique
+  occurrenceId       String
+  /// Priced sub-window. Equals the occurrence bounds when the window did not
+  /// straddle a standard/off-schedule boundary.
+  segmentStart       DateTime
+  segmentEnd         DateTime
+  rateBand           CareRateBand @default(STANDARD)
   amount             Decimal      @db.Decimal(19, 4)
   /// The rate charged (per hour or per day, per rateType)
   hourlyRateSnapshot Decimal      @db.Decimal(19, 4)
@@ -357,6 +580,11 @@ model CareInvoiceLine {
   invoice    CareInvoice            @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   occurrence CareCoverageOccurrence @relation(fields: [occurrenceId], references: [id], onDelete: Restrict)
 
+  /// Replaces the old @unique on occurrenceId, which is what previously made
+  /// invoice generation idempotent. Re-running generation for the same
+  /// occurrence still cannot duplicate a segment.
+  @@unique([invoiceId, occurrenceId, segmentStart])
   @@index([invoiceId])
+  @@index([occurrenceId])
   @@map("care_invoice_lines")
 }

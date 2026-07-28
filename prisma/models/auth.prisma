@@ -21,6 +21,8 @@ model User {
   swapRequestsReviewed CareSwapRequest[] @relation("SwapReviewedBy")
   activityLogs      ActivityLog[]
   configuration     UserConfiguration?
+  careLedgerEntries   CareContributionLedgerEntry[]
+  postedContributions CareScheduledContribution[]
 
   @@map("users")
 }
