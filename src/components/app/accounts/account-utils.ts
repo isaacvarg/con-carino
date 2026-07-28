@@ -17,7 +17,8 @@ const TRANSACTION_TYPE_LABELS: Record<TransactionType, string> = {
   BALANCE_ADJUSTMENT: 'Balance adjustment',
   REFUND: 'Refund',
   REIMBURSEMENT: 'Reimbursement',
-  WITHDRAWAL: 'Withdrawal (−)',
+  WITHDRAWAL: 'Withdrawal',
+  DEPOSIT: 'Deposit',
 }
 
 /** Types offered on the generic add-transaction form (not transfers). */
@@ -27,6 +28,7 @@ export const TRANSACTION_TYPE_OPTIONS: {
 }[] = [
   { value: 'EXPENSE', label: TRANSACTION_TYPE_LABELS.EXPENSE },
   { value: 'WITHDRAWAL', label: TRANSACTION_TYPE_LABELS.WITHDRAWAL },
+  { value: 'DEPOSIT', label: TRANSACTION_TYPE_LABELS.DEPOSIT },
   { value: 'INCOME', label: TRANSACTION_TYPE_LABELS.INCOME },
   {
     value: 'BALANCE_ADJUSTMENT',

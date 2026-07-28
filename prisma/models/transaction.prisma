@@ -6,6 +6,7 @@ enum TransactionType {
   REFUND
   REIMBURSEMENT
   WITHDRAWAL
+  DEPOSIT
 }
 
 enum ReconciliationStatus {

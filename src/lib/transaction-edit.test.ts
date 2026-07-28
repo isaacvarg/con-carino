@@ -56,6 +56,10 @@ describe('amount helpers', () => {
   it('signs withdrawals as negative', () => {
     expect(toSignedTransactionAmount('WITHDRAWAL', 25)).toBe(-25)
   })
+
+  it('signs deposits as positive', () => {
+    expect(toSignedTransactionAmount('DEPOSIT', 25)).toBe(25)
+  })
 })
 
 describe('transaction activity snapshots', () => {

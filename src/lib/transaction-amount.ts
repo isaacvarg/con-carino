@@ -33,6 +33,7 @@ export function toSignedTransactionAmount(
     case 'INCOME':
     case 'REFUND':
     case 'REIMBURSEMENT':
+    case 'DEPOSIT':
       return magnitude
     case 'TRANSFER':
     case 'BALANCE_ADJUSTMENT': {
