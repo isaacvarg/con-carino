@@ -235,6 +235,7 @@ export function titleForPath(pathname: string): string {
   if (path === '/settings/tags') return 'Tags'
   if (path === '/settings/categories') return 'Categories'
   if (path === '/settings/payees') return 'Payees'
+  if (path === '/settings/automations') return 'Automations'
   if (path === '/settings/document-types') return 'Document types'
   const exact = flattenNavLinks().find((item) => item.to === path)
   if (exact) return exact.title

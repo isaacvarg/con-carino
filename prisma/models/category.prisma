@@ -8,6 +8,7 @@ model Category {
   updatedAt DateTime @updatedAt
 
   transactions Transaction[]
+  automations  Automation[]
 
   @@map("categories")
 }

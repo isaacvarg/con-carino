@@ -40,6 +40,8 @@ model FinancialAccount {
   careInvoices CareInvoice[]
   careSettings         CareSettings[]            @relation("CareCoverageAccount")
   contributionProfiles CareContributionProfile[]
+  automationTriggers   Automation[]              @relation("AutomationTriggerAccount")
+  automationTargets    Automation[]              @relation("AutomationTargetAccount")
 
   @@index([userId])
   @@index([accountGroupId])

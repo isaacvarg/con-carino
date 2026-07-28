@@ -6,6 +6,7 @@ import {
   HiOutlineCollection,
   HiOutlineDocumentText,
   HiOutlineHeart,
+  HiOutlineLightningBolt,
   HiOutlineOfficeBuilding,
   HiOutlineTag,
   HiOutlineUser,
@@ -25,6 +26,7 @@ type SettingsCard = {
     | '/settings/tags'
     | '/settings/categories'
     | '/settings/payees'
+    | '/settings/automations'
     | '/settings/document-types'
   title: string
   description: string
@@ -91,6 +93,12 @@ const SETTINGS_CARDS: SettingsCard[] = [
     title: 'Payees',
     description: 'People and merchants used on transactions.',
     icon: HiOutlineOfficeBuilding,
+  },
+  {
+    to: '/settings/automations',
+    title: 'Automations',
+    description: 'Rules that copy transactions, set money aside, or watch a balance.',
+    icon: HiOutlineLightningBolt,
   },
   {
     to: '/settings/document-types',

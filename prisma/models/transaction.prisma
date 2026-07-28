@@ -31,6 +31,9 @@ model Transaction {
   reconciliationStatus      ReconciliationStatus @default(UNCLEARED)
   reconciliationUpdatedAt   DateTime?
   reconciliationUpdatedById String?
+  // Set when an automation wrote this row. Its presence is what stops an
+  // automation's output from triggering another automation.
+  createdByAutomationId     String?
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
 
@@ -39,6 +42,9 @@ model Transaction {
   payee                   Payee?           @relation(fields: [payeeId], references: [id], onDelete: SetNull)
   category                Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   reconciliationUpdatedBy User?            @relation("TransactionReconciliationUpdatedBy", fields: [reconciliationUpdatedById], references: [id], onDelete: SetNull)
+  createdByAutomation     Automation?      @relation("TransactionCreatedByAutomation", fields: [createdByAutomationId], references: [id], onDelete: SetNull)
+  automationRunsAsSource  AutomationRun[]  @relation("AutomationRunSource")
+  automationRunAsCreated  AutomationRun?   @relation("AutomationRunCreated")
   tags                    Tag[]
   attachments             Attachment[]
   careInvoice             CareInvoice?
@@ -51,5 +57,6 @@ model Transaction {
   @@index([categoryId])
   @@index([transferGroupId])
   @@index([reconciliationUpdatedById])
+  @@index([createdByAutomationId])
   @@map("transactions")
 }

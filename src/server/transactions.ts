@@ -1203,6 +1203,32 @@ export const createTransaction = createServerFn({ method: 'POST' })
       visibilityUserId: created.financialAccount.userId,
     })
 
+    // Automations run after the user's row is committed and after its own
+    // activity entry, so anything they write reads as a consequence of it.
+    // Awaited rather than fired and forgotten so the rows exist by the time the
+    // client calls router.invalidate().
+    //
+    // A failure here must never fail the transaction the user just saved — the
+    // same rule the swap emails follow in care.ts. That isolation depends on
+    // the create above NOT being wrapped in prisma.$transaction: if that ever
+    // changes, this block has to move outside the wrapper or it silently starts
+    // rolling back the user's write.
+    //
+    // Dynamic import because this module is in the client graph via nearly
+    // every transaction component; a static import would drag automations.ts in
+    // with it. Same rationale as the job registry.
+    try {
+      const { runAutomationsForTransaction } = await import(
+        '#/server/automations'
+      )
+      await runAutomationsForTransaction(created.id)
+    } catch (err) {
+      console.error(
+        `[transactions] Automations failed for ${created.id}:`,
+        err,
+      )
+    }
+
     return {
       ...toTransactionListItem(created),
       attachments,

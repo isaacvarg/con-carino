@@ -126,6 +126,22 @@ export const JOBS: readonly JobDefinition[] = [
       return runAutoPostContributions(now)
     },
   },
+  {
+    // Backstop for a balance that slipped below its floor without a transaction
+    // create to notice — an edited row, a changed opening balance. The hook in
+    // createTransaction handles the common case the moment it happens, so this
+    // only has to catch the drift. Not module-gated: the flags above mean "care
+    // features", and automations are ledger features.
+    name: 'automations-low-balance',
+    // Hourly, not faster: the re-alert cadence is daily, so a tighter sweep
+    // finds nothing new and only fills up job_runs.
+    intervalMs: HOUR,
+    staleAfterMs: 15 * MINUTE,
+    run: async (now) => {
+      const { runLowBalanceAlerts } = await import('#/server/automations')
+      return runLowBalanceAlerts(now)
+    },
+  },
 ]
 
 export function findJob(name: string): JobDefinition | undefined {

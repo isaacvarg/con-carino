@@ -49,6 +49,7 @@ import { Route as AppSettingsLovedOneRouteImport } from './routes/_app/settings/
 import { Route as AppSettingsDocumentTypesRouteImport } from './routes/_app/settings/document-types'
 import { Route as AppSettingsContributionsRouteImport } from './routes/_app/settings/contributions'
 import { Route as AppSettingsCategoriesRouteImport } from './routes/_app/settings/categories'
+import { Route as AppSettingsAutomationsRouteImport } from './routes/_app/settings/automations'
 import { Route as AppDocumentsDocumentIdRouteImport } from './routes/_app/documents/$documentId'
 import { Route as AppActivityActivityIdRouteImport } from './routes/_app/activity/$activityId'
 import { Route as AppAccountsNewRouteImport } from './routes/_app/accounts/new'
@@ -263,6 +264,11 @@ const AppSettingsCategoriesRoute = AppSettingsCategoriesRouteImport.update({
   path: '/categories',
   getParentRoute: () => AppSettingsRoute,
 } as any)
+const AppSettingsAutomationsRoute = AppSettingsAutomationsRouteImport.update({
+  id: '/automations',
+  path: '/automations',
+  getParentRoute: () => AppSettingsRoute,
+} as any)
 const AppDocumentsDocumentIdRoute = AppDocumentsDocumentIdRouteImport.update({
   id: '/$documentId',
   path: '/$documentId',
@@ -350,6 +356,7 @@ export interface FileRoutesByFullPath {
   '/accounts/new': typeof AppAccountsNewRoute
   '/activity/$activityId': typeof AppActivityActivityIdRoute
   '/documents/$documentId': typeof AppDocumentsDocumentIdRoute
+  '/settings/automations': typeof AppSettingsAutomationsRoute
   '/settings/categories': typeof AppSettingsCategoriesRoute
   '/settings/contributions': typeof AppSettingsContributionsRoute
   '/settings/document-types': typeof AppSettingsDocumentTypesRoute
@@ -396,6 +403,7 @@ export interface FileRoutesByTo {
   '/accounts/new': typeof AppAccountsNewRoute
   '/activity/$activityId': typeof AppActivityActivityIdRoute
   '/documents/$documentId': typeof AppDocumentsDocumentIdRoute
+  '/settings/automations': typeof AppSettingsAutomationsRoute
   '/settings/categories': typeof AppSettingsCategoriesRoute
   '/settings/contributions': typeof AppSettingsContributionsRoute
   '/settings/document-types': typeof AppSettingsDocumentTypesRoute
@@ -449,6 +457,7 @@ export interface FileRoutesById {
   '/_app/accounts/new': typeof AppAccountsNewRoute
   '/_app/activity/$activityId': typeof AppActivityActivityIdRoute
   '/_app/documents/$documentId': typeof AppDocumentsDocumentIdRoute
+  '/_app/settings/automations': typeof AppSettingsAutomationsRoute
   '/_app/settings/categories': typeof AppSettingsCategoriesRoute
   '/_app/settings/contributions': typeof AppSettingsContributionsRoute
   '/_app/settings/document-types': typeof AppSettingsDocumentTypesRoute
@@ -503,6 +512,7 @@ export interface FileRouteTypes {
     | '/accounts/new'
     | '/activity/$activityId'
     | '/documents/$documentId'
+    | '/settings/automations'
     | '/settings/categories'
     | '/settings/contributions'
     | '/settings/document-types'
@@ -549,6 +559,7 @@ export interface FileRouteTypes {
     | '/accounts/new'
     | '/activity/$activityId'
     | '/documents/$documentId'
+    | '/settings/automations'
     | '/settings/categories'
     | '/settings/contributions'
     | '/settings/document-types'
@@ -601,6 +612,7 @@ export interface FileRouteTypes {
     | '/_app/accounts/new'
     | '/_app/activity/$activityId'
     | '/_app/documents/$documentId'
+    | '/_app/settings/automations'
     | '/_app/settings/categories'
     | '/_app/settings/contributions'
     | '/_app/settings/document-types'
@@ -921,6 +933,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsCategoriesRouteImport
       parentRoute: typeof AppSettingsRoute
     }
+    '/_app/settings/automations': {
+      id: '/_app/settings/automations'
+      path: '/automations'
+      fullPath: '/settings/automations'
+      preLoaderRoute: typeof AppSettingsAutomationsRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
     '/_app/documents/$documentId': {
       id: '/_app/documents/$documentId'
       path: '/$documentId'
@@ -1077,6 +1096,7 @@ const AppSettingsUsersRouteWithChildren =
   AppSettingsUsersRoute._addFileChildren(AppSettingsUsersRouteChildren)
 
 interface AppSettingsRouteChildren {
+  AppSettingsAutomationsRoute: typeof AppSettingsAutomationsRoute
   AppSettingsCategoriesRoute: typeof AppSettingsCategoriesRoute
   AppSettingsContributionsRoute: typeof AppSettingsContributionsRoute
   AppSettingsDocumentTypesRoute: typeof AppSettingsDocumentTypesRoute
@@ -1091,6 +1111,7 @@ interface AppSettingsRouteChildren {
 }
 
 const AppSettingsRouteChildren: AppSettingsRouteChildren = {
+  AppSettingsAutomationsRoute: AppSettingsAutomationsRoute,
   AppSettingsCategoriesRoute: AppSettingsCategoriesRoute,
   AppSettingsContributionsRoute: AppSettingsContributionsRoute,
   AppSettingsDocumentTypesRoute: AppSettingsDocumentTypesRoute,

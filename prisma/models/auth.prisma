@@ -23,6 +23,8 @@ model User {
   configuration     UserConfiguration?
   careLedgerEntries   CareContributionLedgerEntry[]
   postedContributions CareScheduledContribution[]
+  automationAlerts    Automation[] @relation("AutomationNotifyUser")
+  automationsCreated  Automation[] @relation("AutomationCreatedBy")
 
   @@map("users")
 }

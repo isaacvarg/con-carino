@@ -1,0 +1,104 @@
+enum AutomationKind {
+  DUPLICATE_TO_ACCOUNT
+  PERCENT_MATCH
+  LOW_BALANCE_ALERT
+}
+
+enum AutomationRunStatus {
+  APPLIED
+  SKIPPED
+  FAILED
+}
+
+/// A household-level rule. Taxonomies are global here, and so are automations:
+/// one family, one rule book. `createdByUserId` records who wrote it, not who
+/// owns it.
+///
+/// One model rather than three: the kinds share name/isEnabled/triggerAccount,
+/// and the two transaction kinds are the same trigger with a different action.
+/// Which nullable columns are required is decided by `kind`, enforced twice —
+/// by `parseAutomationInput` in src/lib/automation-input.ts, and by the CHECK
+/// constraints in the migration, which Prisma cannot express.
+model Automation {
+  id        String         @id @default(uuid())
+  name      String
+  kind      AutomationKind
+  isEnabled Boolean        @default(true)
+
+  /// Source account for the transaction kinds; the watched account for
+  /// LOW_BALANCE_ALERT.
+  triggerAccountId String
+  /// Null only for LOW_BALANCE_ALERT.
+  triggerType       TransactionType?
+  /// Null means any category.
+  triggerCategoryId String?
+  /// Empty means any tag. Non-empty means the source must carry at least one.
+  triggerTags       Tag[]
+
+  /// Where the generated transaction lands. DUPLICATE_TO_ACCOUNT + PERCENT_MATCH.
+  targetAccountId String?
+  /// PERCENT_MATCH only. Percent units, 0 < percent <= 100.
+  percent         Decimal? @db.Decimal(9, 4)
+
+  /// LOW_BALANCE_ALERT: the floor the balance must stay at or above.
+  thresholdAmount Decimal?  @db.Decimal(19, 4)
+  notifyUserId    String?
+  /// Set on the first alert of a dip, cleared when the balance recovers. Its
+  /// presence is what makes re-alerting "while below" rather than "again".
+  alertingSince   DateTime?
+  /// Drives the once-per-24h re-alert. Cleared with alertingSince.
+  lastAlertedAt   DateTime?
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  triggerAccount FinancialAccount  @relation("AutomationTriggerAccount", fields: [triggerAccountId], references: [id], onDelete: Cascade)
+  targetAccount  FinancialAccount? @relation("AutomationTargetAccount", fields: [targetAccountId], references: [id], onDelete: Cascade)
+  // Cascade, deliberately not SetNull: a null category filter means "any
+  // category", so SetNull would silently widen the rule to fire on everything
+  // in the account instead of retiring it.
+  triggerCategory Category? @relation(fields: [triggerCategoryId], references: [id], onDelete: Cascade)
+  // Cascade for the same reason the account FKs cascade: with the kind CHECK in
+  // place, a SET NULL here would produce a row violating the constraint and
+  // make the user delete fail outright.
+  notifyUser    User? @relation("AutomationNotifyUser", fields: [notifyUserId], references: [id], onDelete: Cascade)
+  createdByUser User? @relation("AutomationCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  runs                AutomationRun[]
+  createdTransactions Transaction[]   @relation("TransactionCreatedByAutomation")
+
+  @@index([kind, isEnabled])
+  @@index([triggerAccountId, isEnabled])
+  @@index([targetAccountId])
+  @@index([triggerCategoryId])
+  @@index([notifyUserId])
+  @@index([createdByUserId])
+  @@map("automations")
+}
+
+/// One row per (automation, source transaction). The unique IS the idempotency
+/// lock — the same claim-by-insert idiom `JobRun` uses for scheduling buckets:
+/// the runner claims by inserting, and a P2002 means it already fired.
+///
+/// LOW_BALANCE_ALERT rows carry a null sourceTransactionId. Postgres treats
+/// NULLs as distinct in a unique index, so alert history stays unconstrained by
+/// design.
+model AutomationRun {
+  id                   String              @id @default(uuid())
+  automationId         String
+  sourceTransactionId  String?
+  createdTransactionId String?             @unique
+  status               AutomationRunStatus
+  /// Why it skipped or failed, or a one-line description of what it did.
+  detail               String?
+  createdAt            DateTime            @default(now())
+
+  automation         Automation   @relation(fields: [automationId], references: [id], onDelete: Cascade)
+  sourceTransaction  Transaction? @relation("AutomationRunSource", fields: [sourceTransactionId], references: [id], onDelete: Cascade)
+  createdTransaction Transaction? @relation("AutomationRunCreated", fields: [createdTransactionId], references: [id], onDelete: SetNull)
+
+  @@unique([automationId, sourceTransactionId])
+  @@index([automationId, createdAt])
+  @@map("automation_runs")
+}

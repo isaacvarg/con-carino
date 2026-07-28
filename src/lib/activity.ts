@@ -22,6 +22,7 @@ export const ACTIVITY_ENTITY_TYPES = {
   document_type: 'document_type',
   session: 'session',
   user: 'user',
+  automation: 'automation',
   /** Future */
   med: 'med',
 } as const

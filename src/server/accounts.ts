@@ -1,4 +1,4 @@
-import { createServerFn } from '@tanstack/react-start'
+import { createServerFn, createServerOnlyFn } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
 import { getSession } from 'start-authjs'
 import { AccountType as AccountTypeEnum } from '#/generated/prisma/enums'
@@ -150,9 +150,20 @@ function formatBalance(value: number): string {
   return value.toFixed(4)
 }
 
-async function currentBalancesForAccounts(
+/**
+ * Derived balance per account, keyed by id: opening balance plus the sum of its
+ * transactions. Balances are never stored, so this is the one definition of
+ * "what is in there right now" — the low-balance automation reads it through
+ * here rather than growing a second copy that could drift.
+ *
+ * Wrapped in `createServerOnlyFn` because this module is imported by route
+ * loaders: a plain export would keep `prisma` reachable from the client build.
+ * The wrapper is the identity on the server, so callers inside this file are
+ * unaffected.
+ */
+export const currentBalancesForAccounts = createServerOnlyFn(async (
   accounts: Array<{ id: string; initialBalance: { toString(): string } }>,
-): Promise<Map<string, string>> {
+): Promise<Map<string, string>> => {
   if (accounts.length === 0) {
     return new Map()
   }
@@ -179,7 +190,7 @@ async function currentBalancesForAccounts(
       return [account.id, formatBalance(opening + txnSum)]
     }),
   )
-}
+})
 
 export const listAccounts = createServerFn({ method: 'GET' }).handler(
   async (): Promise<AccountListItem[]> => {

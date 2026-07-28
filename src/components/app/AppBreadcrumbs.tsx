@@ -221,6 +221,13 @@ export function crumbsForPath(
     ]
   }
 
+  if (path === '/settings/automations') {
+    return [
+      { label: 'settings', href: { to: '/settings' } },
+      { label: 'automations' },
+    ]
+  }
+
   const navItem = flattenNavLinks().find((item) => item.to === path)
   if (navItem && navItem.to !== '/') {
     return [{ label: navItem.label.toLowerCase() }]

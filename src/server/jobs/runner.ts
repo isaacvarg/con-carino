@@ -1,5 +1,6 @@
 import { floorToInterval } from '#/lib/job-schedule'
 import { prisma } from '#/lib/prisma'
+import { isUniqueViolation } from '#/lib/prisma-errors'
 import type { JobDefinition } from '#/server/jobs/registry'
 import { JOBS, findJob } from '#/server/jobs/registry'
 
@@ -11,19 +12,6 @@ export type JobOutcome = {
   scheduledFor?: string
   durationMs?: number
   result?: unknown
-}
-
-/**
- * Prisma signals a unique-constraint violation with code P2002. Match on the
- * shape rather than the error class so this holds regardless of which client
- * build threw it.
- */
-function isUniqueViolation(err: unknown): boolean {
-  return (
-    typeof err === 'object' &&
-    err !== null &&
-    (err as { code?: unknown }).code === 'P2002'
-  )
 }
 
 function toErrorText(err: unknown): string {
