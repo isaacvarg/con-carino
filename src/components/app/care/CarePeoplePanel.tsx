@@ -203,7 +203,14 @@ export function CarePeoplePanel({
   }
 
   return (
-    <div className="app-card p-4 sm:p-6">
+    <div className="flex flex-col gap-4">
+      <Tabs
+        tabs={PEOPLE_SETTINGS_TABS}
+        value={tab}
+        onChange={setTab}
+      />
+
+      <div className="app-card p-4 sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="text-xl font-bold tracking-tight text-base-content">
@@ -234,13 +241,6 @@ export function CarePeoplePanel({
           </button>
         ) : null}
       </div>
-
-      <Tabs
-        className="mt-4"
-        tabs={PEOPLE_SETTINGS_TABS}
-        value={tab}
-        onChange={setTab}
-      />
 
       {tab === 'people' ? (
         showPersonForm ? (
@@ -412,6 +412,7 @@ export function CarePeoplePanel({
           ))}
         </ul>
       )}
+      </div>
     </div>
   )
 }
