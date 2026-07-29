@@ -32,7 +32,6 @@ import {
 import {
   formatAccountCurrency,
   formatTransactionDate,
-  transactionTypeLabel,
 } from './account-utils'
 import { AccountSpeedDial } from './AccountSpeedDial'
 import type { AccountTransactionsSearch } from './account-detail-search'
@@ -161,7 +160,7 @@ export function TransactionsTable({
     const tags = new Map<string, string>()
 
     for (const txn of transactions) {
-      types.set(txn.type, transactionTypeLabel(txn.type))
+      types.set(txn.type.key, txn.type.label)
       if (txn.category) {
         categories.set(txn.category.id, txn.category.name)
       } else {
@@ -234,9 +233,9 @@ export function TransactionsTable({
       },
       {
         id: 'type',
-        accessorFn: (row) => row.type,
+        accessorFn: (row) => row.type.key,
         header: 'Type',
-        cell: ({ row }) => transactionTypeLabel(row.original.type),
+        cell: ({ row }) => row.original.type.label,
         filterFn: multiValueFilter,
       },
       {

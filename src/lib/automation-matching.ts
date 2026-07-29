@@ -12,7 +12,6 @@
  * in a pure function that is.
  */
 
-import type { TransactionType } from '#/generated/prisma/enums'
 import type { AutomationDto, AutomationKind } from '#/lib/automation-types'
 import {
   AUTOMATION_KIND_LABELS,
@@ -21,7 +20,8 @@ import {
 
 export type AutomationTrigger = {
   triggerAccountId: string
-  triggerType: TransactionType | null
+  /** Null means any type. */
+  triggerTypeId: string | null
   /** Empty means any tag. */
   triggerTagIds: string[]
   /** Null means any category. */
@@ -31,7 +31,7 @@ export type AutomationTrigger = {
 export type AutomationSource = {
   id: string
   financialAccountId: string
-  type: TransactionType
+  typeId: string
   tagIds: string[]
   categoryId: string | null
   createdByAutomationId: string | null
@@ -56,7 +56,10 @@ export function triggerMismatchReason(
   source: AutomationSource,
 ): TriggerMismatch | null {
   if (trigger.triggerAccountId !== source.financialAccountId) return 'account'
-  if (trigger.triggerType !== null && trigger.triggerType !== source.type) {
+  if (
+    trigger.triggerTypeId !== null &&
+    trigger.triggerTypeId !== source.typeId
+  ) {
     return 'type'
   }
   if (
@@ -129,7 +132,7 @@ function formatPercent(value: string | null): string {
 function describeFilters(automation: AutomationDto): string {
   const parts: string[] = []
   if (automation.triggerType) {
-    parts.push(automation.triggerType.toLowerCase().replaceAll('_', ' '))
+    parts.push(automation.triggerType.label.toLowerCase())
   }
   if (automation.triggerTags.length > 0) {
     parts.push(`tagged ${automation.triggerTags.map((t) => t.name).join(' or ')}`)

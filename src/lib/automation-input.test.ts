@@ -9,7 +9,7 @@ const DUPLICATE = {
   kind: 'DUPLICATE_TO_ACCOUNT',
   name: 'Vacation mirror',
   triggerAccountId: 'acct-main',
-  triggerType: 'DEPOSIT',
+  triggerTypeId: 'DEPOSIT',
   targetAccountId: 'acct-pot',
 }
 
@@ -17,7 +17,7 @@ const PERCENT = {
   kind: 'PERCENT_MATCH',
   name: 'Save 15%',
   triggerAccountId: 'acct-main',
-  triggerType: 'WITHDRAWAL',
+  triggerTypeId: 'WITHDRAWAL',
   targetAccountId: 'acct-pot',
   percent: 15,
 }
@@ -89,8 +89,8 @@ describe('parseAutomationInput', () => {
   describe('DUPLICATE_TO_ACCOUNT', () => {
     it('requires a type and a target account', () => {
       expect(() =>
-        parseAutomationInput({ ...DUPLICATE, triggerType: undefined }),
-      ).toThrow('Transaction type is invalid for an automation trigger.')
+        parseAutomationInput({ ...DUPLICATE, triggerTypeId: undefined }),
+      ).toThrow('Pick a transaction type for this automation to watch.')
       expect(() =>
         parseAutomationInput({ ...DUPLICATE, targetAccountId: '' }),
       ).toThrow()
@@ -116,12 +116,15 @@ describe('parseAutomationInput', () => {
       ).toThrow('must be different')
     })
 
-    it('rejects a directional type the runner could not sign', () => {
-      for (const type of ['TRANSFER', 'BALANCE_ADJUSTMENT']) {
-        expect(() => parseAutomationInput({ ...DUPLICATE, triggerType: type })).toThrow(
-          'Transaction type is invalid for an automation trigger.',
-        )
-      }
+    // Rejecting a directional type moved to `assertUsableTriggerType` in
+    // src/server/automations.ts: types are rows now, so whether one is
+    // DIRECTIONAL cannot be known without a query. All this validator can
+    // still promise is that some id was supplied.
+    it('accepts any non-empty type id and leaves the rest to the server', () => {
+      expect(
+        parseAutomationInput({ ...DUPLICATE, triggerTypeId: '  type-x  ' })
+          .triggerTypeId,
+      ).toBe('type-x')
     })
 
     it('normalizes the tag list', () => {
@@ -162,13 +165,13 @@ describe('parseAutomationInput', () => {
     it('strips transaction filters and the target account', () => {
       const parsed = parseAutomationInput({
         ...LOW_BALANCE,
-        triggerType: 'DEPOSIT',
+        triggerTypeId: 'DEPOSIT',
         triggerTagIds: ['tag-a'],
         triggerCategoryId: 'cat-a',
         targetAccountId: 'acct-main',
         percent: 15,
       })
-      expect(parsed.triggerType).toBeNull()
+      expect(parsed.triggerTypeId).toBeNull()
       expect(parsed.triggerTagIds).toEqual([])
       expect(parsed.triggerCategoryId).toBeNull()
       expect(parsed.targetAccountId).toBeNull()

@@ -4,9 +4,16 @@ import AppBreadcrumbs from '#/components/app/AppBreadcrumbs'
 import AppHeader from '#/components/app/AppHeader'
 import AppSidebar from '#/components/app/AppSidebar'
 import { getModuleFlagsCached } from '#/lib/care-module-flags'
+import { getTransactionTypesCached } from '#/lib/transaction-type-registry'
 
 export const Route = createFileRoute('/_app')({
-  beforeLoad: async () => ({ modules: await getModuleFlagsCached() }),
+  beforeLoad: async () => {
+    const [modules, transactionTypes] = await Promise.all([
+      getModuleFlagsCached(),
+      getTransactionTypesCached(),
+    ])
+    return { modules, transactionTypes }
+  },
   component: AppLayout,
 })
 

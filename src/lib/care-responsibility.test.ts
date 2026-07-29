@@ -58,3 +58,35 @@ describe('canTakeResponsibility', () => {
     expect(res.ok).toBe(false)
   })
 })
+
+describe('canTakeResponsibility with adminOverride', () => {
+  it("acts on someone else's window, including one already under way", () => {
+    expect(
+      canTakeResponsibility(
+        { assigneeId: 'person-a', status: 'SCHEDULED', startsAt: FUTURE },
+        'person-b',
+        NOW,
+        { adminOverride: true },
+      ),
+    ).toEqual({ ok: true })
+    expect(
+      canTakeResponsibility(
+        { assigneeId: 'person-a', status: 'SCHEDULED', startsAt: PAST },
+        'person-b',
+        NOW,
+        { adminOverride: true },
+      ),
+    ).toEqual({ ok: true })
+  })
+
+  it('still refuses a window that is not scheduled', () => {
+    expect(
+      canTakeResponsibility(
+        { assigneeId: 'person-a', status: 'COMPLETED', startsAt: FUTURE },
+        'person-b',
+        NOW,
+        { adminOverride: true },
+      ).ok,
+    ).toBe(false)
+  })
+})

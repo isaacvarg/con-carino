@@ -1,7 +1,10 @@
-import { useRouter } from '@tanstack/react-router'
+import { useRouteContext, useRouter } from '@tanstack/react-router'
 import { useMemo, useState, type FormEvent } from 'react'
 import { ConfirmDialog } from '#/components/app/ui/confirm-dialog'
-import { canReleaseOccurrence } from '#/lib/care-release'
+import {
+  canReassignOccurrence,
+  canReleaseOccurrence,
+} from '#/lib/care-release'
 import { canTakeResponsibility } from '#/lib/care-responsibility'
 import {
   FORM_INPUT_CLASS,
@@ -23,6 +26,7 @@ import type {
 } from '#/server/care'
 import {
   claimOccurrences,
+  clearCoverageResponsibility,
   createCalendarEvent,
   createCoverageAssignmentRule,
   createSwapRequest,
@@ -147,6 +151,31 @@ export function CareCalendarPanel({
   const [title, setTitle] = useState('')
   const [eventTypeId, setEventTypeId] = useState(eventTypes[0]?.id ?? '')
 
+  const { session } = useRouteContext({ from: '/_app' })
+  const isAdmin = Boolean(session?.user?.isAdmin)
+  /**
+   * Opt-in, never implicit. An admin doing their own scheduling sees exactly
+   * what everyone else sees until they deliberately turn this on, and every
+   * request it sends carries the flag so the activity log can say so.
+   */
+  const [adminMode, setAdminMode] = useState(false)
+  const [clearingResponsibilityId, setClearingResponsibilityId] = useState<
+    string | null
+  >(null)
+
+  /** Admin mode only: put a hired window's cost back on the pot. */
+  async function clearResponsibility(id: string) {
+    setClearingResponsibilityId(id)
+    try {
+      await clearCoverageResponsibility({ data: { id, adminMode: true } })
+      await router.invalidate()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not clear.')
+    } finally {
+      setClearingResponsibilityId(null)
+    }
+  }
+
   const activePeople = people.filter((p) => p.isActive)
   /** The caregiver this user is, when their account is linked to one. */
   const linkedPerson = viewerUserId
@@ -167,6 +196,17 @@ export function CareCalendarPanel({
       },
       linkedPerson?.id ?? null,
       new Date(),
+      { adminOverride: adminMode },
+    ).ok
+  }
+
+  /** Admin mode only: take an assigned window off whoever holds it. */
+  function canReassign(o: CareCoverageOccurrenceDto): boolean {
+    if (!adminMode || selectMode || o.hasInvoice) return false
+    return canReassignOccurrence(
+      { assigneeId: o.assigneeId, status: o.status },
+      linkedPerson?.id ?? null,
+      { adminOverride: true },
     ).ok
   }
 
@@ -186,6 +226,7 @@ export function CareCalendarPanel({
       },
       linkedPerson?.id ?? null,
       new Date(),
+      { adminOverride: adminMode },
     ).ok
   }
 
@@ -418,6 +459,17 @@ export function CareCalendarPanel({
                             Assign
                           </button>
                         ) : null}
+                        {canReassign(o) ? (
+                          <button
+                            type="button"
+                            className="btn btn-warning btn-xs"
+                            onClick={() =>
+                              openModal('assign', { assignId: o.id })
+                            }
+                          >
+                            Reassign
+                          </button>
+                        ) : null}
                         {o.assigneeId &&
                         o.status === 'SCHEDULED' &&
                         o.assigneeId !== linkedPerson?.id ? (
@@ -439,7 +491,21 @@ export function CareCalendarPanel({
                               setReleaseId(o.id)
                             }}
                           >
-                            Give up
+                            {adminMode && o.assigneeId !== linkedPerson?.id
+                              ? 'Force release'
+                              : 'Give up'}
+                          </button>
+                        ) : null}
+                        {adminMode && o.responsiblePersonId && !o.hasInvoice ? (
+                          <button
+                            type="button"
+                            className="btn btn-warning btn-xs"
+                            disabled={clearingResponsibilityId === o.id}
+                            onClick={() => void clearResponsibility(o.id)}
+                          >
+                            {clearingResponsibilityId === o.id
+                              ? 'Clearing…'
+                              : 'Clear who pays'}
                           </button>
                         ) : null}
                         {canHire(o) ? (
@@ -521,7 +587,9 @@ export function CareCalendarPanel({
     setReleaseError(null)
     setReleasing(true)
     try {
-      await releaseOccurrence({ data: { id, notify: notifyOnRelease } })
+      await releaseOccurrence({
+        data: { id, notify: notifyOnRelease, adminMode },
+      })
       setReleaseId(null)
       await router.invalidate()
     } catch (err) {
@@ -540,7 +608,8 @@ export function CareCalendarPanel({
     setHiring(true)
     try {
       await hireCoverageForWindow({
-        data: { id: hireId, assigneeId: hireAssigneeId },
+        data: {
+          adminMode, id: hireId, assigneeId: hireAssigneeId },
       })
       setHireId(null)
       setHireAssigneeId('')
@@ -649,6 +718,7 @@ export function CareCalendarPanel({
         }
         await createSwapRequest({
           data: {
+            adminMode,
             targetPersonId: swapTargetPersonId,
             requesterPersonId,
             takeOccurrenceIds: swapTakeIds,
@@ -664,6 +734,7 @@ export function CareCalendarPanel({
           data: {
             id: assignOccurrenceId,
             assigneeId,
+            adminMode,
           },
         })
       }
@@ -726,7 +797,25 @@ export function CareCalendarPanel({
           >
             Manage recurring
           </button>
+          {isAdmin ? (
+            <button
+              type="button"
+              className={`btn btn-sm ${adminMode ? 'btn-warning' : 'btn-outline'}`}
+              aria-pressed={adminMode}
+              onClick={() => setAdminMode((on) => !on)}
+            >
+              {adminMode ? 'Admin mode on' : 'Admin mode'}
+            </button>
+          ) : null}
         </div>
+        {adminMode ? (
+          <div className="mb-3 alert alert-warning py-2 text-sm">
+            <span>
+              Admin mode: you can reassign and release anyone&rsquo;s windows.
+              Every change is recorded as an admin action.
+            </span>
+          </div>
+        ) : null}
         {ruleSummary ? (
           <div className="mb-3 alert alert-success py-2 text-sm">
             <span>{ruleSummary}</span>

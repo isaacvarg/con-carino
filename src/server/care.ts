@@ -43,7 +43,10 @@ import { projectCareCosts } from '#/lib/care-forecast'
 import type { PayOverviewMode } from '#/lib/care-pay-period'
 import { payOverviewLabel, payOverviewRange } from '#/lib/care-pay-period'
 import { occurrenceMatchesRule } from '#/lib/care-assignment'
-import { canReleaseOccurrence } from '#/lib/care-release'
+import {
+  canReassignOccurrence,
+  canReleaseOccurrence,
+} from '#/lib/care-release'
 import { canTakeResponsibility } from '#/lib/care-responsibility'
 import { buildRequiredCoverageWindows } from '#/lib/care-required'
 import { expandSeriesOccurrences, parseHhMm } from '#/lib/care-recurrence'
@@ -66,7 +69,14 @@ import {
   shouldNotifyParticipant,
 } from '#/lib/swap-notify'
 import type { Prisma, PrismaClient } from '#/generated/prisma/client'
-import { toSignedTransactionAmount } from '#/lib/transaction-amount'
+import { signedAmountFor } from '#/lib/transaction-types'
+import {
+  archiveOrDelete,
+  restoreArchived,
+  type ArchiveResult,
+} from '#/server/archive'
+import { isCallerAdmin, requireAdminId } from '#/server/auth-guards'
+import { requireTransactionTypeByKey } from '#/server/transaction-type-lookup'
 import { requireHexColor } from '#/lib/validators'
 import { logActivity } from '#/server/activity-log'
 import {
@@ -1945,6 +1955,10 @@ export const listCarePeople = createServerFn({ method: 'GET' }).handler(
     await requireUserId()
     await ensureDefaultTypes()
     const people = await prisma.carePerson.findMany({
+      // Archived people are gone from the roster entirely. `isActive` is the
+      // softer state — still a caregiver, just not being scheduled — and stays
+      // visible with its badge.
+      where: { archivedAt: null },
       include: {
         type: true,
         user: { select: { name: true, email: true } },
@@ -1959,6 +1973,7 @@ export const listAppUsers = createServerFn({ method: 'GET' }).handler(
   async (): Promise<AppUserOption[]> => {
     await requireUserId()
     const users = await prisma.user.findMany({
+      where: { archivedAt: null },
       select: { id: true, name: true, email: true },
       orderBy: { name: 'asc' },
     })
@@ -2592,10 +2607,11 @@ export const updateOccurrence = createServerFn({ method: 'POST' })
         : undefined
     const notes =
       typeof input.notes === 'string' ? input.notes.trim() || null : undefined
-    return { id, assigneeId, status, notes }
+    return { id, assigneeId, status, notes, adminMode: parseAdminMode(input) }
   })
   .handler(async ({ data }): Promise<CareCoverageOccurrenceDto> => {
     const userId = await requireUserId()
+    const adminOverride = await resolveAdminOverride(data.adminMode)
     const existing = await prisma.careCoverageOccurrence.findUnique({
       where: { id: data.id },
       include: { invoiceLines: { include: { invoice: true } } },
@@ -2608,6 +2624,12 @@ export const updateOccurrence = createServerFn({ method: 'POST' })
       data.assigneeId !== undefined &&
       data.assigneeId !== existing.assigneeId
     ) {
+      const viewerPerson = await personForUser(userId)
+      const check = canReassignOccurrence(existing, viewerPerson?.id ?? null, {
+        adminOverride,
+      })
+      if (!check.ok) throw new Error(check.reason)
+
       if (existing.invoiceLines.some((line) => line.invoice.status === 'PAID')) {
         throw new Error(
           'This coverage is on a paid invoice and cannot be reassigned. Void the invoice first.',
@@ -2665,9 +2687,15 @@ export const updateOccurrence = createServerFn({ method: 'POST' })
         action: 'UPDATE',
         entityType: ACTIVITY_ENTITY_TYPES.coverage_occurrence,
         entityId: refreshed.id,
-        summary: `Updated coverage on ${toDayKey(refreshed.startsAt)}`,
+        summary: adminOverride
+          ? `Reassigned coverage on ${toDayKey(refreshed.startsAt)} (admin)`
+          : `Updated coverage on ${toDayKey(refreshed.startsAt)}`,
         changes,
-        linkMeta: { day: toDayKey(refreshed.startsAt), tab: 'calendar' },
+        linkMeta: {
+          day: toDayKey(refreshed.startsAt),
+          tab: 'calendar',
+          ...(adminOverride ? { viaAdminMode: true } : {}),
+        },
         visibilityUserId: null,
       })
     }
@@ -2780,7 +2808,7 @@ export const releaseOccurrence = createServerFn({ method: 'POST' })
     if (!id) throw new Error('Occurrence id is required.')
     // Notifying is the default; only an explicit false opts out.
     const notify = input.notify === undefined ? true : input.notify === true
-    return { id, notify }
+    return { id, notify, adminMode: parseAdminMode(input) }
   })
   .handler(async ({ data }): Promise<CareCoverageOccurrenceDto> => {
     const userId = await requireUserId()
@@ -2794,7 +2822,10 @@ export const releaseOccurrence = createServerFn({ method: 'POST' })
 
     // Authoritative permission check: the caller must be the assignee. The
     // schedule UI hides the button, but that is convenience only.
-    const check = canReleaseOccurrence(existing, person?.id ?? null, new Date())
+    const adminOverride = await resolveAdminOverride(data.adminMode)
+    const check = canReleaseOccurrence(existing, person?.id ?? null, new Date(), {
+      adminOverride,
+    })
     if (!check.ok) throw new Error(check.reason)
     const releasingPerson = person!
 
@@ -2899,7 +2930,7 @@ export const hireCoverageForWindow = createServerFn({ method: 'POST' })
     const assigneeId =
       typeof input.assigneeId === 'string' ? input.assigneeId.trim() : ''
     if (!assigneeId) throw new Error('Choose who will cover the window.')
-    return { id, assigneeId }
+    return { id, assigneeId, adminMode: parseAdminMode(input) }
   })
   .handler(async ({ data }): Promise<CareCoverageOccurrenceDto> => {
     const userId = await requireUserId()
@@ -2911,7 +2942,13 @@ export const hireCoverageForWindow = createServerFn({ method: 'POST' })
     })
     if (!existing) throw new Error('Coverage window not found.')
 
-    const check = canTakeResponsibility(existing, person?.id ?? null, new Date())
+    const adminOverride = await resolveAdminOverride(data.adminMode)
+    const check = canTakeResponsibility(
+      existing,
+      person?.id ?? null,
+      new Date(),
+      { adminOverride },
+    )
     if (!check.ok) throw new Error(check.reason)
     const responsible = person!
 
@@ -3017,10 +3054,11 @@ export const clearCoverageResponsibility = createServerFn({ method: 'POST' })
     const input = data as Record<string, unknown>
     const id = typeof input.id === 'string' ? input.id.trim() : ''
     if (!id) throw new Error('Occurrence id is required.')
-    return { id }
+    return { id, adminMode: parseAdminMode(input) }
   })
   .handler(async ({ data }): Promise<CareCoverageOccurrenceDto> => {
     const userId = await requireUserId()
+    const adminOverride = await resolveAdminOverride(data.adminMode)
 
     const existing = await prisma.careCoverageOccurrence.findUnique({
       where: { id: data.id },
@@ -3032,6 +3070,17 @@ export const clearCoverageResponsibility = createServerFn({ method: 'POST' })
     if (!existing) throw new Error('Coverage window not found.')
     if (!existing.responsiblePersonId) {
       throw new Error('Nobody is marked responsible for this window.')
+    }
+    // Taking on a window's cost is a financial commitment, so releasing it is
+    // the responsible person's call — or an admin's. This had no check at all
+    // before, which let anyone move someone else's bill onto the pot.
+    if (!adminOverride) {
+      const viewerPerson = await personForUser(userId)
+      if (existing.responsiblePersonId !== viewerPerson?.id) {
+        throw new Error(
+          'Only the person who took this on can clear it. Ask an admin otherwise.',
+        )
+      }
     }
     if (existing.invoiceLines.length > 0) {
       throw new Error(
@@ -3776,6 +3825,28 @@ async function notifySlotOpened(input: {
 }
 
 /** The CarePerson this user acts as, if any. CarePerson.userId is unique. */
+/**
+ * Resolve an explicit `adminMode: true` from a payload into a real override.
+ *
+ * Two properties matter here. It is opt-in, so an admin doing ordinary
+ * scheduling is bound by the same rules as everyone else and cannot trip an
+ * override by accident. And it is verified, so the flag alone grants nothing —
+ * a non-admin sending it gets told no rather than quietly ignored, which is
+ * the difference between a bug and an escalation.
+ */
+async function resolveAdminOverride(requested: boolean): Promise<boolean> {
+  if (!requested) return false
+  if (!(await isCallerAdmin())) {
+    throw new Error('Admin access required.')
+  }
+  return true
+}
+
+/** Parses the opt-in flag every admin-mode-capable payload may carry. */
+function parseAdminMode(input: Record<string, unknown>): boolean {
+  return input.adminMode === true
+}
+
 async function personForUser(userId: string) {
   return prisma.carePerson.findUnique({ where: { userId } })
 }
@@ -3892,17 +3963,37 @@ export const createSwapRequest = createServerFn({ method: 'POST' })
       takeOccurrenceIds,
       giveOccurrenceIds,
       notes,
+      adminMode: parseAdminMode(input),
     }
   })
   .handler(async ({ data }): Promise<CareSwapRequestDto> => {
     const userId = await requireUserId()
+    const adminOverride = await resolveAdminOverride(data.adminMode)
 
-    const linkedPerson = data.requesterPersonId ? null : await personForUser(userId)
+    const linkedPerson = await personForUser(userId)
     const requesterPersonId = data.requesterPersonId ?? linkedPerson?.id ?? null
     if (!requesterPersonId) {
       throw new Error(
         'Your account is not linked to a caregiver, so pick who is taking these windows.',
       )
+    }
+    // Naming someone else as the requester means asking on their behalf, which
+    // commits them to shifts they never agreed to. Allowed only for an
+    // unlinked caregiver who cannot ask for themselves, or in admin mode.
+    if (
+      !adminOverride &&
+      data.requesterPersonId &&
+      data.requesterPersonId !== linkedPerson?.id
+    ) {
+      const requester = await prisma.carePerson.findUnique({
+        where: { id: data.requesterPersonId },
+        select: { userId: true, name: true },
+      })
+      if (requester?.userId) {
+        throw new Error(
+          `${requester.name} has their own account, so they need to request this swap themselves.`,
+        )
+      }
     }
     if (requesterPersonId === data.targetPersonId) {
       throw new Error('Pick a different person to swap with.')
@@ -4019,10 +4110,11 @@ export const reviewSwapRequest = createServerFn({ method: 'POST' })
     if (!SWAP_DECISIONS.includes(decision)) {
       throw new Error('Decision must be APPROVED, REJECTED, or CANCELLED.')
     }
-    return { id, decision }
+    return { id, decision, adminMode: parseAdminMode(input) }
   })
   .handler(async ({ data }): Promise<CareSwapRequestDto> => {
     const userId = await requireUserId()
+    const adminOverride = await resolveAdminOverride(data.adminMode)
     const existing = await prisma.careSwapRequest.findUnique({
       where: { id: data.id },
       include: swapInclude,
@@ -4033,10 +4125,10 @@ export const reviewSwapRequest = createServerFn({ method: 'POST' })
     }
 
     if (data.decision === 'CANCELLED') {
-      if (existing.requestedByUserId !== userId) {
+      if (!adminOverride && existing.requestedByUserId !== userId) {
         throw new Error('Only the person who asked can cancel this swap.')
       }
-    } else if (!canReviewSwap(existing, userId)) {
+    } else if (!adminOverride && !canReviewSwap(existing, userId)) {
       throw new Error(
         `Only ${existing.targetPerson.name} can approve or decline this swap.`,
       )
@@ -4288,7 +4380,8 @@ export const settleCareInvoice = createServerFn({ method: 'POST' })
     }
 
     const amount = Number(invoice.amount.toString())
-    const signedAmount = toSignedTransactionAmount('EXPENSE', amount)
+    const expenseType = await requireTransactionTypeByKey('EXPENSE')
+    const signedAmount = signedAmountFor(expenseType, amount)
     // Lines are ordered by segmentStart, which no longer implies the last one
     // has the latest end — segments of different occurrences can overlap.
     const settleDate =
@@ -4302,7 +4395,7 @@ export const settleCareInvoice = createServerFn({ method: 'POST' })
         data: {
           userId,
           financialAccountId: accountId,
-          type: 'EXPENSE',
+          typeId: expenseType.id,
           amount: signedAmount,
           date: settleDate,
           description: `Care coverage payment — ${invoice.carePerson.name}`,
@@ -5161,4 +5254,143 @@ export const getCarePayOverview = createServerFn({ method: 'GET' })
       unassignedShifts: projection.unassignedShifts,
       unpaidShifts: projection.unpaidShifts,
     }
+  })
+
+// ---------------------------------------------------------------------------
+// Care person removal
+
+/**
+ * Everything that would be lost or broken by deleting this person.
+ *
+ * Invoices, swaps and ledger entries are `Restrict`, so they would block the
+ * delete outright. Assignment rules `Cascade` and occurrences `SetNull`, so
+ * they would go quietly — which is the more dangerous case, and the reason
+ * this counts them all rather than trusting the database to object.
+ */
+export const countCarePersonRefs = createServerOnlyFn(async (
+  personId: string,
+): Promise<number> => {
+  const [
+    invoices,
+    swapsRequested,
+    swapsTargeted,
+    ledgerEntries,
+    occurrences,
+    series,
+    rules,
+    profiles,
+    scheduled,
+    backstop,
+  ] = await Promise.all([
+    prisma.careInvoice.count({ where: { carePersonId: personId } }),
+    prisma.careSwapRequest.count({ where: { requesterPersonId: personId } }),
+    prisma.careSwapRequest.count({ where: { targetPersonId: personId } }),
+    prisma.careContributionLedgerEntry.count({
+      where: { carePersonId: personId },
+    }),
+    prisma.careCoverageOccurrence.count({
+      where: {
+        OR: [
+          { assigneeId: personId },
+          { releasedByPersonId: personId },
+          { responsiblePersonId: personId },
+        ],
+      },
+    }),
+    prisma.careCoverageSeries.count({ where: { assigneeId: personId } }),
+    prisma.careCoverageAssignmentRule.count({ where: { assigneeId: personId } }),
+    prisma.careContributionProfile.count({ where: { carePersonId: personId } }),
+    prisma.careScheduledContribution.count({ where: { carePersonId: personId } }),
+    prisma.careSettings.count({ where: { backstopPersonId: personId } }),
+  ])
+  return (
+    invoices +
+    swapsRequested +
+    swapsTargeted +
+    ledgerEntries +
+    occurrences +
+    series +
+    rules +
+    profiles +
+    scheduled +
+    backstop
+  )
+})
+
+/**
+ * Remove a caregiver. Admin only — unlike a tag, a person is shared household
+ * state that no single user should be able to drop.
+ */
+export const removeCarePerson = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    if (!data || typeof data !== 'object') throw new Error('Invalid payload.')
+    const id = typeof (data as Record<string, unknown>).id === 'string'
+      ? ((data as Record<string, unknown>).id as string).trim()
+      : ''
+    if (!id) throw new Error('Person id is required.')
+    return { id }
+  })
+  .handler(async ({ data }): Promise<ArchiveResult> => {
+    const userId = await requireAdminId()
+    const person = await prisma.carePerson.findUnique({
+      where: { id: data.id },
+      select: { id: true, name: true, userId: true },
+    })
+    if (!person) throw new Error('Person not found.')
+
+    return archiveOrDelete({
+      entityType: ACTIVITY_ENTITY_TYPES.care_person,
+      id: person.id,
+      label: person.name,
+      actorUserId: userId,
+      allowArchive: true,
+      countRefs: () => countCarePersonRefs(person.id),
+      hardDelete: async () => {
+        await prisma.carePerson.delete({ where: { id: person.id } })
+      },
+      archive: async () => {
+        // isActive too, so the scheduling paths that already check it stop
+        // considering this person without each needing an archivedAt check.
+        await prisma.carePerson.update({
+          where: { id: person.id },
+          data: { archivedAt: new Date(), isActive: false },
+        })
+      },
+      visibilityUserId: null,
+    })
+  })
+
+export const restoreCarePerson = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    if (!data || typeof data !== 'object') throw new Error('Invalid payload.')
+    const id = typeof (data as Record<string, unknown>).id === 'string'
+      ? ((data as Record<string, unknown>).id as string).trim()
+      : ''
+    if (!id) throw new Error('Person id is required.')
+    return { id }
+  })
+  .handler(async ({ data }): Promise<void> => {
+    const userId = await requireAdminId()
+    const person = await prisma.carePerson.findUnique({
+      where: { id: data.id },
+      select: { id: true, name: true, archivedAt: true },
+    })
+    if (!person) throw new Error('Person not found.')
+
+    await restoreArchived({
+      entityType: ACTIVITY_ENTITY_TYPES.care_person,
+      id: person.id,
+      label: person.name,
+      actorUserId: userId,
+      archivedAt: person.archivedAt,
+      restore: async () => {
+        // isActive stays false: coming back onto the roster is a separate,
+        // deliberate decision from being un-deleted.
+        await prisma.carePerson.update({
+          where: { id: person.id },
+          data: { archivedAt: null },
+        })
+      },
+      visibilityUserId: null,
+    })
   })

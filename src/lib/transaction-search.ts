@@ -2,9 +2,7 @@ import Fuse, { type IFuseOptions } from 'fuse.js'
 import {
   formatAccountCurrency,
   formatTransactionDate,
-  transactionTypeLabel,
 } from '#/components/app/accounts/account-utils'
-import type { TransactionType } from '#/generated/prisma/enums'
 
 export const TRANSACTION_SEARCH_KEYS = [
   'date',
@@ -23,7 +21,8 @@ type TaxonomyName = { name: string }
 
 export type TransactionSearchable = {
   id: string
-  type: TransactionType
+  /** Carries its own label now that types are rows, not enum members. */
+  type: { label: string }
   amount: string
   description: string | null
   date: string
@@ -62,7 +61,7 @@ export function toTransactionSearchDoc(
     id: row.id,
     date: formatTransactionDate(row.date),
     account: row.account?.name?.trim() ?? '',
-    type: transactionTypeLabel(row.type),
+    type: row.type.label,
     payee: row.payee?.name?.trim() ?? '',
     category: row.category?.name?.trim() ?? '',
     tags: row.tags.map((tag) => tag.name).join(', '),

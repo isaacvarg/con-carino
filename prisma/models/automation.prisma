@@ -29,7 +29,7 @@ model Automation {
   /// LOW_BALANCE_ALERT.
   triggerAccountId String
   /// Null only for LOW_BALANCE_ALERT.
-  triggerType       TransactionType?
+  triggerTypeId     String?
   /// Null means any category.
   triggerCategoryId String?
   /// Empty means any tag. Non-empty means the source must carry at least one.
@@ -59,6 +59,9 @@ model Automation {
   // category", so SetNull would silently widen the rule to fire on everything
   // in the account instead of retiring it.
   triggerCategory Category? @relation(fields: [triggerCategoryId], references: [id], onDelete: Cascade)
+  // Cascade for the same reason as triggerCategory: a null triggerType means
+  // "any type", so SET NULL would widen the rule instead of retiring it.
+  triggerType     TransactionTypeDef? @relation(fields: [triggerTypeId], references: [id], onDelete: Cascade)
   // Cascade for the same reason the account FKs cascade: with the kind CHECK in
   // place, a SET NULL here would produce a row violating the constraint and
   // make the user delete fail outright.
@@ -72,6 +75,7 @@ model Automation {
   @@index([triggerAccountId, isEnabled])
   @@index([targetAccountId])
   @@index([triggerCategoryId])
+  @@index([triggerTypeId])
   @@index([notifyUserId])
   @@index([createdByUserId])
   @@map("automations")

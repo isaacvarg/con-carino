@@ -8,6 +8,8 @@ import {
   HiOutlineHeart,
   HiOutlineLightningBolt,
   HiOutlineOfficeBuilding,
+  HiOutlineArchive,
+  HiOutlineSwitchHorizontal,
   HiOutlineTag,
   HiOutlineUser,
   HiOutlineUserGroup,
@@ -27,6 +29,8 @@ type SettingsCard = {
     | '/settings/categories'
     | '/settings/payees'
     | '/settings/automations'
+    | '/settings/transaction-types'
+    | '/settings/archived'
     | '/settings/document-types'
   title: string
   description: string
@@ -95,10 +99,26 @@ const SETTINGS_CARDS: SettingsCard[] = [
     icon: HiOutlineOfficeBuilding,
   },
   {
+    to: '/settings/transaction-types',
+    title: 'Transaction types',
+    description:
+      'What a transaction can be, and how each one moves a balance.',
+    icon: HiOutlineSwitchHorizontal,
+    adminOnly: true,
+  },
+  {
     to: '/settings/automations',
     title: 'Automations',
     description: 'Rules that copy transactions, set money aside, or watch a balance.',
     icon: HiOutlineLightningBolt,
+  },
+  {
+    to: '/settings/archived',
+    title: 'Archived',
+    description:
+      'Things removed while still in use, and a way to bring them back.',
+    icon: HiOutlineArchive,
+    adminOnly: true,
   },
   {
     to: '/settings/document-types',

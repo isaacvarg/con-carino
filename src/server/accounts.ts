@@ -9,6 +9,13 @@ import {
   diffChanges,
 } from '#/lib/activity'
 import { prisma } from '#/lib/prisma'
+import { requireId } from '#/lib/validators'
+import {
+  archiveOrDelete,
+  restoreArchived,
+  type ArchiveResult,
+} from '#/server/archive'
+import { isCallerAdmin, requireAdminId } from '#/server/auth-guards'
 import { logActivity } from '#/server/activity-log'
 import { authConfig } from '#/utils/auth'
 
@@ -196,7 +203,7 @@ export const listAccounts = createServerFn({ method: 'GET' }).handler(
   async (): Promise<AccountListItem[]> => {
     const userId = await requireUserId()
     const accounts = await prisma.financialAccount.findMany({
-      where: ownOrGlobal(userId),
+      where: { AND: [ownOrGlobal(userId), { archivedAt: null }] },
       include: {
         accountGroup: {
           select: { id: true, name: true, isGlobal: true },
@@ -228,7 +235,7 @@ export const listAccountGroups = createServerFn({ method: 'GET' }).handler(
   async (): Promise<AccountGroupListItem[]> => {
     const userId = await requireUserId()
     const groups = await prisma.accountGroup.findMany({
-      where: ownOrGlobal(userId),
+      where: { AND: [ownOrGlobal(userId), { archivedAt: null }] },
       orderBy: [{ name: 'asc' }],
     })
 
@@ -562,4 +569,189 @@ export const createAccount = createServerFn({ method: 'POST' })
       accountGroup: account.accountGroup,
       isOwned: true,
     } satisfies AccountListItem
+  })
+
+// ---------------------------------------------------------------------------
+// Removal
+
+/**
+ * Everything that would break if this account vanished.
+ *
+ * Transactions cascade, so a hard delete would take the whole ledger with it
+ * silently — which is exactly the outcome the count is here to prevent.
+ */
+async function countAccountRefs(accountId: string): Promise<number> {
+  const [transactions, invoices, coverageSettings, profiles, automations] =
+    await Promise.all([
+      prisma.transaction.count({ where: { financialAccountId: accountId } }),
+      prisma.careInvoice.count({ where: { financialAccountId: accountId } }),
+      prisma.careSettings.count({ where: { coverageAccountId: accountId } }),
+      prisma.careContributionProfile.count({
+        where: { fundingAccountId: accountId },
+      }),
+      prisma.automation.count({
+        where: {
+          OR: [
+            { triggerAccountId: accountId },
+            { targetAccountId: accountId },
+          ],
+        },
+      }),
+    ])
+  return (
+    transactions + invoices + coverageSettings + profiles + automations
+  )
+}
+
+/**
+ * Remove an account.
+ *
+ * An empty account someone created by accident is deleted outright, by its
+ * owner. One with history is archived, and only an admin may do that. A
+ * non-owner is refused either way, matching `updateAccount`.
+ */
+export const removeAccount = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    if (!data || typeof data !== 'object') throw new Error('Invalid payload.')
+    return { id: requireId((data as Record<string, unknown>).id) }
+  })
+  .handler(async ({ data }): Promise<ArchiveResult> => {
+    const userId = await requireUserId()
+    const isAdmin = await isCallerAdmin()
+
+    const account = await prisma.financialAccount.findUnique({
+      where: { id: data.id },
+      select: { id: true, name: true, userId: true, isGlobal: true },
+    })
+    if (!account) throw new Error('Account not found.')
+    if (account.userId !== userId && !isAdmin) {
+      throw new Error('Only the account owner can remove this account.')
+    }
+
+    return archiveOrDelete({
+      entityType: ACTIVITY_ENTITY_TYPES.account,
+      id: account.id,
+      label: account.name,
+      actorUserId: userId,
+      allowArchive: isAdmin,
+      countRefs: () => countAccountRefs(account.id),
+      hardDelete: async () => {
+        await prisma.financialAccount.delete({ where: { id: account.id } })
+      },
+      archive: async () => {
+        await prisma.financialAccount.update({
+          where: { id: account.id },
+          data: { archivedAt: new Date() },
+        })
+      },
+      refuseMessage: (refCount) =>
+        `“${account.name}” has ${refCount} linked ${
+          refCount === 1 ? 'record' : 'records'
+        }, so it cannot be deleted. Ask an admin to archive it instead.`,
+      visibilityUserId: account.userId,
+    })
+  })
+
+export const restoreAccount = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    if (!data || typeof data !== 'object') throw new Error('Invalid payload.')
+    return { id: requireId((data as Record<string, unknown>).id) }
+  })
+  .handler(async ({ data }): Promise<void> => {
+    const userId = await requireAdminId()
+    const account = await prisma.financialAccount.findUnique({
+      where: { id: data.id },
+      select: { id: true, name: true, archivedAt: true, userId: true },
+    })
+    if (!account) throw new Error('Account not found.')
+
+    await restoreArchived({
+      entityType: ACTIVITY_ENTITY_TYPES.account,
+      id: account.id,
+      label: account.name,
+      actorUserId: userId,
+      archivedAt: account.archivedAt,
+      restore: async () => {
+        await prisma.financialAccount.update({
+          where: { id: account.id },
+          data: { archivedAt: null },
+        })
+      },
+      visibilityUserId: account.userId,
+    })
+  })
+
+/** Remove an account group. Its accounts are only unlinked, never deleted. */
+export const removeAccountGroup = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    if (!data || typeof data !== 'object') throw new Error('Invalid payload.')
+    return { id: requireId((data as Record<string, unknown>).id) }
+  })
+  .handler(async ({ data }): Promise<ArchiveResult> => {
+    const userId = await requireUserId()
+    const isAdmin = await isCallerAdmin()
+
+    const group = await prisma.accountGroup.findUnique({
+      where: { id: data.id },
+      select: { id: true, name: true, userId: true },
+    })
+    if (!group) throw new Error('Account group not found.')
+    if (group.userId !== userId && !isAdmin) {
+      throw new Error('Only the group owner can remove this group.')
+    }
+
+    return archiveOrDelete({
+      entityType: ACTIVITY_ENTITY_TYPES.account_group,
+      id: group.id,
+      label: group.name,
+      actorUserId: userId,
+      allowArchive: isAdmin,
+      countRefs: () =>
+        prisma.financialAccount.count({
+          where: { accountGroupId: group.id, archivedAt: null },
+        }),
+      hardDelete: async () => {
+        await prisma.accountGroup.delete({ where: { id: group.id } })
+      },
+      archive: async () => {
+        await prisma.accountGroup.update({
+          where: { id: group.id },
+          data: { archivedAt: new Date() },
+        })
+      },
+      refuseMessage: (refCount) =>
+        `“${group.name}” still holds ${refCount} ${
+          refCount === 1 ? 'account' : 'accounts'
+        }. Move them out first.`,
+      visibilityUserId: group.userId,
+    })
+  })
+
+export const restoreAccountGroup = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    if (!data || typeof data !== 'object') throw new Error('Invalid payload.')
+    return { id: requireId((data as Record<string, unknown>).id) }
+  })
+  .handler(async ({ data }): Promise<void> => {
+    const userId = await requireAdminId()
+    const group = await prisma.accountGroup.findUnique({
+      where: { id: data.id },
+      select: { id: true, name: true, archivedAt: true, userId: true },
+    })
+    if (!group) throw new Error('Account group not found.')
+
+    await restoreArchived({
+      entityType: ACTIVITY_ENTITY_TYPES.account_group,
+      id: group.id,
+      label: group.name,
+      actorUserId: userId,
+      archivedAt: group.archivedAt,
+      restore: async () => {
+        await prisma.accountGroup.update({
+          where: { id: group.id },
+          data: { archivedAt: null },
+        })
+      },
+      visibilityUserId: group.userId,
+    })
   })

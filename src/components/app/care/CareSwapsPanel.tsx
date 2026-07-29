@@ -1,4 +1,4 @@
-import { useRouter } from '@tanstack/react-router'
+import { useRouteContext, useRouter } from '@tanstack/react-router'
 import { useState } from 'react'
 import type { CareSwapRequestDto, CareSwapWindowDto } from '#/server/care'
 import { reviewSwapRequest } from '#/server/care'
@@ -42,6 +42,11 @@ export function CareSwapsPanel({ swaps }: CareSwapsPanelProps) {
   const [error, setError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
 
+  const { session } = useRouteContext({ from: '/_app' })
+  const isAdmin = Boolean(session?.user?.isAdmin)
+  /** Lets an admin settle a swap stuck on someone who has gone quiet. */
+  const [adminMode, setAdminMode] = useState(false)
+
   const pending = swaps.filter((s) => s.status === 'PENDING')
   const history = swaps.filter((s) => s.status !== 'PENDING')
 
@@ -52,7 +57,7 @@ export function CareSwapsPanel({ swaps }: CareSwapsPanelProps) {
     setBusyId(id)
     setError(null)
     try {
-      await reviewSwapRequest({ data: { id, decision } })
+      await reviewSwapRequest({ data: { id, decision, adminMode } })
       await router.invalidate()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not update swap.')
@@ -67,6 +72,24 @@ export function CareSwapsPanel({ swaps }: CareSwapsPanelProps) {
         <p className="text-sm text-error" role="alert">
           {error}
         </p>
+      ) : null}
+
+      {isAdmin ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            className={`btn btn-sm ${adminMode ? 'btn-warning' : 'btn-outline'}`}
+            aria-pressed={adminMode}
+            onClick={() => setAdminMode((on) => !on)}
+          >
+            {adminMode ? 'Admin mode on' : 'Admin mode'}
+          </button>
+          {adminMode ? (
+            <span className="text-sm text-base-content/70">
+              You can settle any swap, including ones you are not part of.
+            </span>
+          ) : null}
+        </div>
       ) : null}
 
       <section className="app-card p-4">
@@ -106,7 +129,7 @@ export function CareSwapsPanel({ swaps }: CareSwapsPanelProps) {
                   {swap.notes ? ` · ${swap.notes}` : ''}
                 </p>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
-                  {swap.canReview ? (
+                  {swap.canReview || adminMode ? (
                     <>
                       <button
                         type="button"
@@ -130,7 +153,7 @@ export function CareSwapsPanel({ swaps }: CareSwapsPanelProps) {
                       Waiting on {swap.targetPersonName} to approve.
                     </span>
                   )}
-                  {swap.canCancel ? (
+                  {swap.canCancel || adminMode ? (
                     <button
                       type="button"
                       className="btn btn-ghost btn-sm"

@@ -23,6 +23,11 @@ export const ACTIVITY_ENTITY_TYPES = {
   session: 'session',
   user: 'user',
   automation: 'automation',
+  tag: 'tag',
+  category: 'category',
+  payee: 'payee',
+  account_group: 'account_group',
+  transaction_type: 'transaction_type',
   /** Future */
   med: 'med',
 } as const
@@ -48,6 +53,13 @@ export type ActivityLinkMeta = {
   invoiceId?: string
   accountName?: string
   duringReconciliation?: boolean
+  /**
+   * Set when an admin used an override to do something the normal permission
+   * rules forbid — reassigning someone else's care window, unlocking a
+   * reconciled transaction. Never inferred: the caller opts in explicitly, so
+   * the log distinguishes "an admin did this" from "an admin used admin power".
+   */
+  viaAdminMode?: boolean
 }
 
 export type ActivityHref =
@@ -97,6 +109,11 @@ export const ACTIVITY_ENTITY_LABELS: Record<string, string> = {
   document_type: 'Document type',
   session: 'Session',
   user: 'User',
+  tag: 'Tag',
+  category: 'Category',
+  payee: 'Payee',
+  account_group: 'Account group',
+  transaction_type: 'Transaction type',
 }
 
 function serializeValue(value: unknown): ActivityChangeValue {

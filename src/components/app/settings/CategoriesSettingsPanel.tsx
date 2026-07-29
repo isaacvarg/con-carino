@@ -2,6 +2,7 @@ import { useRouter } from '@tanstack/react-router'
 import { useState, type FormEvent } from 'react'
 import { ColorField } from '#/components/app/accounts/taxonomy-form-fields'
 import { TaxonomyBadge } from '#/components/app/transactions/TaxonomyBadge'
+import { ConfirmDialog } from '#/components/app/ui/confirm-dialog'
 import {
   FORM_INPUT_CLASS,
   FormActions,
@@ -10,7 +11,7 @@ import {
   FormShell,
 } from '#/components/app/ui/form'
 import type { CategoryRecord } from '#/lib/taxonomy-types'
-import { createCategory, updateCategory } from '#/server/taxonomies'
+import { createCategory, updateCategory , removeTaxonomy } from '#/server/taxonomies'
 
 type CategoriesSettingsPanelProps = {
   categories: CategoryRecord[]
@@ -28,6 +29,8 @@ export function CategoriesSettingsPanel({
   const [textColor, setTextColor] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [pendingRemove, setPendingRemove] = useState<CategoryRecord | null>(null)
+  const [removing, setRemoving] = useState(false)
 
   function resetForm() {
     setEditingId(null)
@@ -36,6 +39,27 @@ export function CategoriesSettingsPanel({
     setTextColor('')
     setError(null)
     setShowForm(false)
+  }
+
+
+  async function confirmRemove() {
+    if (!pendingRemove) return
+    setRemoving(true)
+    setError(null)
+    try {
+      await removeTaxonomy({
+        data: { kind: 'category', id: pendingRemove.id },
+      })
+      setPendingRemove(null)
+      await router.invalidate()
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Could not remove.',
+      )
+      setPendingRemove(null)
+    } finally {
+      setRemoving(false)
+    }
   }
 
   function startAdd() {
@@ -177,7 +201,7 @@ export function CategoriesSettingsPanel({
                   size="lg"
                 />
               </div>
-              <div className="mt-auto flex justify-end">
+              <div className="mt-auto flex justify-end gap-1">
                 <button
                   type="button"
                   className="btn btn-ghost btn-sm"
@@ -185,11 +209,29 @@ export function CategoriesSettingsPanel({
                 >
                   Edit
                 </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm text-error"
+                  onClick={() => setPendingRemove(category)}
+                >
+                  Remove
+                </button>
               </div>
             </li>
           ))}
         </ul>
       )}
+
+      <ConfirmDialog
+        open={pendingRemove !== null}
+        title={`Remove “${pendingRemove?.name ?? ''}”?`}
+        message="If nothing uses it, it is deleted permanently. If it has history, an admin can archive it instead — it stays on existing transactions but disappears from the pickers."
+        confirmLabel="Remove"
+        busy={removing}
+        tone="danger"
+        onConfirm={() => void confirmRemove()}
+        onCancel={() => setPendingRemove(null)}
+      />
     </div>
   )
 }

@@ -1,6 +1,4 @@
 import { createServerFn } from '@tanstack/react-start'
-import { getRequest } from '@tanstack/react-start/server'
-import { getSession } from 'start-authjs'
 import type { ActivityAction } from '#/generated/prisma/enums'
 import {
   ACTIVITY_ENTITY_TYPES,
@@ -12,31 +10,18 @@ import { resolveUserImageUrl } from '#/lib/user-image'
 import { logActivity } from '#/server/activity-log'
 import type { ActivityListItem } from '#/server/activity'
 import {
+  archiveOrDelete,
+  restoreArchived,
+  type ArchiveResult,
+} from '#/server/archive'
+import { requireAdminId } from '#/server/auth-guards'
+import {
+  countCarePersonRefs,
   toPersonDto,
   type CarePersonDto,
   updateCarePerson,
 } from '#/server/care'
 import { ensureCarePersonForUser } from '#/server/ensure-care-person'
-import { authConfig } from '#/utils/auth'
-
-async function requireAdminId(): Promise<string> {
-  const request = getRequest()
-  const session = await getSession(request, authConfig)
-  const userId = session?.user?.id
-  if (!userId) {
-    throw new Error('You must be signed in.')
-  }
-  if (!session.user?.isAdmin) {
-    const row = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { isAdmin: true },
-    })
-    if (!row?.isAdmin) {
-      throw new Error('Admin access required.')
-    }
-  }
-  return userId
-}
 
 function parseLinkMeta(value: unknown): ActivityLinkMeta | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
@@ -75,6 +60,7 @@ export const listUsers = createServerFn({ method: 'GET' }).handler(
   async (): Promise<UserListItem[]> => {
     await requireAdminId()
     const users = await prisma.user.findMany({
+      where: { archivedAt: null },
       orderBy: [{ name: 'asc' }, { email: 'asc' }],
       select: {
         id: true,
@@ -347,3 +333,156 @@ export const listUserActivity = createServerFn({ method: 'GET' })
       }
     },
   )
+
+// ---------------------------------------------------------------------------
+// Removal
+
+/**
+ * Everything a user owns that would be destroyed by deleting the row.
+ *
+ * Most of these cascade, so the delete would succeed and take an entire
+ * personal ledger with it. Counting them is what turns that into an archive.
+ */
+async function countUserRefs(userId: string): Promise<number> {
+  const [
+    transactions,
+    accounts,
+    groups,
+    documents,
+    attachments,
+    reconciled,
+    automations,
+  ] = await Promise.all([
+    prisma.transaction.count({ where: { userId } }),
+    prisma.financialAccount.count({ where: { userId } }),
+    prisma.accountGroup.count({ where: { userId } }),
+    prisma.document.count({ where: { userId } }),
+    prisma.attachment.count({ where: { userId } }),
+    prisma.transaction.count({ where: { reconciliationUpdatedById: userId } }),
+    prisma.automation.count({ where: { createdByUserId: userId } }),
+  ])
+
+  // A caregiver record with its own history keeps the user alive too: deleting
+  // the user nulls CarePerson.userId, quietly turning them into an "offline"
+  // person that anyone may act on behalf of (see canReviewSwap).
+  const person = await prisma.carePerson.findUnique({
+    where: { userId },
+    select: { id: true },
+  })
+  const personRefs = person ? await countCarePersonRefs(person.id) : 0
+
+  return (
+    transactions +
+    accounts +
+    groups +
+    documents +
+    attachments +
+    reconciled +
+    automations +
+    personRefs
+  )
+}
+
+/**
+ * Remove an app user.
+ *
+ * Archiving also revokes their sessions and archives their linked caregiver
+ * record — an archived user who is still signed in, or still on the schedule,
+ * has not really been removed.
+ */
+export const removeUser = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    const input = (data ?? {}) as Record<string, unknown>
+    const userId = typeof input.userId === 'string' ? input.userId.trim() : ''
+    if (!userId) throw new Error('User id is required.')
+    return { userId }
+  })
+  .handler(async ({ data }): Promise<ArchiveResult> => {
+    const adminId = await requireAdminId()
+
+    if (adminId === data.userId) {
+      throw new Error('You cannot remove your own account.')
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: data.userId },
+      select: { id: true, name: true, email: true, isAdmin: true },
+    })
+    if (!user) throw new Error('User not found.')
+
+    if (user.isAdmin) {
+      const otherAdmins = await prisma.user.count({
+        where: { isAdmin: true, id: { not: user.id }, archivedAt: null },
+      })
+      if (otherAdmins === 0) {
+        throw new Error('Cannot remove the last remaining admin.')
+      }
+    }
+
+    const label = user.name ?? user.email ?? user.id
+
+    return archiveOrDelete({
+      entityType: ACTIVITY_ENTITY_TYPES.user,
+      id: user.id,
+      label,
+      actorUserId: adminId,
+      allowArchive: true,
+      countRefs: () => countUserRefs(user.id),
+      hardDelete: async () => {
+        await prisma.user.delete({ where: { id: user.id } })
+      },
+      archive: async () => {
+        await prisma.$transaction(async (tx) => {
+          await tx.user.update({
+            where: { id: user.id },
+            data: { archivedAt: new Date() },
+          })
+          await tx.session.deleteMany({ where: { userId: user.id } })
+          await tx.carePerson.updateMany({
+            where: { userId: user.id },
+            data: { archivedAt: new Date(), isActive: false },
+          })
+        })
+      },
+      visibilityUserId: null,
+    })
+  })
+
+export const restoreUser = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    const input = (data ?? {}) as Record<string, unknown>
+    const userId = typeof input.userId === 'string' ? input.userId.trim() : ''
+    if (!userId) throw new Error('User id is required.')
+    return { userId }
+  })
+  .handler(async ({ data }): Promise<void> => {
+    const adminId = await requireAdminId()
+    const user = await prisma.user.findUnique({
+      where: { id: data.userId },
+      select: { id: true, name: true, email: true, archivedAt: true },
+    })
+    if (!user) throw new Error('User not found.')
+
+    await restoreArchived({
+      entityType: ACTIVITY_ENTITY_TYPES.user,
+      id: user.id,
+      label: user.name ?? user.email ?? user.id,
+      actorUserId: adminId,
+      archivedAt: user.archivedAt,
+      restore: async () => {
+        await prisma.$transaction(async (tx) => {
+          await tx.user.update({
+            where: { id: user.id },
+            data: { archivedAt: null },
+          })
+          // The caregiver record comes back too, but stays inactive: putting
+          // them back on the schedule is a separate decision.
+          await tx.carePerson.updateMany({
+            where: { userId: user.id },
+            data: { archivedAt: null },
+          })
+        })
+      },
+      visibilityUserId: null,
+    })
+  })

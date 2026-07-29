@@ -5,6 +5,11 @@ model User {
   emailVerified DateTime?
   image         String?
   isAdmin       Boolean   @default(false)
+  /// Set when an admin archived this account: sessions are revoked, the linked
+  /// CarePerson is archived alongside, and the row is hidden from the Users
+  /// list. Kept rather than deleted because their transactions and activity
+  /// rows must still resolve an author. See `Tag.archivedAt`.
+  archivedAt    DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -26,6 +31,7 @@ model User {
   automationAlerts    Automation[] @relation("AutomationNotifyUser")
   automationsCreated  Automation[] @relation("AutomationCreatedBy")
 
+  @@index([archivedAt])
   @@map("users")
 }
 

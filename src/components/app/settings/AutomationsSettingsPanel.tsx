@@ -1,7 +1,5 @@
-import { useRouter } from '@tanstack/react-router'
+import { useRouteContext, useRouter } from '@tanstack/react-router'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import type { TransactionType } from '#/generated/prisma/enums'
-import { transactionTypeLabel } from '#/components/app/accounts/account-utils'
 import { CreateCategoryForm } from '#/components/app/accounts/CreateCategoryForm'
 import { CreateTagForm } from '#/components/app/accounts/CreateTagForm'
 import { TaxonomyCreateDialog } from '#/components/app/accounts/TaxonomyCreateDialog'
@@ -24,8 +22,8 @@ import {
   AUTOMATION_KIND_DESCRIPTIONS,
   AUTOMATION_KIND_LABELS,
   AUTOMATION_KINDS,
-  AUTOMATION_TRIGGER_TYPES,
 } from '#/lib/automation-types'
+import { automationTriggerTypes } from '#/lib/transaction-types'
 import type { ColoredTaxonomyRef } from '#/lib/taxonomy-types'
 import { sortByName } from '#/lib/taxonomy-types'
 import type { AccountListItem } from '#/server/accounts'
@@ -47,8 +45,11 @@ type AutomationsSettingsPanelProps = {
   currentUserId: string | null
 }
 
-/** Default trigger type per kind — the case each one was built for. */
-const DEFAULT_TRIGGER_TYPE: Record<AutomationKind, TransactionType> = {
+/**
+ * Default trigger type per kind — the case each one was built for. Keys rather
+ * than ids: these name built-ins, and an install could have renamed them.
+ */
+const DEFAULT_TRIGGER_TYPE_KEY: Record<AutomationKind, string> = {
   DUPLICATE_TO_ACCOUNT: 'DEPOSIT',
   PERCENT_MATCH: 'WITHDRAWAL',
   LOW_BALANCE_ALERT: 'DEPOSIT',
@@ -87,6 +88,18 @@ export function AutomationsSettingsPanel({
 }: AutomationsSettingsPanelProps) {
   const router = useRouter()
 
+  const { transactionTypes } = useRouteContext({ from: '/_app' })
+  const triggerTypeOptions = automationTriggerTypes(transactionTypes)
+  /** Falls back to the first watchable type when a built-in was archived. */
+  function defaultTriggerTypeId(forKind: AutomationKind): string {
+    const wanted = DEFAULT_TRIGGER_TYPE_KEY[forKind]
+    return (
+      triggerTypeOptions.find((type) => type.key === wanted)?.id ??
+      triggerTypeOptions[0]?.id ??
+      ''
+    )
+  }
+
   // Taxonomies are held locally so one created from inside the picker is
   // selectable straight away, rather than only after the loader refetches.
   // Re-seeded from props so a router.invalidate() elsewhere still wins.
@@ -103,7 +116,9 @@ export function AutomationsSettingsPanel({
   const [kind, setKind] = useState<AutomationKind>('DUPLICATE_TO_ACCOUNT')
   const [name, setName] = useState('')
   const [triggerAccountId, setTriggerAccountId] = useState('')
-  const [triggerType, setTriggerType] = useState<TransactionType>('DEPOSIT')
+  const [triggerTypeId, setTriggerTypeId] = useState(() =>
+    defaultTriggerTypeId('DUPLICATE_TO_ACCOUNT'),
+  )
   const [triggerTagIds, setTriggerTagIds] = useState<string[]>([])
   const [triggerCategoryId, setTriggerCategoryId] = useState('')
   const [targetAccountId, setTargetAccountId] = useState('')
@@ -121,7 +136,7 @@ export function AutomationsSettingsPanel({
     setKind('DUPLICATE_TO_ACCOUNT')
     setName('')
     setTriggerAccountId(accounts[0]?.id ?? '')
-    setTriggerType('DEPOSIT')
+    setTriggerTypeId(defaultTriggerTypeId('DUPLICATE_TO_ACCOUNT'))
     setTriggerTagIds([])
     setTriggerCategoryId('')
     setTargetAccountId('')
@@ -142,8 +157,8 @@ export function AutomationsSettingsPanel({
     setKind(automation.kind)
     setName(automation.name)
     setTriggerAccountId(automation.triggerAccount.id)
-    setTriggerType(
-      automation.triggerType ?? DEFAULT_TRIGGER_TYPE[automation.kind],
+    setTriggerTypeId(
+      automation.triggerType?.id ?? defaultTriggerTypeId(automation.kind),
     )
     setTriggerTagIds(automation.triggerTags.map((tag) => tag.id))
     setTriggerCategoryId(automation.triggerCategory?.id ?? '')
@@ -164,7 +179,7 @@ export function AutomationsSettingsPanel({
   /** Kind decides which fields exist, so switching resets the ones it changes. */
   function changeKind(next: AutomationKind) {
     setKind(next)
-    setTriggerType(DEFAULT_TRIGGER_TYPE[next])
+    setTriggerTypeId(defaultTriggerTypeId(next))
     if (next === 'LOW_BALANCE_ALERT') {
       setTargetAccountId('')
       setTriggerTagIds([])
@@ -182,7 +197,7 @@ export function AutomationsSettingsPanel({
         name,
         kind,
         triggerAccountId,
-        triggerType,
+        triggerTypeId,
         triggerTagIds,
         triggerCategoryId: triggerCategoryId || null,
         targetAccountId: targetAccountId || null,
@@ -245,6 +260,10 @@ export function AutomationsSettingsPanel({
   const previewAmount = Number.isFinite(percentValue)
     ? percentMatchMagnitude(100, percentValue)
     : 0
+  const triggerTypeLabel = (
+    triggerTypeOptions.find((type) => type.id === triggerTypeId)?.label ??
+    'transaction'
+  ).toLowerCase()
   const targetName =
     accounts.find((account) => account.id === targetAccountId)?.name ??
     'the target account'
@@ -372,14 +391,12 @@ export function AutomationsSettingsPanel({
                     <select
                       id="automation-trigger-type"
                       className={FORM_SELECT_CLASS}
-                      value={triggerType}
-                      onChange={(e) =>
-                        setTriggerType(e.target.value as TransactionType)
-                      }
+                      value={triggerTypeId}
+                      onChange={(e) => setTriggerTypeId(e.target.value)}
                     >
-                      {AUTOMATION_TRIGGER_TYPES.map((type) => (
-                        <option key={type} value={type}>
-                          {transactionTypeLabel(type)}
+                      {triggerTypeOptions.map((type) => (
+                        <option key={type.id} value={type.id}>
+                          {type.label}
                         </option>
                       ))}
                     </select>
@@ -474,13 +491,9 @@ export function AutomationsSettingsPanel({
                     <FormField
                       label="Percent"
                       htmlFor="automation-percent"
-                      hint={`A ${formatMoney(100)} ${transactionTypeLabel(
-                        triggerType,
-                      ).toLowerCase()} creates a ${formatMoney(
+                      hint={`A ${formatMoney(100)} ${triggerTypeLabel} creates a ${formatMoney(
                         previewAmount,
-                      )} ${transactionTypeLabel(
-                        triggerType,
-                      ).toLowerCase()} in ${targetName}.`}
+                      )} ${triggerTypeLabel} in ${targetName}.`}
                     >
                       <label className="input input-bordered flex min-h-12 w-full items-center gap-2 px-4">
                         <input

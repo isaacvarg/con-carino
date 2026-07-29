@@ -1,10 +1,17 @@
 import { useForm } from '@tanstack/react-form'
-import { Link, useRouteContext, useRouter } from '@tanstack/react-router'
+import {
+  Link,
+  useNavigate,
+  useRouteContext,
+  useRouter,
+} from '@tanstack/react-router'
 import { useRef, useState, type ReactNode } from 'react'
 import {
   HiOutlineDocument,
+  HiOutlineLockOpen,
   HiOutlinePencil,
   HiOutlineSearch,
+  HiOutlineTrash,
 } from 'react-icons/hi'
 import { LuBadgeCheck } from 'react-icons/lu'
 import {
@@ -14,7 +21,6 @@ import {
 import {
   formatAccountCurrency,
   formatTransactionDate,
-  transactionTypeLabel,
 } from '#/components/app/accounts/account-utils'
 import { accountDetailSearchDefaults } from '#/components/app/accounts/account-detail-search'
 import { CreateCategoryForm } from '#/components/app/accounts/CreateCategoryForm'
@@ -36,6 +42,7 @@ import {
   FormField,
   FormFieldError,
 } from '#/components/app/ui/form'
+import { ConfirmDialog } from '#/components/app/ui/confirm-dialog'
 import { formatActivityAction } from '#/lib/activity'
 import type { AttachmentListItem } from '#/lib/attachment-types'
 import { sortByName, type ColoredTaxonomyRef } from '#/lib/taxonomy-types'
@@ -44,12 +51,16 @@ import {
   magnitudeFromSignedAmount,
 } from '#/lib/transaction-edit'
 import {
-  transactionTypeNeedsDirection,
+  findTransactionType,
+  transactionTypeOptions,
+  typeNeedsDirection,
   type TransactionDirection,
-} from '#/lib/transaction-amount'
+} from '#/lib/transaction-types'
 import type { ActivityDetail } from '#/server/activity'
 import type { ActivityDisplayValue } from '#/server/activity-labels'
 import {
+  deleteTransaction,
+  unlockTransactionReconciliation,
   updateTransaction,
   type TransactionDetailDto,
 } from '#/server/transactions'
@@ -63,6 +74,7 @@ type TransactionDetailPanelProps = {
 }
 
 type EditFormValues = {
+  typeId: string
   amount: string
   direction: TransactionDirection
   payeeId: string
@@ -290,10 +302,16 @@ export function TransactionDetailPanel({
   tags: initialTags,
 }: TransactionDetailPanelProps) {
   const router = useRouter()
-  const { modules } = useRouteContext({ from: '/_app' })
+  const navigate = useNavigate()
+  const { modules, session, transactionTypes } = useRouteContext({
+    from: '/_app',
+  })
   const [editing, setEditing] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [attachmentsUploading, setAttachmentsUploading] = useState(false)
+  const [unlocking, setUnlocking] = useState(false)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [payeeOptions, setPayeeOptions] = useState(initialPayees)
   const [categoryOptions, setCategoryOptions] = useState(initialCategories)
   const [tagOptions, setTagOptions] = useState(initialTags)
@@ -303,15 +321,65 @@ export function TransactionDetailPanel({
   const tagDialogRef = useRef<HTMLDialogElement>(null)
   const attachmentsRef = useRef<AttachmentsZoneHandle>(null)
 
-  const isTransfer = transaction.type === 'TRANSFER'
+  const isTransfer = transaction.type.key === 'TRANSFER'
   const isReconciled = transaction.reconciliationStatus === 'RECONCILED'
   const amount = Number(transaction.amount)
   const amountTone =
     amount < 0 ? 'text-error' : amount > 0 ? 'text-success' : 'text-base-content'
-  const needsDirection = transactionTypeNeedsDirection(transaction.type)
+  const needsDirection = typeNeedsDirection(transaction.type)
+
+  const isAdmin = Boolean(session?.user?.isAdmin)
+  /**
+   * A transfer's type is fixed — it is one half of a linked pair — so the
+   * picker is only offered on ordinary rows.
+   */
+  const typeOptions = isTransfer ? [] : transactionTypeOptions(transactionTypes)
+
+  function directionNeededFor(typeId: string): boolean {
+    const type = findTransactionType(transactionTypes, typeId)
+    return type ? typeNeedsDirection(type) : needsDirection
+  }
+
+  async function unlock() {
+    setUnlocking(true)
+    setSubmitError(null)
+    try {
+      await unlockTransactionReconciliation({ data: { id: transaction.id } })
+      await router.invalidate()
+    } catch (error) {
+      setSubmitError(
+        error instanceof Error ? error.message : 'Failed to unlock.',
+      )
+    } finally {
+      setUnlocking(false)
+    }
+  }
+
+  async function confirmDelete() {
+    setDeleting(true)
+    setSubmitError(null)
+    try {
+      await deleteTransaction({ data: { id: transaction.id } })
+      setConfirmingDelete(false)
+      // The row is gone, so staying on its detail route would 404.
+      await navigate({
+        to: '/accounts/$accountId',
+        params: { accountId: transaction.account.id },
+        search: accountDetailSearchDefaults,
+      })
+    } catch (error) {
+      setSubmitError(
+        error instanceof Error ? error.message : 'Failed to delete.',
+      )
+      setConfirmingDelete(false)
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   const form = useForm({
     defaultValues: {
+      typeId: transaction.type.id,
       amount: magnitudeFromSignedAmount(transaction.amount),
       direction: directionFromSignedAmount(transaction.amount),
       payeeId: transaction.payee?.id ?? '',
@@ -330,6 +398,7 @@ export function TransactionDetailPanel({
         await updateTransaction({
           data: {
             id: transaction.id,
+            typeId: value.typeId,
             amount: value.amount,
             description: value.description,
             payee: isTransfer ? null : value.payeeId || null,
@@ -337,7 +406,9 @@ export function TransactionDetailPanel({
             tags: isTransfer ? [] : value.tagIds,
             keepAttachmentIds,
             attachments: uploaded,
-            ...(needsDirection ? { direction: value.direction } : {}),
+            ...(directionNeededFor(value.typeId)
+              ? { direction: value.direction }
+              : {}),
           },
         })
         await router.invalidate()
@@ -355,6 +426,7 @@ export function TransactionDetailPanel({
   function startEditing() {
     setSubmitError(null)
     form.reset({
+      typeId: transaction.type.id,
       amount: magnitudeFromSignedAmount(transaction.amount),
       direction: directionFromSignedAmount(transaction.amount),
       payeeId: transaction.payee?.id ?? '',
@@ -368,6 +440,7 @@ export function TransactionDetailPanel({
   function cancelEditing() {
     setSubmitError(null)
     form.reset({
+      typeId: transaction.type.id,
       amount: magnitudeFromSignedAmount(transaction.amount),
       direction: directionFromSignedAmount(transaction.amount),
       payeeId: transaction.payee?.id ?? '',
@@ -387,7 +460,7 @@ export function TransactionDetailPanel({
           </h2>
           <p className="text-sm text-base-content/60">
             {formatTransactionDate(transaction.date)} ·{' '}
-            {transactionTypeLabel(transaction.type)}
+            {transaction.type.label}
             {transaction.reconciliationStatus !== 'UNCLEARED'
               ? ` · ${transaction.reconciliationStatus === 'CLEARED' ? 'Cleared' : transaction.reconciliationStatus === 'NEEDS_REVIEW' ? 'Needs review' : 'Reconciled'}`
               : null}
@@ -395,13 +468,34 @@ export function TransactionDetailPanel({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {!editing && !isReconciled ? (
+            <>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm gap-1.5"
+                onClick={startEditing}
+              >
+                <HiOutlinePencil className="size-4" aria-hidden />
+                Edit
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm gap-1.5 text-error"
+                onClick={() => setConfirmingDelete(true)}
+              >
+                <HiOutlineTrash className="size-4" aria-hidden />
+                Delete
+              </button>
+            </>
+          ) : null}
+          {!editing && isReconciled && isAdmin ? (
             <button
               type="button"
               className="btn btn-outline btn-sm gap-1.5"
-              onClick={startEditing}
+              onClick={() => void unlock()}
+              disabled={unlocking}
             >
-              <HiOutlinePencil className="size-4" aria-hidden />
-              Edit
+              <HiOutlineLockOpen className="size-4" aria-hidden />
+              {unlocking ? 'Unlocking…' : 'Unlock'}
             </button>
           ) : null}
           <Link
@@ -429,9 +523,32 @@ export function TransactionDetailPanel({
               <DetailField label="Date">
                 {formatTransactionDate(transaction.date)}
               </DetailField>
-              <DetailField label="Type">
-                {transactionTypeLabel(transaction.type)}
-              </DetailField>
+              {typeOptions.length > 0 ? (
+                <form.Field name="typeId">
+                  {(field) => (
+                    <FormField label="Type" htmlFor={field.name}>
+                      <select
+                        id={field.name}
+                        name={field.name}
+                        className={FORM_SELECT_CLASS}
+                        value={field.state.value}
+                        onBlur={field.handleBlur}
+                        onChange={(event) => {
+                          field.handleChange(event.target.value)
+                        }}
+                      >
+                        {typeOptions.map((option) => (
+                          <option key={option.id} value={option.id}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </FormField>
+                  )}
+                </form.Field>
+              ) : (
+                <DetailField label="Type">{transaction.type.label}</DetailField>
+              )}
               <form.Field
                 name="amount"
                 validators={{
@@ -489,29 +606,38 @@ export function TransactionDetailPanel({
                   {transaction.account.isGlobal ? ' (Global)' : null}
                 </Link>
               </DetailField>
-              {needsDirection && !isTransfer ? (
-                <form.Field name="direction">
-                  {(field) => (
-                    <FormField label="Effect on account" htmlFor={field.name}>
-                      <select
-                        id={field.name}
-                        name={field.name}
-                        className={FORM_SELECT_CLASS}
-                        value={field.state.value}
-                        onBlur={field.handleBlur}
-                        onChange={(event) =>
-                          field.handleChange(
-                            event.target.value as TransactionDirection,
-                          )
-                        }
-                      >
-                        <option value="in">In (increases balance)</option>
-                        <option value="out">Out (decreases balance)</option>
-                      </select>
-                    </FormField>
-                  )}
-                </form.Field>
-              ) : null}
+              {/* Follows the selected type, not the stored one — switching to
+                  or from a directional type has to show or hide this live. */}
+              <form.Subscribe selector={(state) => state.values.typeId}>
+                {(selectedTypeId) =>
+                  directionNeededFor(selectedTypeId) && !isTransfer ? (
+                    <form.Field name="direction">
+                      {(field) => (
+                        <FormField
+                          label="Effect on account"
+                          htmlFor={field.name}
+                        >
+                          <select
+                            id={field.name}
+                            name={field.name}
+                            className={FORM_SELECT_CLASS}
+                            value={field.state.value}
+                            onBlur={field.handleBlur}
+                            onChange={(event) =>
+                              field.handleChange(
+                                event.target.value as TransactionDirection,
+                              )
+                            }
+                          >
+                            <option value="in">In (increases balance)</option>
+                            <option value="out">Out (decreases balance)</option>
+                          </select>
+                        </FormField>
+                      )}
+                    </form.Field>
+                  ) : null
+                }
+              </form.Subscribe>
               <div className="sm:col-span-2">
                 <form.Field name="description">
                   {(field) => (
@@ -735,7 +861,7 @@ export function TransactionDetailPanel({
                 {formatTransactionDate(transaction.date)}
               </DetailField>
               <DetailField label="Type">
-                {transactionTypeLabel(transaction.type)}
+                {transaction.type.label}
               </DetailField>
               <DetailField label="Amount">
                 <span className={`tabular-nums font-semibold ${amountTone}`}>
@@ -860,6 +986,23 @@ export function TransactionDetailPanel({
           />
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmingDelete}
+        title="Delete this transaction?"
+        message={
+          transaction.transferCounterpart
+            ? `This is one leg of a transfer, so both sides will be deleted — including the ${formatAccountCurrency(
+                transaction.transferCounterpart.amount,
+              )} on ${transaction.transferCounterpart.accountName}. This cannot be undone.`
+            : 'This cannot be undone. The account balance will be adjusted accordingly.'
+        }
+        confirmLabel="Delete"
+        busy={deleting}
+        tone="danger"
+        onConfirm={() => void confirmDelete()}
+        onCancel={() => setConfirmingDelete(false)}
+      />
     </div>
   )
 }

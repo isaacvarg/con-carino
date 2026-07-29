@@ -1,3 +1,5 @@
+import type { AdminOverrideOptions } from '#/lib/care-release'
+
 export type CareOccurrenceStatusShape = 'SCHEDULED' | 'COMPLETED' | 'CANCELLED'
 
 export type HireableOccurrence = {
@@ -25,20 +27,25 @@ export function canTakeResponsibility(
   occ: HireableOccurrence,
   personId: string | null,
   now: Date,
+  options: AdminOverrideOptions = {},
 ): ResponsibilityCheck {
-  if (!personId) {
-    return { ok: false, reason: 'Your account is not linked to a caregiver.' }
-  }
-  if (occ.assigneeId !== personId) {
-    return {
-      ok: false,
-      reason: 'You can only hire cover for your own coverage.',
+  const admin = options.adminOverride === true
+
+  if (!admin) {
+    if (!personId) {
+      return { ok: false, reason: 'Your account is not linked to a caregiver.' }
+    }
+    if (occ.assigneeId !== personId) {
+      return {
+        ok: false,
+        reason: 'You can only hire cover for your own coverage.',
+      }
     }
   }
   if (occ.status !== 'SCHEDULED') {
     return { ok: false, reason: 'Only scheduled coverage can be handed over.' }
   }
-  if (occ.startsAt.getTime() <= now.getTime()) {
+  if (!admin && occ.startsAt.getTime() <= now.getTime()) {
     return { ok: false, reason: 'This window has already started.' }
   }
   return { ok: true }

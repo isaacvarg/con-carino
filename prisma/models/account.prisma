@@ -13,6 +13,8 @@ model AccountGroup {
   userId    String
   name      String
   isGlobal  Boolean  @default(false)
+  /// See `Tag.archivedAt` — hidden from pickers, still resolved on history.
+  archivedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -20,6 +22,7 @@ model AccountGroup {
   accounts FinancialAccount[]
 
   @@index([userId])
+  @@index([archivedAt])
   @@map("account_groups")
 }
 
@@ -31,6 +34,9 @@ model FinancialAccount {
   accountGroupId String?
   initialBalance Decimal     @default(0) @db.Decimal(19, 4)
   isGlobal       Boolean     @default(false)
+  /// See `Tag.archivedAt`. An archived account keeps its transactions and still
+  /// contributes to history, but is hidden from account lists and pickers.
+  archivedAt     DateTime?
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
@@ -45,5 +51,6 @@ model FinancialAccount {
 
   @@index([userId])
   @@index([accountGroupId])
+  @@index([archivedAt])
   @@map("financial_accounts")
 }

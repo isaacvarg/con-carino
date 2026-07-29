@@ -1,5 +1,5 @@
 import { useForm } from '@tanstack/react-form'
-import { Link, useNavigate } from '@tanstack/react-router'
+import { Link, useNavigate, useRouteContext } from '@tanstack/react-router'
 import { useRef, useState } from 'react'
 import { TagSelectField } from '#/components/app/transactions/TagSelectField'
 import { TaxonomySelectField } from '#/components/app/transactions/TaxonomySelectField'
@@ -14,20 +14,18 @@ import {
   FormRow,
   FormShell,
 } from '#/components/app/ui/form'
-import type { TransactionType } from '#/generated/prisma/enums'
 import { sortByName, type ColoredTaxonomyRef } from '#/lib/taxonomy-types'
 import type { AccountListItem } from '#/server/accounts'
 import { createTransaction } from '#/server/transactions'
 import {
   defaultDirectionForType,
-  transactionTypeNeedsDirection,
+  findTransactionType,
+  transactionTypeOptions,
+  typeNeedsDirection,
   type TransactionDirection,
-} from '#/lib/transaction-amount'
+} from '#/lib/transaction-types'
 import { accountDetailSearchDefaults } from './account-detail-search'
-import {
-  TRANSACTION_TYPE_OPTIONS,
-  todayDateInputValue,
-} from './account-utils'
+import { todayDateInputValue } from './account-utils'
 import {
   AttachmentsZone,
   type AttachmentsZoneHandle,
@@ -39,7 +37,7 @@ import { TaxonomyCreateDialog } from './TaxonomyCreateDialog'
 
 type AddTransactionFormValues = {
   financialAccountId: string
-  type: TransactionType
+  typeId: string
   direction: TransactionDirection
   amount: string
   date: string
@@ -150,9 +148,19 @@ export function AddTransactionForm(props: AddTransactionFormProps) {
   const [tagOptions, setTagOptions] = useState(initialTags)
   const [attachmentsUploading, setAttachmentsUploading] = useState(false)
 
+  const { transactionTypes } = useRouteContext({ from: '/_app' })
+  const typeOptions = transactionTypeOptions(transactionTypes)
+
+  function directionNeededFor(typeId: string): boolean {
+    const type = findTransactionType(transactionTypes, typeId)
+    return type ? typeNeedsDirection(type) : false
+  }
+
   const defaultValues: AddTransactionFormValues = {
     financialAccountId: defaultAccountId,
-    type: 'EXPENSE',
+    // Whatever the admin ordered first, rather than a hardcoded Expense: the
+    // list is theirs to arrange now.
+    typeId: typeOptions[0]?.id ?? '',
     direction: 'out',
     amount: '',
     date: todayDateInputValue(),
@@ -169,7 +177,7 @@ export function AddTransactionForm(props: AddTransactionFormProps) {
       await createTransaction({
         data: {
           financialAccountId: value.financialAccountId,
-          type: value.type,
+          typeId: value.typeId,
           amount: value.amount,
           date: value.date,
           description: value.description,
@@ -177,7 +185,7 @@ export function AddTransactionForm(props: AddTransactionFormProps) {
           category: value.categoryId || null,
           tags: value.tagIds,
           attachments: attachments ?? [],
-          ...(transactionTypeNeedsDirection(value.type)
+          ...(directionNeededFor(value.typeId)
             ? { direction: value.direction }
             : {}),
         },
@@ -259,7 +267,7 @@ export function AddTransactionForm(props: AddTransactionFormProps) {
         ) : null}
 
         <form.Field
-          name="type"
+          name="typeId"
           validators={{
             onChange: ({ value }) =>
               value ? undefined : 'Choose a transaction type.',
@@ -274,9 +282,13 @@ export function AddTransactionForm(props: AddTransactionFormProps) {
                 value={field.state.value}
                 onBlur={field.handleBlur}
                 onChange={(event) => {
-                  const nextType = event.target.value as TransactionType
-                  field.handleChange(nextType)
-                  if (transactionTypeNeedsDirection(nextType)) {
+                  const nextTypeId = event.target.value
+                  field.handleChange(nextTypeId)
+                  const nextType = findTransactionType(
+                    transactionTypes,
+                    nextTypeId,
+                  )
+                  if (nextType && typeNeedsDirection(nextType)) {
                     form.setFieldValue(
                       'direction',
                       defaultDirectionForType(nextType),
@@ -284,8 +296,8 @@ export function AddTransactionForm(props: AddTransactionFormProps) {
                   }
                 }}
               >
-                {TRANSACTION_TYPE_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
+                {typeOptions.map((option) => (
+                  <option key={option.id} value={option.id}>
                     {option.label}
                   </option>
                 ))}
@@ -294,9 +306,9 @@ export function AddTransactionForm(props: AddTransactionFormProps) {
           )}
         </form.Field>
 
-        <form.Subscribe selector={(state) => state.values.type}>
-          {(type) =>
-            transactionTypeNeedsDirection(type) ? (
+        <form.Subscribe selector={(state) => state.values.typeId}>
+          {(typeId) =>
+            directionNeededFor(typeId) ? (
               <form.Field
                 name="direction"
                 validators={{

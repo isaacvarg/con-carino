@@ -23,7 +23,7 @@ import {
   directionFromSignedAmount,
   magnitudeFromSignedAmount,
 } from '#/lib/transaction-edit'
-import { transactionTypeNeedsDirection } from '#/lib/transaction-amount'
+import { typeNeedsDirection } from '#/lib/transaction-types'
 import type { TransactionListItem } from '#/server/transactions'
 import {
   finishAccountReconciliation,
@@ -390,8 +390,8 @@ function NeedsReviewQueue({
 
   async function save(txn: TransactionListItem) {
     const draft = draftFor(txn)
-    const isTransfer = txn.type === 'TRANSFER'
-    const needsDirection = transactionTypeNeedsDirection(txn.type)
+    const isTransfer = txn.type.key === 'TRANSFER'
+    const needsDirection = typeNeedsDirection(txn.type)
     setSavingId(txn.id)
     onError(null)
     try {
@@ -440,8 +440,8 @@ function NeedsReviewQueue({
       {items.map((txn) => {
         const draft = draftFor(txn)
         const busy = pendingIds.has(txn.id) || savingId === txn.id
-        const isTransfer = txn.type === 'TRANSFER'
-        const needsDirection = transactionTypeNeedsDirection(txn.type)
+        const isTransfer = txn.type.key === 'TRANSFER'
+        const needsDirection = typeNeedsDirection(txn.type)
 
         return (
           <li

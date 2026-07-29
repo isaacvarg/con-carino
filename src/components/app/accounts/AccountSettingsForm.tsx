@@ -1,5 +1,7 @@
 import { useForm } from '@tanstack/react-form'
 import { Link, useNavigate } from '@tanstack/react-router'
+import { useState } from 'react'
+import { ConfirmDialog } from '#/components/app/ui/confirm-dialog'
 import {
   FORM_INPUT_CLASS,
   FormActions,
@@ -10,8 +12,10 @@ import {
 import type { AccountListItem } from '#/server/accounts'
 import {
   checkAccountNameAvailable,
+  removeAccount,
   updateAccount,
 } from '#/server/accounts'
+import { transactionsSearchDefaults } from '#/components/app/transactions/transactions-search'
 import { accountDetailSearchDefaults } from './account-detail-search'
 
 type AccountSettingsFormProps = {
@@ -20,6 +24,27 @@ type AccountSettingsFormProps = {
 
 export function AccountSettingsForm({ account }: AccountSettingsFormProps) {
   const navigate = useNavigate()
+  const [confirmingRemove, setConfirmingRemove] = useState(false)
+  const [removing, setRemoving] = useState(false)
+  const [removeError, setRemoveError] = useState<string | null>(null)
+
+  async function confirmRemove() {
+    setRemoving(true)
+    setRemoveError(null)
+    try {
+      await removeAccount({ data: { id: account.id } })
+      setConfirmingRemove(false)
+      // The account is gone or hidden either way, so its routes no longer resolve.
+      await navigate({ to: '/transactions', search: transactionsSearchDefaults })
+    } catch (err) {
+      setRemoveError(
+        err instanceof Error ? err.message : 'Could not remove the account.',
+      )
+      setConfirmingRemove(false)
+    } finally {
+      setRemoving(false)
+    }
+  }
 
   const form = useForm({
     defaultValues: {
@@ -160,6 +185,37 @@ export function AccountSettingsForm({ account }: AccountSettingsFormProps) {
           )}
         </form.Subscribe>
       </FormShell>
+
+      <div className="mt-6 rounded-box border border-error/30 p-4">
+        <h3 className="font-semibold text-base-content">Remove this account</h3>
+        <p className="mt-1 text-sm text-base-content/60">
+          An account with no transactions is deleted outright. One with history
+          can only be archived, which an admin has to do.
+        </p>
+        {removeError ? (
+          <p className="mt-2 text-sm text-error" role="alert">
+            {removeError}
+          </p>
+        ) : null}
+        <button
+          type="button"
+          className="btn btn-outline btn-error btn-sm mt-3"
+          onClick={() => setConfirmingRemove(true)}
+        >
+          Remove account
+        </button>
+      </div>
+
+      <ConfirmDialog
+        open={confirmingRemove}
+        title={`Remove “${account.name}”?`}
+        message="If it has no transactions it will be deleted permanently. If it has history, it will be archived instead — nothing is lost, but it disappears from your account list."
+        confirmLabel="Remove"
+        busy={removing}
+        tone="danger"
+        onConfirm={() => void confirmRemove()}
+        onCancel={() => setConfirmingRemove(false)}
+      />
     </div>
   )
 }

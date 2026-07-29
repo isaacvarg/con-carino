@@ -340,7 +340,13 @@ model CarePerson {
   /// flatDailyRate as hourlyRate — only the amount differs. Null means no
   /// premium, so everything bills at the standard rate.
   offScheduleRate    Decimal?   @db.Decimal(19, 4)
+  /// Still on the roster, just not currently being scheduled. Shows an
+  /// "Inactive" badge in the People list and is filtered out of assignment
+  /// pickers — deliberately distinct from `archivedAt` below.
   isActive      Boolean         @default(true)
+  /// Removed. Hidden everywhere including the People list, and visible only
+  /// under Settings → Archived. See `Tag.archivedAt`.
+  archivedAt    DateTime?
   bgColor       String?
   textColor     String?
   createdAt     DateTime        @default(now())
@@ -362,6 +368,7 @@ model CarePerson {
   invoices      CareInvoice[]
 
   @@index([typeId])
+  @@index([archivedAt])
   @@map("care_people")
 }
 

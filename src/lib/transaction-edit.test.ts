@@ -7,7 +7,11 @@ import {
   planAttachmentChanges,
   TRANSACTION_UPDATE_ACTIVITY_FIELDS,
 } from '#/lib/transaction-edit'
-import { toSignedTransactionAmount } from '#/lib/transaction-amount'
+import { signedAmountFor } from '#/lib/transaction-types'
+
+const TRANSFER = { sign: 'DIRECTIONAL' } as const
+const WITHDRAWAL = { sign: 'NEGATIVE' } as const
+const DEPOSIT = { sign: 'POSITIVE' } as const
 
 describe('planAttachmentChanges', () => {
   it('retains keep ids and removes the rest', () => {
@@ -45,8 +49,8 @@ describe('amount helpers', () => {
 
   it('preserves opposite transfer signs when syncing magnitude', () => {
     const magnitude = 42.5
-    const outLeg = toSignedTransactionAmount('TRANSFER', magnitude, 'out')
-    const inLeg = toSignedTransactionAmount('TRANSFER', magnitude, 'in')
+    const outLeg = signedAmountFor(TRANSFER, magnitude, 'out')
+    const inLeg = signedAmountFor(TRANSFER, magnitude, 'in')
     expect(outLeg).toBe(-42.5)
     expect(inLeg).toBe(42.5)
     expect(directionFromSignedAmount(outLeg)).toBe('out')
@@ -54,11 +58,11 @@ describe('amount helpers', () => {
   })
 
   it('signs withdrawals as negative', () => {
-    expect(toSignedTransactionAmount('WITHDRAWAL', 25)).toBe(-25)
+    expect(signedAmountFor(WITHDRAWAL, 25)).toBe(-25)
   })
 
   it('signs deposits as positive', () => {
-    expect(toSignedTransactionAmount('DEPOSIT', 25)).toBe(25)
+    expect(signedAmountFor(DEPOSIT, 25)).toBe(25)
   })
 })
 

@@ -22,10 +22,12 @@ import type { CarePersonTypeDto } from '#/server/care'
 import type { UserDetail } from '#/server/users'
 import {
   listUserActivity,
+  removeUser,
   revokeUserSessions,
   updateUserCarePerson,
   updateUserProfile,
 } from '#/server/users'
+import { ConfirmDialog } from '#/components/app/ui/confirm-dialog'
 
 function personFormFromDetail(user: UserDetail): CarePersonFormValues {
   const person = user.carePerson
@@ -79,6 +81,27 @@ export function UserDetailPanel({
 
   const [sessionError, setSessionError] = useState<string | null>(null)
   const [sessionBusy, setSessionBusy] = useState(false)
+
+  const [confirmingRemove, setConfirmingRemove] = useState(false)
+  const [removing, setRemoving] = useState(false)
+  const [removeError, setRemoveError] = useState<string | null>(null)
+
+  async function confirmRemove() {
+    setRemoving(true)
+    setRemoveError(null)
+    try {
+      await removeUser({ data: { userId: user.id } })
+      setConfirmingRemove(false)
+      await router.navigate({ to: '/settings/users' })
+    } catch (err) {
+      setRemoveError(
+        err instanceof Error ? err.message : 'Could not remove this user.',
+      )
+      setConfirmingRemove(false)
+    } finally {
+      setRemoving(false)
+    }
+  }
 
   const [extra, setExtra] = useState<ActivityListItem[]>([])
   const [nextCursor, setNextCursor] = useState(initialActivity.nextCursor)
@@ -373,6 +396,40 @@ export function UserDetailPanel({
           </button>
         ) : null}
       </div>
+
+      <div className="app-card mt-4 p-4 sm:p-6">
+        <h3 className="text-xl font-bold tracking-tight text-base-content">
+          Remove user
+        </h3>
+        <p className="mt-1 text-sm text-base-content/60">
+          Signs them out, hides them from every list, and archives their
+          caregiver record. Their transactions and activity history are kept —
+          an account with no records at all is deleted outright instead.
+        </p>
+        {removeError ? (
+          <p className="mt-2 text-sm text-error" role="alert">
+            {removeError}
+          </p>
+        ) : null}
+        <button
+          type="button"
+          className="btn btn-error btn-outline btn-sm mt-3"
+          onClick={() => setConfirmingRemove(true)}
+        >
+          Remove user
+        </button>
+      </div>
+
+      <ConfirmDialog
+        open={confirmingRemove}
+        title={`Remove ${user.name ?? user.email ?? 'this user'}?`}
+        message="They will be signed out everywhere and hidden from the app. Anything they created stays where it is, and an admin can restore them from Settings → Archived."
+        confirmLabel="Remove user"
+        busy={removing}
+        tone="danger"
+        onConfirm={() => void confirmRemove()}
+        onCancel={() => setConfirmingRemove(false)}
+      />
     </div>
   )
 }

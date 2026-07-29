@@ -47,7 +47,11 @@ import { prisma } from '#/lib/prisma'
 import { isUniqueViolation } from '#/lib/prisma-errors'
 import { resolveAppOrigin } from '#/lib/swap-notify'
 import { TAXONOMY_COLOR_SELECT } from '#/lib/taxonomy-types'
-import { toSignedTransactionAmount } from '#/lib/transaction-amount'
+import {
+  signedAmountFor,
+  TRANSACTION_TYPE_REF_SELECT,
+  type TransactionTypeRef,
+} from '#/lib/transaction-types'
 import { currentBalancesForAccounts } from '#/server/accounts'
 import { logActivity } from '#/server/activity-log'
 import { authConfig } from '#/utils/auth'
@@ -84,6 +88,7 @@ const AUTOMATION_INCLUDE = {
   triggerAccount: { select: ACCOUNT_REF_SELECT },
   targetAccount: { select: ACCOUNT_REF_SELECT },
   triggerCategory: { select: TAXONOMY_COLOR_SELECT },
+  triggerType: { select: TRANSACTION_TYPE_REF_SELECT },
   triggerTags: { select: TAXONOMY_COLOR_SELECT, orderBy: { name: 'asc' } },
   notifyUser: { select: USER_REF_SELECT },
   runs: { orderBy: { createdAt: 'desc' }, take: 1 },
@@ -117,10 +122,37 @@ async function assertAccountVisible(userId: string, accountId: string) {
   return account
 }
 
+/**
+ * A rule may only watch a live, non-directional type.
+ *
+ * DIRECTIONAL types are excluded because `applyAutomation` signs the row it
+ * creates with no direction argument — there is nobody to ask at that point.
+ * This replaces the hand-written `AUTOMATION_TRIGGER_TYPES` list, which would
+ * have gone stale the first time an admin added a type.
+ */
+async function assertUsableTriggerType(typeId: string) {
+  const type = await prisma.transactionTypeDef.findUnique({
+    where: { id: typeId },
+    select: { id: true, label: true, sign: true, archivedAt: true },
+  })
+  if (!type) throw new Error('Transaction type not found.')
+  if (type.archivedAt) {
+    throw new Error(`“${type.label}” is archived and cannot be watched.`)
+  }
+  if (type.sign === 'DIRECTIONAL') {
+    throw new Error(
+      `“${type.label}” asks for a direction on each entry, so an automation cannot watch it.`,
+    )
+  }
+}
+
 async function assertInputReferences(userId: string, input: AutomationInput) {
   await assertAccountVisible(userId, input.triggerAccountId)
   if (input.targetAccountId) {
     await assertAccountVisible(userId, input.targetAccountId)
+  }
+  if (input.triggerTypeId) {
+    await assertUsableTriggerType(input.triggerTypeId)
   }
   if (input.notifyUserId) {
     const user = await prisma.user.findUnique({
@@ -182,7 +214,7 @@ function activitySnapshot(row: AutomationRow): Record<string, unknown> {
     kind: row.kind,
     isEnabled: row.isEnabled,
     financialAccountId: row.triggerAccountId,
-    type: row.triggerType,
+    type: row.triggerType?.label ?? null,
     categoryId: row.triggerCategoryId,
     tagIds: row.triggerTags.map((tag) => tag.id),
     targetAccountId: row.targetAccountId,
@@ -197,7 +229,7 @@ function writeData(input: AutomationInput) {
     name: input.name,
     isEnabled: input.isEnabled,
     triggerAccountId: input.triggerAccountId,
-    triggerType: input.triggerType,
+    triggerTypeId: input.triggerTypeId,
     triggerCategoryId: input.triggerCategoryId,
     targetAccountId: input.targetAccountId,
     percent: input.percent,
@@ -418,7 +450,7 @@ type SourceTransaction = {
   id: string
   userId: string
   financialAccountId: string
-  type: Parameters<typeof toSignedTransactionAmount>[0]
+  type: TransactionTypeRef
   amount: { toString(): string }
   date: Date
   description: string | null
@@ -434,7 +466,7 @@ type TransactionAutomation = {
   kind: 'DUPLICATE_TO_ACCOUNT' | 'PERCENT_MATCH' | 'LOW_BALANCE_ALERT'
   isEnabled: boolean
   triggerAccountId: string
-  triggerType: SourceTransaction['type'] | null
+  triggerTypeId: string | null
   triggerCategoryId: string | null
   triggerTagIds: string[]
   targetAccountId: string | null
@@ -474,6 +506,24 @@ async function applyAutomation(
     return false
   }
 
+  // Archiving the target does not disable the rule, so without this the
+  // automation keeps writing rows into an account every cross-account view
+  // filters out — invisible money. Skipped rather than failed: nothing is
+  // broken, the destination is just out of use.
+  const targetArchived = await prisma.financialAccount.findFirst({
+    where: { id: targetAccountId, archivedAt: { not: null } },
+    select: { id: true },
+  })
+  if (targetArchived) {
+    await recordRun(
+      automation.id,
+      source.id,
+      'SKIPPED',
+      'target account archived',
+    )
+    return false
+  }
+
   const tagIds = source.tags.map((tag) => tag.id)
 
   let created
@@ -491,10 +541,10 @@ async function applyAutomation(
         data: {
           userId: source.userId,
           financialAccountId: targetAccountId,
-          type: source.type,
-          // No direction argument: AUTOMATION_TRIGGER_TYPES excludes the only
-          // two types that need one.
-          amount: toSignedTransactionAmount(source.type, magnitude),
+          typeId: source.type.id,
+          // No direction argument: only DIRECTIONAL types need one, and
+          // `assertUsableTriggerType` refuses to let a rule watch one.
+          amount: signedAmountFor(source.type, magnitude),
           date: source.date,
           description: source.description ?? `Automation: ${automation.name}`,
           payeeId: source.payeeId,
@@ -508,6 +558,7 @@ async function applyAutomation(
           financialAccount: {
             select: { name: true, isGlobal: true, userId: true },
           },
+          type: { select: TRANSACTION_TYPE_REF_SELECT },
         },
       })
       await tx.automationRun.update({
@@ -531,13 +582,11 @@ async function applyAutomation(
     action: 'CREATE',
     entityType: ACTIVITY_ENTITY_TYPES.transaction,
     entityId: created.id,
-    summary: `Automation “${automation.name}” created ${created.type
-      .toLowerCase()
-      .replaceAll('_', ' ')} of $${amountLabel} on ${created.financialAccount.name}`,
+    summary: `Automation “${automation.name}” created ${created.type.label.toLowerCase()} of $${amountLabel} on ${created.financialAccount.name}`,
     changes: createChanges(
       {
         financialAccountId: created.financialAccountId,
-        type: created.type,
+        type: created.type.label,
         amount: created.amount.toString(),
         description: created.description,
         date: created.date.toISOString(),
@@ -582,7 +631,7 @@ export const runAutomationsForTransaction = createServerOnlyFn(
         id: true,
         userId: true,
         financialAccountId: true,
-        type: true,
+        type: { select: TRANSACTION_TYPE_REF_SELECT },
         amount: true,
         date: true,
         description: true,
@@ -613,7 +662,7 @@ export const runAutomationsForTransaction = createServerOnlyFn(
       {
         id: source.id,
         financialAccountId: source.financialAccountId,
-        type: source.type,
+        typeId: source.type.id,
         tagIds: source.tags.map((tag) => tag.id),
         categoryId: source.categoryId,
         createdByAutomationId: source.createdByAutomationId,
@@ -679,6 +728,8 @@ export const runLowBalanceAlerts = createServerOnlyFn(
       where: {
         kind: 'LOW_BALANCE_ALERT',
         isEnabled: true,
+        // No point emailing about an account nobody can see any more.
+        triggerAccount: { archivedAt: null },
         ...(accountIds ? { triggerAccountId: { in: accountIds } } : {}),
       },
       include: {

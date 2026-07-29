@@ -2,6 +2,7 @@ import { useRouter } from '@tanstack/react-router'
 import { useState, type FormEvent } from 'react'
 import { ColorField } from '#/components/app/accounts/taxonomy-form-fields'
 import { TaxonomyBadge } from '#/components/app/transactions/TaxonomyBadge'
+import { ConfirmDialog } from '#/components/app/ui/confirm-dialog'
 import {
   FORM_INPUT_CLASS,
   FORM_TEXTAREA_CLASS,
@@ -11,7 +12,7 @@ import {
   FormShell,
 } from '#/components/app/ui/form'
 import type { PayeeRecord } from '#/lib/taxonomy-types'
-import { createPayee, updatePayee } from '#/server/taxonomies'
+import { createPayee, updatePayee , removeTaxonomy } from '#/server/taxonomies'
 
 type PayeesSettingsPanelProps = {
   payees: PayeeRecord[]
@@ -28,6 +29,8 @@ export function PayeesSettingsPanel({ payees }: PayeesSettingsPanelProps) {
   const [textColor, setTextColor] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [pendingRemove, setPendingRemove] = useState<PayeeRecord | null>(null)
+  const [removing, setRemoving] = useState(false)
 
   function resetForm() {
     setEditingId(null)
@@ -37,6 +40,27 @@ export function PayeesSettingsPanel({ payees }: PayeesSettingsPanelProps) {
     setTextColor('')
     setError(null)
     setShowForm(false)
+  }
+
+
+  async function confirmRemove() {
+    if (!pendingRemove) return
+    setRemoving(true)
+    setError(null)
+    try {
+      await removeTaxonomy({
+        data: { kind: 'payee', id: pendingRemove.id },
+      })
+      setPendingRemove(null)
+      await router.invalidate()
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Could not remove.',
+      )
+      setPendingRemove(null)
+    } finally {
+      setRemoving(false)
+    }
   }
 
   function startAdd() {
@@ -188,7 +212,7 @@ export function PayeesSettingsPanel({ payees }: PayeesSettingsPanelProps) {
                   </p>
                 ) : null}
               </div>
-              <div className="mt-auto flex justify-end">
+              <div className="mt-auto flex justify-end gap-1">
                 <button
                   type="button"
                   className="btn btn-ghost btn-sm"
@@ -196,11 +220,29 @@ export function PayeesSettingsPanel({ payees }: PayeesSettingsPanelProps) {
                 >
                   Edit
                 </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm text-error"
+                  onClick={() => setPendingRemove(payee)}
+                >
+                  Remove
+                </button>
               </div>
             </li>
           ))}
         </ul>
       )}
+
+      <ConfirmDialog
+        open={pendingRemove !== null}
+        title={`Remove “${pendingRemove?.name ?? ''}”?`}
+        message="If nothing uses it, it is deleted permanently. If it has history, an admin can archive it instead — it stays on existing transactions but disappears from the pickers."
+        confirmLabel="Remove"
+        busy={removing}
+        tone="danger"
+        onConfirm={() => void confirmRemove()}
+        onCancel={() => setPendingRemove(null)}
+      />
     </div>
   )
 }

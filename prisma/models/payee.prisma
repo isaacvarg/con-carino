@@ -5,10 +5,13 @@ model Payee {
   iconId      String?
   bgColor     String?
   textColor   String?
+  /// See `Tag.archivedAt` — hidden from pickers, still resolved on history.
+  archivedAt  DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   transactions Transaction[]
 
+  @@index([archivedAt])
   @@map("payees")
 }

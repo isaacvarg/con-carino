@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { accountDetailSearchDefaults } from '#/components/app/accounts/account-detail-search'
 import {
   ACTIVITY_FIELD_LABELS,
   formatActivityField,
@@ -32,15 +33,7 @@ describe('activity reconciliation metadata', () => {
     expect(href).toEqual({
       to: '/accounts/$accountId',
       params: { accountId: 'acct-1' },
-      search: {
-        page: 1,
-        pageSize: 10,
-        sort: '-date',
-        q: '',
-        cols: '',
-        mode: '',
-        reconView: 'list',
-      },
+      search: accountDetailSearchDefaults,
     })
   })
 })

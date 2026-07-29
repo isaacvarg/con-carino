@@ -8,8 +8,8 @@
  * precision on the way back.
  */
 
-import type { TransactionType } from '#/generated/prisma/enums'
 import type { ColoredTaxonomyRef } from '#/lib/taxonomy-types'
+import type { TransactionTypeRef } from '#/lib/transaction-types'
 
 export type AutomationKind =
   | 'DUPLICATE_TO_ACCOUNT'
@@ -42,24 +42,6 @@ export const TRANSACTION_AUTOMATION_KINDS: readonly AutomationKind[] = [
   'PERCENT_MATCH',
 ]
 
-/**
- * Types an automation may trigger on.
- *
- * `TRANSFER` and `BALANCE_ADJUSTMENT` are excluded deliberately: they are the
- * only two types `transactionTypeNeedsDirection` returns true for, so leaving
- * them out means the runner never has to invent a direction when it signs the
- * transaction it creates. Transfers are not hooked at all (see the note in
- * `createTransaction`), so a TRANSFER trigger could never fire anyway.
- */
-export const AUTOMATION_TRIGGER_TYPES: readonly TransactionType[] = [
-  'EXPENSE',
-  'INCOME',
-  'REFUND',
-  'REIMBURSEMENT',
-  'WITHDRAWAL',
-  'DEPOSIT',
-]
-
 export type AutomationAccountRef = {
   id: string
   name: string
@@ -87,7 +69,7 @@ export type AutomationDto = {
   kind: AutomationKind
   isEnabled: boolean
   triggerAccount: AutomationAccountRef
-  triggerType: TransactionType | null
+  triggerType: TransactionTypeRef | null
   triggerTags: ColoredTaxonomyRef[]
   triggerCategory: ColoredTaxonomyRef | null
   targetAccount: AutomationAccountRef | null

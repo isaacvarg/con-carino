@@ -10,12 +10,27 @@ import {
   type TriggerCandidate,
 } from '#/lib/automation-matching'
 import type { AutomationDto } from '#/lib/automation-types'
+import type { TransactionTypeRef } from '#/lib/transaction-types'
+
+/** Stand-ins for rows in `transaction_types`. */
+const DEPOSIT: TransactionTypeRef = {
+  id: 'type-deposit',
+  key: 'DEPOSIT',
+  label: 'Deposit',
+  sign: 'POSITIVE',
+}
+const WITHDRAWAL: TransactionTypeRef = {
+  id: 'type-withdrawal',
+  key: 'WITHDRAWAL',
+  label: 'Withdrawal',
+  sign: 'NEGATIVE',
+}
 
 function source(overrides: Partial<AutomationSource> = {}): AutomationSource {
   return {
     id: 'txn-1',
     financialAccountId: 'acct-main',
-    type: 'DEPOSIT',
+    typeId: DEPOSIT.id,
     tagIds: ['tag-vacation'],
     categoryId: 'cat-income',
     createdByAutomationId: null,
@@ -26,7 +41,7 @@ function source(overrides: Partial<AutomationSource> = {}): AutomationSource {
 function trigger(overrides: Partial<AutomationTrigger> = {}): AutomationTrigger {
   return {
     triggerAccountId: 'acct-main',
-    triggerType: 'DEPOSIT',
+    triggerTypeId: DEPOSIT.id,
     triggerTagIds: ['tag-vacation'],
     triggerCategoryId: 'cat-income',
     ...overrides,
@@ -54,7 +69,7 @@ describe('matchesTrigger', () => {
   })
 
   it('rejects a different type', () => {
-    expect(triggerMismatchReason(trigger(), source({ type: 'WITHDRAWAL' }))).toBe(
+    expect(triggerMismatchReason(trigger(), source({ typeId: WITHDRAWAL.id }))).toBe(
       'type',
     )
   })
@@ -81,8 +96,8 @@ describe('matchesTrigger', () => {
     })
 
     it('matches any type when none is selected', () => {
-      const t = trigger({ triggerType: null })
-      expect(matchesTrigger(t, source({ type: 'REFUND' }))).toBe(true)
+      const t = trigger({ triggerTypeId: null })
+      expect(matchesTrigger(t, source({ typeId: 'type-refund' }))).toBe(true)
     })
   })
 
@@ -147,7 +162,7 @@ describe('selectTriggeredAutomations', () => {
   it('drops non-matching rules while keeping matching siblings', () => {
     const rules = [
       candidate({ id: 'match' }),
-      candidate({ id: 'wrong-type', triggerType: 'WITHDRAWAL' }),
+      candidate({ id: 'wrong-type', triggerTypeId: WITHDRAWAL.id }),
     ]
     expect(selectTriggeredAutomations(rules, source()).map((r) => r.id)).toEqual([
       'match',
@@ -162,7 +177,7 @@ function dto(overrides: Partial<AutomationDto> = {}): AutomationDto {
     kind: 'DUPLICATE_TO_ACCOUNT',
     isEnabled: true,
     triggerAccount: { id: 'acct-main', name: 'Main' },
-    triggerType: 'DEPOSIT',
+    triggerType: DEPOSIT,
     triggerTags: [
       { id: 'tag-vacation', name: 'vacation', bgColor: null, textColor: null },
     ],
@@ -201,7 +216,7 @@ describe('summarizeAutomation', () => {
     const summary = summarizeAutomation(
       dto({
         kind: 'PERCENT_MATCH',
-        triggerType: 'WITHDRAWAL',
+        triggerType: WITHDRAWAL,
         triggerTags: [],
         percent: '15.0000',
       }),

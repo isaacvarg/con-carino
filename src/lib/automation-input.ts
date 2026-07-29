@@ -8,12 +8,8 @@
  * the other.
  */
 
-import type { TransactionType } from '#/generated/prisma/enums'
 import type { AutomationKind } from '#/lib/automation-types'
-import {
-  AUTOMATION_KINDS,
-  AUTOMATION_TRIGGER_TYPES,
-} from '#/lib/automation-types'
+import { AUTOMATION_KINDS } from '#/lib/automation-types'
 import { requireId, requireName } from '#/lib/validators'
 
 export type AutomationInput = {
@@ -21,7 +17,7 @@ export type AutomationInput = {
   kind: AutomationKind
   isEnabled: boolean
   triggerAccountId: string
-  triggerType: TransactionType | null
+  triggerTypeId: string | null
   triggerTagIds: string[]
   triggerCategoryId: string | null
   targetAccountId: string | null
@@ -75,14 +71,18 @@ function parseKind(value: unknown): AutomationKind {
   return value as AutomationKind
 }
 
-function parseTriggerType(value: unknown): TransactionType {
-  if (
-    typeof value !== 'string' ||
-    !AUTOMATION_TRIGGER_TYPES.includes(value as TransactionType)
-  ) {
-    throw new Error('Transaction type is invalid for an automation trigger.')
+/**
+ * Types are rows now, so this can only check the shape. That the id names a
+ * live, non-directional type is checked against the database in
+ * `assertUsableTriggerType` — the membership test that used to live here
+ * cannot be done without a query.
+ */
+function parseTriggerTypeId(value: unknown): string {
+  const id = typeof value === 'string' ? value.trim() : ''
+  if (!id) {
+    throw new Error('Pick a transaction type for this automation to watch.')
   }
-  return value as TransactionType
+  return id
 }
 
 function parseTagIds(value: unknown): string[] {
@@ -124,7 +124,7 @@ export function parseAutomationInput(data: unknown): AutomationInput {
       triggerAccountId,
       // A balance alert has no transaction filters at all — carrying them would
       // violate the kind check and read as if they did something.
-      triggerType: null,
+      triggerTypeId: null,
       triggerTagIds: [],
       triggerCategoryId: null,
       targetAccountId: null,
@@ -146,7 +146,7 @@ export function parseAutomationInput(data: unknown): AutomationInput {
     kind,
     isEnabled,
     triggerAccountId,
-    triggerType: parseTriggerType(input.triggerType),
+    triggerTypeId: parseTriggerTypeId(input.triggerTypeId),
     triggerTagIds: parseTagIds(input.triggerTagIds),
     triggerCategoryId: optionalId(input.triggerCategoryId),
     targetAccountId,

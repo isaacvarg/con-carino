@@ -1,5 +1,4 @@
 import type { AccountType } from '#/generated/prisma/enums'
-import type { TransactionType } from '#/generated/prisma/enums'
 
 export const ACCOUNT_TYPE_OPTIONS: { value: AccountType; label: string }[] = [
   { value: 'CHECKING', label: 'Checking' },
@@ -11,42 +10,10 @@ export const ACCOUNT_TYPE_OPTIONS: { value: AccountType; label: string }[] = [
   { value: 'VIRTUAL', label: 'Virtual' },
 ]
 
-const TRANSACTION_TYPE_LABELS: Record<TransactionType, string> = {
-  EXPENSE: 'Expense',
-  INCOME: 'Income',
-  TRANSFER: 'Transfer',
-  BALANCE_ADJUSTMENT: 'Balance adjustment',
-  REFUND: 'Refund',
-  REIMBURSEMENT: 'Reimbursement',
-  WITHDRAWAL: 'Withdrawal',
-  DEPOSIT: 'Deposit',
-}
-
-/** Types offered on the generic add-transaction form (not transfers). */
-export const TRANSACTION_TYPE_OPTIONS: {
-  value: Exclude<TransactionType, 'TRANSFER'>
-  label: string
-}[] = [
-  { value: 'EXPENSE', label: TRANSACTION_TYPE_LABELS.EXPENSE },
-  { value: 'WITHDRAWAL', label: TRANSACTION_TYPE_LABELS.WITHDRAWAL },
-  { value: 'DEPOSIT', label: TRANSACTION_TYPE_LABELS.DEPOSIT },
-  { value: 'INCOME', label: TRANSACTION_TYPE_LABELS.INCOME },
-  {
-    value: 'BALANCE_ADJUSTMENT',
-    label: TRANSACTION_TYPE_LABELS.BALANCE_ADJUSTMENT,
-  },
-  { value: 'REFUND', label: TRANSACTION_TYPE_LABELS.REFUND },
-  { value: 'REIMBURSEMENT', label: TRANSACTION_TYPE_LABELS.REIMBURSEMENT },
-]
-
 export function accountTypeLabel(type: AccountType): string {
   return (
     ACCOUNT_TYPE_OPTIONS.find((option) => option.value === type)?.label ?? type
   )
-}
-
-export function transactionTypeLabel(type: TransactionType): string {
-  return TRANSACTION_TYPE_LABELS[type] ?? type
 }
 
 export function formatAccountCurrency(value: string | number): string {

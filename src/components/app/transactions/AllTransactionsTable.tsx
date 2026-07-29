@@ -21,7 +21,6 @@ import { accountDetailSearchDefaults } from '#/components/app/accounts/account-d
 import {
   formatAccountCurrency,
   formatTransactionDate,
-  transactionTypeLabel,
 } from '#/components/app/accounts/account-utils'
 import type { VisibleTransactionListItem } from '#/server/transactions'
 import {
@@ -160,7 +159,7 @@ export function AllTransactionsTable({
         ? `${txn.account.name} (Global)`
         : txn.account.name
       accounts.set(txn.account.id, accountLabel)
-      types.set(txn.type, transactionTypeLabel(txn.type))
+      types.set(txn.type.key, txn.type.label)
       if (txn.category) {
         categories.set(txn.category.id, txn.category.name)
       } else {
@@ -266,9 +265,9 @@ export function AllTransactionsTable({
       },
       {
         id: 'type',
-        accessorFn: (row) => row.type,
+        accessorFn: (row) => row.type.key,
         header: 'Type',
-        cell: ({ row }) => transactionTypeLabel(row.original.type),
+        cell: ({ row }) => row.original.type.label,
         filterFn: multiValueFilter,
       },
       {

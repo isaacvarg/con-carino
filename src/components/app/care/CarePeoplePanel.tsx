@@ -1,4 +1,4 @@
-import { useRouter } from '@tanstack/react-router'
+import { useRouteContext, useRouter } from '@tanstack/react-router'
 import { useState, type FormEvent } from 'react'
 import {
   CarePersonFormFields,
@@ -21,9 +21,11 @@ import {
   createCarePerson,
   createCarePersonType,
   createCoverageAssignmentRule,
+  removeCarePerson,
   updateCarePerson,
   updateCarePersonType,
 } from '#/server/care'
+import { ConfirmDialog } from '#/components/app/ui/confirm-dialog'
 import type { CarePayInterval, CareRateType } from '#/generated/prisma/enums'
 import {
   DEFAULT_PERSON_BG_COLOR,
@@ -87,6 +89,29 @@ export function CarePeoplePanel({
   users,
 }: CarePeoplePanelProps) {
   const router = useRouter()
+  const { session } = useRouteContext({ from: '/_app' })
+  const isAdmin = Boolean(session?.user?.isAdmin)
+  const [pendingRemove, setPendingRemove] = useState<CarePersonDto | null>(null)
+  const [removing, setRemoving] = useState(false)
+  const [removeError, setRemoveError] = useState<string | null>(null)
+
+  async function confirmRemove() {
+    if (!pendingRemove) return
+    setRemoving(true)
+    setRemoveError(null)
+    try {
+      await removeCarePerson({ data: { id: pendingRemove.id } })
+      setPendingRemove(null)
+      await router.invalidate()
+    } catch (err) {
+      setRemoveError(
+        err instanceof Error ? err.message : 'Could not remove this person.',
+      )
+      setPendingRemove(null)
+    } finally {
+      setRemoving(false)
+    }
+  }
 
   const [tab, setTab] = useState<PeopleSettingsTab>('people')
   const [showPersonForm, setShowPersonForm] = useState(false)
@@ -406,7 +431,7 @@ export function CarePeoplePanel({
                     ? ` · ${person.userName || person.userEmail}`
                     : ' · Offline'}
                 </p>
-                <div className="mt-auto flex justify-end">
+                <div className="mt-auto flex justify-end gap-1">
                   <button
                     type="button"
                     className="btn btn-ghost btn-sm"
@@ -414,6 +439,15 @@ export function CarePeoplePanel({
                   >
                     Edit
                   </button>
+                  {isAdmin ? (
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm text-error"
+                      onClick={() => setPendingRemove(person)}
+                    >
+                      Remove
+                    </button>
+                  ) : null}
                 </div>
               </li>
             ))}
@@ -500,6 +534,23 @@ export function CarePeoplePanel({
         </ul>
       )}
       </div>
+
+      {removeError ? (
+        <p className="mt-3 text-sm text-error" role="alert">
+          {removeError}
+        </p>
+      ) : null}
+
+      <ConfirmDialog
+        open={pendingRemove !== null}
+        title={`Remove ${pendingRemove?.name ?? ''}?`}
+        message="Someone with no shifts, invoices or swaps is deleted outright. Anyone with history is archived instead — their past coverage and invoices stay intact."
+        confirmLabel="Remove"
+        busy={removing}
+        tone="danger"
+        onConfirm={() => void confirmRemove()}
+        onCancel={() => setPendingRemove(null)}
+      />
     </div>
   )
 }

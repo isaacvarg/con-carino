@@ -40,6 +40,7 @@ import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as AppTransactionsNewRouteImport } from './routes/_app/transactions/new'
 import { Route as AppTransactionsTransactionIdRouteImport } from './routes/_app/transactions/$transactionId'
 import { Route as AppSettingsUsersRouteImport } from './routes/_app/settings/users'
+import { Route as AppSettingsTransactionTypesRouteImport } from './routes/_app/settings/transaction-types'
 import { Route as AppSettingsTagsRouteImport } from './routes/_app/settings/tags'
 import { Route as AppSettingsScheduleRouteImport } from './routes/_app/settings/schedule'
 import { Route as AppSettingsPeopleRouteImport } from './routes/_app/settings/people'
@@ -50,6 +51,7 @@ import { Route as AppSettingsDocumentTypesRouteImport } from './routes/_app/sett
 import { Route as AppSettingsContributionsRouteImport } from './routes/_app/settings/contributions'
 import { Route as AppSettingsCategoriesRouteImport } from './routes/_app/settings/categories'
 import { Route as AppSettingsAutomationsRouteImport } from './routes/_app/settings/automations'
+import { Route as AppSettingsArchivedRouteImport } from './routes/_app/settings/archived'
 import { Route as AppDocumentsDocumentIdRouteImport } from './routes/_app/documents/$documentId'
 import { Route as AppActivityActivityIdRouteImport } from './routes/_app/activity/$activityId'
 import { Route as AppAccountsNewRouteImport } from './routes/_app/accounts/new'
@@ -217,6 +219,12 @@ const AppSettingsUsersRoute = AppSettingsUsersRouteImport.update({
   path: '/users',
   getParentRoute: () => AppSettingsRoute,
 } as any)
+const AppSettingsTransactionTypesRoute =
+  AppSettingsTransactionTypesRouteImport.update({
+    id: '/transaction-types',
+    path: '/transaction-types',
+    getParentRoute: () => AppSettingsRoute,
+  } as any)
 const AppSettingsTagsRoute = AppSettingsTagsRouteImport.update({
   id: '/tags',
   path: '/tags',
@@ -267,6 +275,11 @@ const AppSettingsCategoriesRoute = AppSettingsCategoriesRouteImport.update({
 const AppSettingsAutomationsRoute = AppSettingsAutomationsRouteImport.update({
   id: '/automations',
   path: '/automations',
+  getParentRoute: () => AppSettingsRoute,
+} as any)
+const AppSettingsArchivedRoute = AppSettingsArchivedRouteImport.update({
+  id: '/archived',
+  path: '/archived',
   getParentRoute: () => AppSettingsRoute,
 } as any)
 const AppDocumentsDocumentIdRoute = AppDocumentsDocumentIdRouteImport.update({
@@ -356,6 +369,7 @@ export interface FileRoutesByFullPath {
   '/accounts/new': typeof AppAccountsNewRoute
   '/activity/$activityId': typeof AppActivityActivityIdRoute
   '/documents/$documentId': typeof AppDocumentsDocumentIdRoute
+  '/settings/archived': typeof AppSettingsArchivedRoute
   '/settings/automations': typeof AppSettingsAutomationsRoute
   '/settings/categories': typeof AppSettingsCategoriesRoute
   '/settings/contributions': typeof AppSettingsContributionsRoute
@@ -366,6 +380,7 @@ export interface FileRoutesByFullPath {
   '/settings/people': typeof AppSettingsPeopleRoute
   '/settings/schedule': typeof AppSettingsScheduleRoute
   '/settings/tags': typeof AppSettingsTagsRoute
+  '/settings/transaction-types': typeof AppSettingsTransactionTypesRoute
   '/settings/users': typeof AppSettingsUsersRouteWithChildren
   '/transactions/$transactionId': typeof AppTransactionsTransactionIdRoute
   '/transactions/new': typeof AppTransactionsNewRoute
@@ -403,6 +418,7 @@ export interface FileRoutesByTo {
   '/accounts/new': typeof AppAccountsNewRoute
   '/activity/$activityId': typeof AppActivityActivityIdRoute
   '/documents/$documentId': typeof AppDocumentsDocumentIdRoute
+  '/settings/archived': typeof AppSettingsArchivedRoute
   '/settings/automations': typeof AppSettingsAutomationsRoute
   '/settings/categories': typeof AppSettingsCategoriesRoute
   '/settings/contributions': typeof AppSettingsContributionsRoute
@@ -413,6 +429,7 @@ export interface FileRoutesByTo {
   '/settings/people': typeof AppSettingsPeopleRoute
   '/settings/schedule': typeof AppSettingsScheduleRoute
   '/settings/tags': typeof AppSettingsTagsRoute
+  '/settings/transaction-types': typeof AppSettingsTransactionTypesRoute
   '/transactions/$transactionId': typeof AppTransactionsTransactionIdRoute
   '/transactions/new': typeof AppTransactionsNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -457,6 +474,7 @@ export interface FileRoutesById {
   '/_app/accounts/new': typeof AppAccountsNewRoute
   '/_app/activity/$activityId': typeof AppActivityActivityIdRoute
   '/_app/documents/$documentId': typeof AppDocumentsDocumentIdRoute
+  '/_app/settings/archived': typeof AppSettingsArchivedRoute
   '/_app/settings/automations': typeof AppSettingsAutomationsRoute
   '/_app/settings/categories': typeof AppSettingsCategoriesRoute
   '/_app/settings/contributions': typeof AppSettingsContributionsRoute
@@ -467,6 +485,7 @@ export interface FileRoutesById {
   '/_app/settings/people': typeof AppSettingsPeopleRoute
   '/_app/settings/schedule': typeof AppSettingsScheduleRoute
   '/_app/settings/tags': typeof AppSettingsTagsRoute
+  '/_app/settings/transaction-types': typeof AppSettingsTransactionTypesRoute
   '/_app/settings/users': typeof AppSettingsUsersRouteWithChildren
   '/_app/transactions/$transactionId': typeof AppTransactionsTransactionIdRoute
   '/_app/transactions/new': typeof AppTransactionsNewRoute
@@ -512,6 +531,7 @@ export interface FileRouteTypes {
     | '/accounts/new'
     | '/activity/$activityId'
     | '/documents/$documentId'
+    | '/settings/archived'
     | '/settings/automations'
     | '/settings/categories'
     | '/settings/contributions'
@@ -522,6 +542,7 @@ export interface FileRouteTypes {
     | '/settings/people'
     | '/settings/schedule'
     | '/settings/tags'
+    | '/settings/transaction-types'
     | '/settings/users'
     | '/transactions/$transactionId'
     | '/transactions/new'
@@ -559,6 +580,7 @@ export interface FileRouteTypes {
     | '/accounts/new'
     | '/activity/$activityId'
     | '/documents/$documentId'
+    | '/settings/archived'
     | '/settings/automations'
     | '/settings/categories'
     | '/settings/contributions'
@@ -569,6 +591,7 @@ export interface FileRouteTypes {
     | '/settings/people'
     | '/settings/schedule'
     | '/settings/tags'
+    | '/settings/transaction-types'
     | '/transactions/$transactionId'
     | '/transactions/new'
     | '/api/auth/$'
@@ -612,6 +635,7 @@ export interface FileRouteTypes {
     | '/_app/accounts/new'
     | '/_app/activity/$activityId'
     | '/_app/documents/$documentId'
+    | '/_app/settings/archived'
     | '/_app/settings/automations'
     | '/_app/settings/categories'
     | '/_app/settings/contributions'
@@ -622,6 +646,7 @@ export interface FileRouteTypes {
     | '/_app/settings/people'
     | '/_app/settings/schedule'
     | '/_app/settings/tags'
+    | '/_app/settings/transaction-types'
     | '/_app/settings/users'
     | '/_app/transactions/$transactionId'
     | '/_app/transactions/new'
@@ -870,6 +895,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsUsersRouteImport
       parentRoute: typeof AppSettingsRoute
     }
+    '/_app/settings/transaction-types': {
+      id: '/_app/settings/transaction-types'
+      path: '/transaction-types'
+      fullPath: '/settings/transaction-types'
+      preLoaderRoute: typeof AppSettingsTransactionTypesRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
     '/_app/settings/tags': {
       id: '/_app/settings/tags'
       path: '/tags'
@@ -938,6 +970,13 @@ declare module '@tanstack/react-router' {
       path: '/automations'
       fullPath: '/settings/automations'
       preLoaderRoute: typeof AppSettingsAutomationsRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
+    '/_app/settings/archived': {
+      id: '/_app/settings/archived'
+      path: '/archived'
+      fullPath: '/settings/archived'
+      preLoaderRoute: typeof AppSettingsArchivedRouteImport
       parentRoute: typeof AppSettingsRoute
     }
     '/_app/documents/$documentId': {
@@ -1096,6 +1135,7 @@ const AppSettingsUsersRouteWithChildren =
   AppSettingsUsersRoute._addFileChildren(AppSettingsUsersRouteChildren)
 
 interface AppSettingsRouteChildren {
+  AppSettingsArchivedRoute: typeof AppSettingsArchivedRoute
   AppSettingsAutomationsRoute: typeof AppSettingsAutomationsRoute
   AppSettingsCategoriesRoute: typeof AppSettingsCategoriesRoute
   AppSettingsContributionsRoute: typeof AppSettingsContributionsRoute
@@ -1106,11 +1146,13 @@ interface AppSettingsRouteChildren {
   AppSettingsPeopleRoute: typeof AppSettingsPeopleRoute
   AppSettingsScheduleRoute: typeof AppSettingsScheduleRoute
   AppSettingsTagsRoute: typeof AppSettingsTagsRoute
+  AppSettingsTransactionTypesRoute: typeof AppSettingsTransactionTypesRoute
   AppSettingsUsersRoute: typeof AppSettingsUsersRouteWithChildren
   AppSettingsIndexRoute: typeof AppSettingsIndexRoute
 }
 
 const AppSettingsRouteChildren: AppSettingsRouteChildren = {
+  AppSettingsArchivedRoute: AppSettingsArchivedRoute,
   AppSettingsAutomationsRoute: AppSettingsAutomationsRoute,
   AppSettingsCategoriesRoute: AppSettingsCategoriesRoute,
   AppSettingsContributionsRoute: AppSettingsContributionsRoute,
@@ -1121,6 +1163,7 @@ const AppSettingsRouteChildren: AppSettingsRouteChildren = {
   AppSettingsPeopleRoute: AppSettingsPeopleRoute,
   AppSettingsScheduleRoute: AppSettingsScheduleRoute,
   AppSettingsTagsRoute: AppSettingsTagsRoute,
+  AppSettingsTransactionTypesRoute: AppSettingsTransactionTypesRoute,
   AppSettingsUsersRoute: AppSettingsUsersRouteWithChildren,
   AppSettingsIndexRoute: AppSettingsIndexRoute,
 }

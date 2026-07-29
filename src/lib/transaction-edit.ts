@@ -1,5 +1,5 @@
 import { MAX_ATTACHMENTS_PER_TXN } from '#/lib/attachment-types'
-import type { TransactionDirection } from '#/lib/transaction-amount'
+import type { TransactionDirection } from '#/lib/transaction-types'
 
 export type AttachmentChangePlan = {
   retainIds: string[]

@@ -9,7 +9,7 @@ import {
 const rows: TransactionSearchable[] = [
   {
     id: '1',
-    type: 'EXPENSE',
+    type: { label: 'Expense' },
     amount: '-42.50',
     description: 'Weekly groceries',
     date: '2026-01-15T00:00:00.000Z',
@@ -20,7 +20,7 @@ const rows: TransactionSearchable[] = [
   },
   {
     id: '2',
-    type: 'INCOME',
+    type: { label: 'Income' },
     amount: '2500.00',
     description: 'January paycheck',
     date: '2026-01-01T00:00:00.000Z',
@@ -31,7 +31,7 @@ const rows: TransactionSearchable[] = [
   },
   {
     id: '3',
-    type: 'EXPENSE',
+    type: { label: 'Expense' },
     amount: '-4.75',
     description: 'Morning latte',
     date: '2026-02-03T00:00:00.000Z',

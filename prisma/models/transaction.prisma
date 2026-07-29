@@ -1,12 +1,38 @@
-enum TransactionType {
-  EXPENSE
-  INCOME
-  TRANSFER
-  BALANCE_ADJUSTMENT
-  REFUND
-  REIMBURSEMENT
-  WITHDRAWAL
-  DEPOSIT
+/// Which way a type moves an account balance. This, not the type itself, is
+/// what the sign logic switches on — so adding a type is data, not a migration.
+enum TransactionSign {
+  NEGATIVE
+  POSITIVE
+  /// Asks at entry time (Transfer, Balance adjustment). Reserved for the two
+  /// built-ins; admin-created types are NEGATIVE or POSITIVE.
+  DIRECTIONAL
+}
+
+/// Was a Prisma enum. Now a table so admins can add and rename types.
+///
+/// `sign` may only change while nothing references the row: amounts are stored
+/// already-signed, so flipping the sign under existing transactions would
+/// invert their meaning without touching their values.
+model TransactionTypeDef {
+  id         String          @id @default(uuid())
+  /// Stable code identifier, uppercase snake. Immutable once created — app
+  /// code references the built-in keys directly.
+  key        String          @unique
+  label      String
+  sign       TransactionSign
+  /// The eight original enum members. Label and order stay editable; sign is
+  /// frozen and hard delete is refused.
+  isSystem   Boolean         @default(false)
+  sortOrder  Int
+  archivedAt DateTime?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  transactions Transaction[]
+  automations  Automation[]
+
+  @@index([archivedAt])
+  @@map("transaction_types")
 }
 
 enum ReconciliationStatus {
@@ -20,7 +46,7 @@ model Transaction {
   id                 String          @id @default(uuid())
   userId             String
   financialAccountId String
-  type               TransactionType
+  typeId             String
   amount             Decimal         @db.Decimal(19, 4)
   description        String?
   payeeId            String?
@@ -39,6 +65,9 @@ model Transaction {
 
   user                    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   financialAccount        FinancialAccount @relation(fields: [financialAccountId], references: [id], onDelete: Cascade)
+  // Restrict, not Cascade: a type in use must be archived, never deleted out
+  // from under the transactions that carry it.
+  type                    TransactionTypeDef @relation(fields: [typeId], references: [id], onDelete: Restrict)
   payee                   Payee?           @relation(fields: [payeeId], references: [id], onDelete: SetNull)
   category                Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   reconciliationUpdatedBy User?            @relation("TransactionReconciliationUpdatedBy", fields: [reconciliationUpdatedById], references: [id], onDelete: SetNull)
@@ -51,6 +80,7 @@ model Transaction {
   careLedgerEntry         CareContributionLedgerEntry?
 
   @@index([userId, date])
+  @@index([typeId])
   @@index([financialAccountId, date])
   @@index([financialAccountId, reconciliationStatus])
   @@index([payeeId])

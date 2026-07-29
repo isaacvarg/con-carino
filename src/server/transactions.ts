@@ -1,14 +1,8 @@
 import { createServerFn, createServerOnlyFn } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
 import { getSession } from 'start-authjs'
-import {
-  ReconciliationStatus as ReconciliationStatusEnum,
-  TransactionType as TransactionTypeEnum,
-} from '#/generated/prisma/enums'
-import type {
-  ReconciliationStatus,
-  TransactionType,
-} from '#/generated/prisma/enums'
+import { ReconciliationStatus as ReconciliationStatusEnum } from '#/generated/prisma/enums'
+import type { ReconciliationStatus } from '#/generated/prisma/enums'
 import type { PrismaClient } from '#/generated/prisma/client'
 import {
   ACTIVITY_ENTITY_TYPES,
@@ -35,16 +29,23 @@ import {
   type ColoredTaxonomyRef,
 } from '#/lib/taxonomy-types'
 import {
-  toSignedTransactionAmount,
-  transactionTypeNeedsDirection,
+  signedAmountFor,
+  typeNeedsDirection,
+  TRANSACTION_TYPE_REF_SELECT,
   type TransactionDirection,
-} from '#/lib/transaction-amount'
+  type TransactionTypeRef,
+} from '#/lib/transaction-types'
 import {
   assertCanMutateReconciliationStatus,
   isMutableReconciliationStatus,
   reconciliationStatusActivitySummary,
   type MutableReconciliationStatus,
 } from '#/lib/reconciliation'
+import { requireAdminId } from '#/server/auth-guards'
+import {
+  requireTransactionTypeByKey,
+  requireUsableTransactionType,
+} from '#/server/transaction-type-lookup'
 import {
   buildTransactionActivitySnapshot,
   directionFromSignedAmount,
@@ -64,8 +65,6 @@ const TRANSACTION_ACTIVITY_FIELDS = [
   'categoryId',
   'transferGroupId',
 ] as const
-
-const TRANSACTION_TYPES = Object.values(TransactionTypeEnum)
 
 export type { ColoredTaxonomyRef } from '#/lib/taxonomy-types'
 
@@ -87,7 +86,7 @@ export type TransactionListItem = {
   id: string
   userId: string
   financialAccountId: string
-  type: TransactionType
+  type: TransactionTypeRef
   amount: string
   description: string | null
   date: string
@@ -256,7 +255,7 @@ type TransactionWithTaxonomies = {
   id: string
   userId: string
   financialAccountId: string
-  type: TransactionType
+  type: TransactionTypeRef
   amount: { toString(): string }
   description: string | null
   date: Date
@@ -478,15 +477,58 @@ function ownOrGlobal(userId: string) {
   }
 }
 
+/**
+ * Accounts whose transactions belong in cross-account views.
+ *
+ * `ownOrGlobal` minus archived accounts. Archiving an account is meant to take
+ * it out of sight, and leaving its transactions in the all-transactions table,
+ * the dashboard, and the spending reports would only half-do that — the rows
+ * would still be there with no account to trace them back to.
+ *
+ * Deliberately not applied to the single-account and single-transaction reads.
+ * Those need a direct id to reach, so an admin can still inspect an archived
+ * account before deciding whether to restore it, and existing activity-log
+ * links keep resolving instead of turning into "not found".
+ */
+function inActiveAccount(userId: string) {
+  return { ...ownOrGlobal(userId), archivedAt: null }
+}
+
+/**
+ * For reads. Archived accounts still resolve, so their own detail page and
+ * balance keep working for an admin deciding whether to restore.
+ */
 async function assertAccountVisible(userId: string, accountId: string) {
   const account = await prisma.financialAccount.findFirst({
     where: {
       AND: [{ id: accountId }, ownOrGlobal(userId)],
     },
-    select: { id: true, name: true, initialBalance: true, userId: true, isGlobal: true },
+    select: {
+      id: true,
+      name: true,
+      initialBalance: true,
+      userId: true,
+      isGlobal: true,
+      archivedAt: true,
+    },
   })
   if (!account) {
     throw new Error('Account not found.')
+  }
+  return account
+}
+
+/**
+ * For writes. Nothing new may be posted to an archived account — it is out of
+ * use, and a fresh transaction there would be invisible the moment it was
+ * written, since every cross-account view filters archived accounts out.
+ */
+async function assertAccountWritable(userId: string, accountId: string) {
+  const account = await assertAccountVisible(userId, accountId)
+  if (account.archivedAt) {
+    throw new Error(
+      `“${account.name}” is archived. Restore it before adding transactions.`,
+    )
   }
   return account
 }
@@ -550,6 +592,7 @@ export const listAccountTransactions = createServerFn({ method: 'GET' })
       where: { financialAccountId: data.accountId },
       orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
       include: {
+        type: { select: TRANSACTION_TYPE_REF_SELECT },
         payee: { select: TAXONOMY_COLOR_SELECT },
         category: { select: TAXONOMY_COLOR_SELECT },
         tags: { select: TAXONOMY_COLOR_SELECT, orderBy: { name: 'asc' } },
@@ -570,13 +613,14 @@ export const listVisibleTransactions = createServerFn({ method: 'GET' }).handler
 
     const transactions = await prisma.transaction.findMany({
       where: {
-        financialAccount: ownOrGlobal(userId),
+        financialAccount: inActiveAccount(userId),
       },
       orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
       include: {
         financialAccount: {
           select: { id: true, name: true, isGlobal: true },
         },
+        type: { select: TRANSACTION_TYPE_REF_SELECT },
         payee: { select: TAXONOMY_COLOR_SELECT },
         category: { select: TAXONOMY_COLOR_SELECT },
         tags: { select: TAXONOMY_COLOR_SELECT, orderBy: { name: 'asc' } },
@@ -607,7 +651,7 @@ export const listRecentTransactions = createServerFn({ method: 'GET' })
 
     const transactions = await prisma.transaction.findMany({
       where: {
-        financialAccount: ownOrGlobal(userId),
+        financialAccount: inActiveAccount(userId),
       },
       orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
       take: data.take,
@@ -615,6 +659,7 @@ export const listRecentTransactions = createServerFn({ method: 'GET' })
         financialAccount: {
           select: { id: true, name: true, isGlobal: true },
         },
+        type: { select: TRANSACTION_TYPE_REF_SELECT },
         payee: { select: TAXONOMY_COLOR_SELECT },
         category: { select: TAXONOMY_COLOR_SELECT },
         tags: { select: TAXONOMY_COLOR_SELECT, orderBy: { name: 'asc' } },
@@ -653,7 +698,7 @@ export const getPayeeTransactionStats = createServerFn({
   const groups = await prisma.transaction.groupBy({
     by: ['payeeId'],
     where: {
-      financialAccount: ownOrGlobal(userId),
+      financialAccount: inActiveAccount(userId),
     },
     _count: { _all: true },
   })
@@ -688,7 +733,7 @@ export const getCategoryTransactionStats = createServerFn({
   const groups = await prisma.transaction.groupBy({
     by: ['categoryId'],
     where: {
-      financialAccount: ownOrGlobal(userId),
+      financialAccount: inActiveAccount(userId),
     },
     _count: { _all: true },
   })
@@ -729,7 +774,7 @@ export const getTagTransactionStats = createServerFn({
       _count: {
         select: {
           transactions: {
-            where: { financialAccount: ownOrGlobal(userId) },
+            where: { financialAccount: inActiveAccount(userId) },
           },
         },
       },
@@ -746,7 +791,7 @@ export const getTagTransactionStats = createServerFn({
 
   const untagged = await prisma.transaction.count({
     where: {
-      financialAccount: ownOrGlobal(userId),
+      financialAccount: inActiveAccount(userId),
       tags: { none: {} },
     },
   })
@@ -768,8 +813,6 @@ export type SpendingStat = {
 }
 
 const SPENDING_RANGES = new Set<SpendingRange>(['month', '30d', '60d', 'all'])
-
-const SPENDING_TYPES: TransactionType[] = ['EXPENSE', 'WITHDRAWAL']
 
 function parseSpendingRange(data: unknown): { range: SpendingRange } {
   const input = (data ?? {}) as Record<string, unknown>
@@ -793,8 +836,12 @@ function spendingDateGte(range: SpendingRange): Date | undefined {
 function spendingWhere(userId: string, range: SpendingRange) {
   const gte = spendingDateGte(range)
   return {
-    financialAccount: ownOrGlobal(userId),
-    type: { in: SPENDING_TYPES },
+    financialAccount: inActiveAccount(userId),
+    // "Spending" is anything whose type subtracts from a balance. Derived from
+    // the sign rather than a hand-listed set of types, so an admin-created
+    // negative type counts here the day it is made instead of being silently
+    // missing from every spending report.
+    type: { sign: 'NEGATIVE' as const },
     ...(gte ? { date: { gte } } : {}),
   }
 }
@@ -912,6 +959,7 @@ export const getTransaction = createServerFn({ method: 'GET' })
         financialAccount: {
           select: { id: true, name: true, isGlobal: true, userId: true },
         },
+        type: { select: TRANSACTION_TYPE_REF_SELECT },
         payee: { select: TAXONOMY_COLOR_SELECT },
         category: { select: TAXONOMY_COLOR_SELECT },
         tags: { select: TAXONOMY_COLOR_SELECT, orderBy: { name: 'asc' } },
@@ -973,7 +1021,7 @@ function toTransactionDetailDto(
     id: string
     userId: string
     financialAccountId: string
-    type: TransactionType
+    type: TransactionTypeRef
     amount: { toString(): string }
     description: string | null
     date: Date
@@ -1079,12 +1127,11 @@ export const createTransaction = createServerFn({ method: 'POST' })
       throw new Error('Account id is required.')
     }
 
-    const type = input.type
-    if (
-      typeof type !== 'string' ||
-      !TRANSACTION_TYPES.includes(type as TransactionType)
-    ) {
-      throw new Error('Transaction type is invalid.')
+    // Types are rows now, so whether this one exists, is live, and needs a
+    // direction can only be answered by the handler. Shape only here.
+    const typeId = typeof input.typeId === 'string' ? input.typeId.trim() : ''
+    if (!typeId) {
+      throw new Error('Transaction type is required.')
     }
 
     const amount = typeof input.amount === 'string' ? input.amount : ''
@@ -1097,12 +1144,6 @@ export const createTransaction = createServerFn({ method: 'POST' })
       typeof input.description === 'string' ? input.description.trim() : ''
 
     const direction = parseDirection(input.direction)
-    if (
-      transactionTypeNeedsDirection(type as TransactionType) &&
-      !direction
-    ) {
-      throw new Error('Direction is required for this transaction type.')
-    }
 
     const payee =
       typeof input.payee === 'string'
@@ -1123,7 +1164,7 @@ export const createTransaction = createServerFn({ method: 'POST' })
 
     return {
       financialAccountId,
-      type: type as TransactionType,
+      typeId,
       amount,
       date,
       description: description || null,
@@ -1136,10 +1177,11 @@ export const createTransaction = createServerFn({ method: 'POST' })
   })
   .handler(async ({ data }): Promise<TransactionListItem> => {
     const userId = await requireUserId()
-    await assertAccountVisible(userId, data.financialAccountId)
+    await assertAccountWritable(userId, data.financialAccountId)
 
-    const signedAmount = toSignedTransactionAmount(
-      data.type,
+    const type = await requireUsableTransactionType(data.typeId)
+    const signedAmount = signedAmountFor(
+      type,
       parsePositiveAmount(data.amount),
       data.direction,
     )
@@ -1154,7 +1196,7 @@ export const createTransaction = createServerFn({ method: 'POST' })
       data: {
         userId,
         financialAccountId: data.financialAccountId,
-        type: data.type,
+        typeId: type.id,
         amount: signedAmount,
         date: parseDate(data.date),
         description: data.description,
@@ -1165,6 +1207,7 @@ export const createTransaction = createServerFn({ method: 'POST' })
           : {}),
       },
       include: {
+        type: { select: TRANSACTION_TYPE_REF_SELECT },
         payee: { select: TAXONOMY_COLOR_SELECT },
         category: { select: TAXONOMY_COLOR_SELECT },
         tags: { select: TAXONOMY_COLOR_SELECT, orderBy: { name: 'asc' } },
@@ -1182,11 +1225,11 @@ export const createTransaction = createServerFn({ method: 'POST' })
       action: 'CREATE',
       entityType: ACTIVITY_ENTITY_TYPES.transaction,
       entityId: created.id,
-      summary: `Created ${created.type.toLowerCase().replaceAll('_', ' ')} of $${amountLabel} on ${created.financialAccount.name}`,
+      summary: `Created ${created.type.label.toLowerCase()} of $${amountLabel} on ${created.financialAccount.name}`,
       changes: createChanges(
         {
           financialAccountId: created.financialAccountId,
-          type: created.type,
+          type: created.type.label,
           amount: created.amount.toString(),
           description: created.description,
           date: created.date.toISOString(),
@@ -1279,14 +1322,15 @@ export const createTransferRows = createServerOnlyFn(async (
   input: TransferRowsInput,
 ) => {
   const transferGroupId = crypto.randomUUID()
-  const outAmount = toSignedTransactionAmount('TRANSFER', input.magnitude, 'out')
-  const inAmount = toSignedTransactionAmount('TRANSFER', input.magnitude, 'in')
+  const transferType = await requireTransactionTypeByKey('TRANSFER')
+  const outAmount = signedAmountFor(transferType, input.magnitude, 'out')
+  const inAmount = signedAmountFor(transferType, input.magnitude, 'in')
 
   const from = await tx.transaction.create({
     data: {
       userId: input.userId,
       financialAccountId: input.fromAccountId,
-      type: 'TRANSFER',
+      typeId: transferType.id,
       amount: outAmount,
       date: input.date,
       description: input.description,
@@ -1298,7 +1342,7 @@ export const createTransferRows = createServerOnlyFn(async (
     data: {
       userId: input.userId,
       financialAccountId: input.toAccountId,
-      type: 'TRANSFER',
+      typeId: transferType.id,
       amount: inAmount,
       date: input.date,
       description: input.description,
@@ -1317,7 +1361,7 @@ export const createTransferRows = createServerOnlyFn(async (
       changes: createChanges(
         {
           financialAccountId: from.financialAccountId,
-          type: from.type,
+          type: transferType.label,
           amount: from.amount.toString(),
           description: from.description,
           date: from.date.toISOString(),
@@ -1338,7 +1382,7 @@ export const createTransferRows = createServerOnlyFn(async (
     tx,
   )
 
-  return { transferGroupId, from, to }
+  return { transferGroupId, transferType, from, to }
 })
 
 export const createTransfer = createServerFn({ method: 'POST' })
@@ -1380,8 +1424,8 @@ export const createTransfer = createServerFn({ method: 'POST' })
   })
   .handler(async ({ data }): Promise<TransferCreateResult> => {
     const userId = await requireUserId()
-    await assertAccountVisible(userId, data.fromAccountId)
-    await assertAccountVisible(userId, data.toAccountId)
+    await assertAccountWritable(userId, data.fromAccountId)
+    await assertAccountWritable(userId, data.toAccountId)
 
     const [fromAccount, toAccount] = await Promise.all([
       prisma.financialAccount.findUniqueOrThrow({
@@ -1418,7 +1462,7 @@ export const createTransfer = createServerFn({ method: 'POST' })
     const magnitude = parsePositiveAmount(data.amount)
     const date = parseDate(data.date)
 
-    const { transferGroupId, from: fromTxn, to: toTxn } =
+    const { transferGroupId, transferType, from: fromTxn, to: toTxn } =
       await prisma.$transaction((tx) =>
         createTransferRows(tx, {
           userId,
@@ -1446,7 +1490,7 @@ export const createTransfer = createServerFn({ method: 'POST' })
         id: fromTxn.id,
         userId: fromTxn.userId,
         financialAccountId: fromTxn.financialAccountId,
-        type: fromTxn.type,
+        type: transferType,
         amount: fromTxn.amount.toString(),
         description: fromTxn.description,
         date: fromTxn.date.toISOString(),
@@ -1458,7 +1502,7 @@ export const createTransfer = createServerFn({ method: 'POST' })
         id: toTxn.id,
         userId: toTxn.userId,
         financialAccountId: toTxn.financialAccountId,
-        type: toTxn.type,
+        type: transferType,
         amount: toTxn.amount.toString(),
         description: toTxn.description,
         date: toTxn.date.toISOString(),
@@ -1524,6 +1568,7 @@ const detailInclude = {
   financialAccount: {
     select: { id: true, name: true, isGlobal: true, userId: true },
   },
+  type: { select: TRANSACTION_TYPE_REF_SELECT },
   payee: { select: TAXONOMY_COLOR_SELECT },
   category: { select: TAXONOMY_COLOR_SELECT },
   tags: { select: TAXONOMY_COLOR_SELECT, orderBy: { name: 'asc' as const } },
@@ -1545,6 +1590,13 @@ export const updateTransaction = createServerFn({ method: 'POST' })
     if (!id) {
       throw new Error('Transaction id is required.')
     }
+
+    // Absent means "keep the current type" — the reconciliation-mode inline
+    // editor never sends one.
+    const typeId =
+      typeof input.typeId === 'string' && input.typeId.trim()
+        ? input.typeId.trim()
+        : null
 
     const amount = typeof input.amount === 'string' ? input.amount : ''
     parsePositiveAmount(amount)
@@ -1580,6 +1632,7 @@ export const updateTransaction = createServerFn({ method: 'POST' })
 
     return {
       id,
+      typeId,
       amount,
       description: description || null,
       direction,
@@ -1604,6 +1657,7 @@ export const updateTransaction = createServerFn({ method: 'POST' })
         financialAccount: {
           select: { id: true, name: true, isGlobal: true, userId: true },
         },
+        type: { select: TRANSACTION_TYPE_REF_SELECT },
         tags: { select: { id: true } },
         attachments: { select: ATTACHMENT_SELECT },
         careInvoice: { select: { id: true, status: true } },
@@ -1618,23 +1672,39 @@ export const updateTransaction = createServerFn({ method: 'POST' })
 
     const nextDate = data.date ? parseDate(data.date) : existing.date
 
-    const isTransfer = existing.type === 'TRANSFER'
+    const isTransfer = existing.type.key === 'TRANSFER'
+
+    // Correcting a mis-entered type re-signs the amount. Three things it must
+    // not do: strand a transfer leg, silently re-price a settled care invoice,
+    // or resurrect an archived type.
+    let nextType = existing.type
+    if (data.typeId && data.typeId !== existing.typeId) {
+      const requested = await requireUsableTransactionType(data.typeId)
+      if (isTransfer || requested.key === 'TRANSFER') {
+        throw new Error(
+          'A transfer is a pair of linked rows, so its type cannot be changed. Delete it and add the transaction again.',
+        )
+      }
+      if (existing.careInvoice && existing.careInvoice.status === 'PAID') {
+        throw new Error(
+          'This transaction settles a paid invoice, so its type cannot be changed. Void the invoice first.',
+        )
+      }
+      nextType = requested
+    }
+
     const magnitude = parsePositiveAmount(data.amount)
     const direction =
       data.direction ??
-      (transactionTypeNeedsDirection(existing.type)
+      (typeNeedsDirection(nextType)
         ? directionFromSignedAmount(existing.amount.toString())
         : undefined)
 
-    if (transactionTypeNeedsDirection(existing.type) && !direction) {
+    if (typeNeedsDirection(nextType) && !direction) {
       throw new Error('Direction is required for this transaction type.')
     }
 
-    const signedAmount = toSignedTransactionAmount(
-      existing.type,
-      magnitude,
-      direction,
-    )
+    const signedAmount = signedAmountFor(nextType, magnitude, direction)
 
     const [payeeId, categoryId, tagIds] = isTransfer
       ? [null, null, [] as string[]]
@@ -1656,7 +1726,7 @@ export const updateTransaction = createServerFn({ method: 'POST' })
       amount: { toString(): string }
       description: string | null
       date: Date
-      type: TransactionType
+      type: TransactionTypeRef
       payeeId: string | null
       categoryId: string | null
       transferGroupId: string | null
@@ -1681,6 +1751,7 @@ export const updateTransaction = createServerFn({ method: 'POST' })
           financialAccount: {
             select: { name: true, isGlobal: true, userId: true },
           },
+          type: { select: TRANSACTION_TYPE_REF_SELECT },
           tags: { select: { id: true } },
           attachments: { select: ATTACHMENT_SELECT },
         },
@@ -1696,7 +1767,7 @@ export const updateTransaction = createServerFn({ method: 'POST' })
 
     const beforeSnapshot = buildTransactionActivitySnapshot({
       financialAccountId: existing.financialAccountId,
-      type: existing.type,
+      type: existing.type.label,
       amount: existing.amount,
       description: existing.description,
       date: existing.date,
@@ -1711,7 +1782,7 @@ export const updateTransaction = createServerFn({ method: 'POST' })
     const counterpartBeforeSnapshot = counterpart
       ? buildTransactionActivitySnapshot({
           financialAccountId: counterpart.financialAccountId,
-          type: counterpart.type,
+          type: counterpart.type.label,
           amount: counterpart.amount,
           description: counterpart.description,
           date: counterpart.date,
@@ -1725,8 +1796,8 @@ export const updateTransaction = createServerFn({ method: 'POST' })
       : null
 
     const counterpartSignedAmount = counterpart
-      ? toSignedTransactionAmount(
-          'TRANSFER',
+      ? signedAmountFor(
+          counterpart.type,
           magnitude,
           directionFromSignedAmount(counterpart.amount.toString()),
         )
@@ -1817,7 +1888,7 @@ export const updateTransaction = createServerFn({ method: 'POST' })
 
     const afterSnapshot = buildTransactionActivitySnapshot({
       financialAccountId: updated.financialAccountId,
-      type: updated.type,
+      type: updated.type.label,
       amount: updated.amount,
       description: updated.description,
       date: updated.date,
@@ -1837,7 +1908,7 @@ export const updateTransaction = createServerFn({ method: 'POST' })
 
     if (Object.keys(changes).length > 0) {
       const amountLabel = Math.abs(Number(updated.amount.toString())).toFixed(2)
-      const baseSummary = `Updated ${updated.type.toLowerCase().replaceAll('_', ' ')} of $${amountLabel} on ${updated.financialAccount.name}`
+      const baseSummary = `Updated ${updated.type.label.toLowerCase()} of $${amountLabel} on ${updated.financialAccount.name}`
       await logActivity({
         actorUserId: userId,
         action: 'UPDATE',
@@ -1865,13 +1936,14 @@ export const updateTransaction = createServerFn({ method: 'POST' })
           financialAccount: {
             select: { name: true, isGlobal: true, userId: true },
           },
+          type: { select: TRANSACTION_TYPE_REF_SELECT },
           tags: { select: { id: true } },
           attachments: { select: { id: true } },
         },
       })
       const counterpartAfter = buildTransactionActivitySnapshot({
         financialAccountId: updatedCounterpart.financialAccountId,
-        type: updatedCounterpart.type,
+        type: updatedCounterpart.type.label,
         amount: updatedCounterpart.amount,
         description: updatedCounterpart.description,
         date: updatedCounterpart.date,
@@ -1983,6 +2055,7 @@ export const setTransactionReconciliationStatus = createServerFn({
         financialAccount: {
           select: { id: true, name: true, isGlobal: true, userId: true },
         },
+        type: { select: TRANSACTION_TYPE_REF_SELECT },
         payee: { select: TAXONOMY_COLOR_SELECT },
         category: { select: TAXONOMY_COLOR_SELECT },
         tags: { select: TAXONOMY_COLOR_SELECT, orderBy: { name: 'asc' } },
@@ -2009,6 +2082,7 @@ export const setTransactionReconciliationStatus = createServerFn({
         reconciliationUpdatedById: userId,
       },
       include: {
+        type: { select: TRANSACTION_TYPE_REF_SELECT },
         payee: { select: TAXONOMY_COLOR_SELECT },
         category: { select: TAXONOMY_COLOR_SELECT },
         tags: { select: TAXONOMY_COLOR_SELECT, orderBy: { name: 'asc' } },
@@ -2037,6 +2111,248 @@ export const setTransactionReconciliationStatus = createServerFn({
     })
 
     return toTransactionListItem(updated)
+  })
+
+/**
+ * Delete a transaction the user entered by mistake.
+ *
+ * Scoped and gated exactly like `updateTransaction` — own-or-global account,
+ * and not reconciled. Both legs of a transfer go together: deleting one would
+ * leave the other pointing at a transfer group with nothing on the other side,
+ * which every balance and reconciliation view would then misreport.
+ *
+ * Refuses outright when a care invoice or contribution ledger entry points at
+ * the row. Those relations are `onDelete: SetNull`, so Postgres would let the
+ * delete through and quietly strand a settled invoice with no payment behind
+ * it. Failing loudly is the only honest option.
+ */
+export const deleteTransaction = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    if (!data || typeof data !== 'object') {
+      throw new Error('Invalid payload.')
+    }
+    const id = typeof (data as Record<string, unknown>).id === 'string'
+      ? ((data as Record<string, unknown>).id as string).trim()
+      : ''
+    if (!id) {
+      throw new Error('Transaction id is required.')
+    }
+    return { id }
+  })
+  .handler(async ({ data }): Promise<{ deletedCount: number }> => {
+    const userId = await requireUserId()
+
+    const existing = await prisma.transaction.findFirst({
+      where: {
+        id: data.id,
+        financialAccount: ownOrGlobal(userId),
+      },
+      include: {
+        financialAccount: {
+          select: { id: true, name: true, isGlobal: true, userId: true },
+        },
+        type: { select: TRANSACTION_TYPE_REF_SELECT },
+        tags: { select: { id: true } },
+        attachments: { select: { id: true } },
+        careInvoice: { select: { id: true, status: true } },
+        careLedgerEntry: { select: { id: true } },
+      },
+    })
+    if (!existing) {
+      throw new Error('Transaction not found.')
+    }
+
+    assertCanMutateReconciliationStatus(existing.reconciliationStatus)
+
+    if (existing.careInvoice) {
+      throw new Error(
+        'This transaction settles a care invoice. Void the invoice first.',
+      )
+    }
+    if (existing.careLedgerEntry) {
+      throw new Error(
+        'This transaction backs a contribution ledger entry and cannot be deleted.',
+      )
+    }
+
+    const rows = [existing]
+    if (existing.transferGroupId) {
+      const counterparts = await prisma.transaction.findMany({
+        where: {
+          transferGroupId: existing.transferGroupId,
+          id: { not: existing.id },
+          financialAccount: ownOrGlobal(userId),
+        },
+        include: {
+          financialAccount: {
+            select: { id: true, name: true, isGlobal: true, userId: true },
+          },
+          type: { select: TRANSACTION_TYPE_REF_SELECT },
+          tags: { select: { id: true } },
+          attachments: { select: { id: true } },
+          careInvoice: { select: { id: true, status: true } },
+          careLedgerEntry: { select: { id: true } },
+        },
+      })
+      for (const row of counterparts) {
+        // The other leg can live on an account this user cannot see, and can
+        // be reconciled independently. Either way the pair is not deletable.
+        assertCanMutateReconciliationStatus(row.reconciliationStatus)
+        rows.push(row)
+      }
+    }
+
+    const attachmentIds = [
+      ...new Set(rows.flatMap((row) => row.attachments.map((a) => a.id))),
+    ]
+
+    await prisma.$transaction(async (tx) => {
+      for (const row of rows) {
+        await logActivity(
+          {
+            actorUserId: userId,
+            action: 'DELETE',
+            entityType: ACTIVITY_ENTITY_TYPES.transaction,
+            entityId: row.id,
+            summary: `Deleted ${row.type.label.toLowerCase()} of $${Math.abs(
+              Number(row.amount.toString()),
+            ).toFixed(2)} on ${row.financialAccount.name}`,
+            // A full before-snapshot: once the row is gone this log entry is
+            // the only record of what it was.
+            changes: diffChanges(
+              buildTransactionActivitySnapshot({
+                financialAccountId: row.financialAccountId,
+                type: row.type.label,
+                amount: row.amount,
+                description: row.description,
+                date: row.date,
+                payeeId: row.payeeId,
+                categoryId: row.categoryId,
+                transferGroupId: row.transferGroupId,
+                tagIds: row.tags.map((tag) => tag.id),
+                attachmentIds: row.attachments.map((item) => item.id),
+                reconciliationStatus: row.reconciliationStatus,
+              }),
+              null,
+              TRANSACTION_UPDATE_ACTIVITY_FIELDS,
+            ),
+            linkMeta: {
+              isGlobal: row.financialAccount.isGlobal,
+              accountName: row.financialAccount.name,
+            },
+            visibilityUserId: row.financialAccount.userId,
+          },
+          tx,
+        )
+      }
+      await tx.transaction.deleteMany({
+        where: { id: { in: rows.map((row) => row.id) } },
+      })
+    })
+
+    // After the rows are gone, so the reference count reflects the deletion.
+    await deleteUnreferencedAttachments(attachmentIds)
+
+    return { deletedCount: rows.length }
+  })
+
+/**
+ * Reopen a reconciled transaction so it can be corrected.
+ *
+ * Admin only, and the one way past `assertCanMutateReconciliationStatus`.
+ * Lands on CLEARED rather than UNCLEARED: the row did reconcile against a
+ * statement, and dropping it all the way back would misrepresent that and
+ * force it through review again.
+ *
+ * Both legs of a transfer unlock together. Unlocking one alone leaves the pair
+ * half-editable, and `updateTransaction` re-checks the counterpart mid-write —
+ * so the edit would fail after the first row had already been touched.
+ */
+export const unlockTransactionReconciliation = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    if (!data || typeof data !== 'object') {
+      throw new Error('Invalid payload.')
+    }
+    const id = typeof (data as Record<string, unknown>).id === 'string'
+      ? ((data as Record<string, unknown>).id as string).trim()
+      : ''
+    if (!id) {
+      throw new Error('Transaction id is required.')
+    }
+    return { id }
+  })
+  .handler(async ({ data }): Promise<{ unlockedCount: number }> => {
+    const userId = await requireAdminId()
+
+    const existing = await prisma.transaction.findUnique({
+      where: { id: data.id },
+      include: {
+        financialAccount: {
+          select: { id: true, name: true, isGlobal: true, userId: true },
+        },
+        type: { select: TRANSACTION_TYPE_REF_SELECT },
+      },
+    })
+    if (!existing) {
+      throw new Error('Transaction not found.')
+    }
+    if (existing.reconciliationStatus !== 'RECONCILED') {
+      throw new Error('This transaction is not reconciled.')
+    }
+
+    const ids = [existing.id]
+    if (existing.transferGroupId) {
+      const counterparts = await prisma.transaction.findMany({
+        where: {
+          transferGroupId: existing.transferGroupId,
+          id: { not: existing.id },
+          reconciliationStatus: 'RECONCILED',
+        },
+        select: { id: true },
+      })
+      ids.push(...counterparts.map((row) => row.id))
+    }
+
+    const now = new Date()
+    await prisma.$transaction(async (tx) => {
+      await tx.transaction.updateMany({
+        where: { id: { in: ids }, reconciliationStatus: 'RECONCILED' },
+        data: {
+          reconciliationStatus: 'CLEARED',
+          reconciliationUpdatedAt: now,
+          reconciliationUpdatedById: userId,
+        },
+      })
+      for (const id of ids) {
+        await logActivity(
+          {
+            actorUserId: userId,
+            action: 'UPDATE',
+            entityType: ACTIVITY_ENTITY_TYPES.transaction,
+            entityId: id,
+            summary:
+              ids.length > 1
+                ? 'Unlocked a reconciled transfer for editing'
+                : 'Unlocked a reconciled transaction for editing',
+            changes: {
+              reconciliationStatus: {
+                before: 'RECONCILED',
+                after: 'CLEARED',
+              },
+            },
+            linkMeta: {
+              isGlobal: existing.financialAccount.isGlobal,
+              accountName: existing.financialAccount.name,
+              viaAdminMode: true,
+            },
+            visibilityUserId: existing.financialAccount.userId,
+          },
+          tx,
+        )
+      }
+    })
+
+    return { unlockedCount: ids.length }
   })
 
 export const finishAccountReconciliation = createServerFn({ method: 'POST' })

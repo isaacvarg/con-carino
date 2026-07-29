@@ -83,7 +83,7 @@ export function RecentTransactions({
                             {title}
                           </p>
                           <p className="text-xs text-base-content/70">
-                            {tx.category?.name ?? tx.type}
+                            {tx.category?.name ?? tx.type.label}
                           </p>
                         </div>
                       </div>
@@ -142,7 +142,7 @@ export function RecentTransactions({
                               {title}
                             </p>
                             <p className="text-xs text-base-content/70">
-                              {tx.category?.name ?? tx.type}
+                              {tx.category?.name ?? tx.type.label}
                             </p>
                           </div>
                         </Link>
