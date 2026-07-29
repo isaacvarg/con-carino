@@ -19,6 +19,7 @@ import { useMemo } from 'react'
 import { HiOutlineSearch, HiPlus } from 'react-icons/hi'
 import { accountDetailSearchDefaults } from '#/components/app/accounts/account-detail-search'
 import {
+  ACCOUNT_TYPE_OPTIONS,
   formatAccountCurrency,
   formatTransactionDate,
 } from '#/components/app/accounts/account-utils'
@@ -135,6 +136,29 @@ export function AllTransactionsTable({
     [search.account, search.type, search.category, search.payee, search.tags],
   )
 
+  const selectedAccountTypes = useMemo(
+    () => parseCsvValues(search.accountType),
+    [search.accountType],
+  )
+
+  // Counts come from the unfiltered list so the Virtual row still reports how
+  // much it is hiding while it sits unticked.
+  const accountTypeCounts = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const txn of transactions) {
+      counts.set(txn.account.type, (counts.get(txn.account.type) ?? 0) + 1)
+    }
+    return counts
+  }, [transactions])
+
+  // Filtered ahead of the table so hidden account types also drop out of the
+  // other facets' options and counts.
+  const rows = useMemo(() => {
+    if (selectedAccountTypes.length === 0) return transactions
+    const allowed = new Set(selectedAccountTypes)
+    return transactions.filter((txn) => allowed.has(txn.account.type))
+  }, [transactions, selectedAccountTypes])
+
   const visibleSearchKeys = useMemo(
     () =>
       COLUMN_IDS.filter(
@@ -143,8 +167,8 @@ export function AllTransactionsTable({
     [columnVisibility],
   )
   const matchingIds = useMemo(
-    () => searchTransactionIds(transactions, visibleSearchKeys, globalFilter),
-    [transactions, visibleSearchKeys, globalFilter],
+    () => searchTransactionIds(rows, visibleSearchKeys, globalFilter),
+    [rows, visibleSearchKeys, globalFilter],
   )
 
   const facetOptions = useMemo(() => {
@@ -154,7 +178,7 @@ export function AllTransactionsTable({
     const payees = new Map<string, string>()
     const tags = new Map<string, string>()
 
-    for (const txn of transactions) {
+    for (const txn of rows) {
       const accountLabel = txn.account.isGlobal
         ? `${txn.account.name} (Global)`
         : txn.account.name
@@ -188,7 +212,7 @@ export function AllTransactionsTable({
       payee: [...payees.entries()].map(([value, label]) => ({ value, label })),
       tags: [...tags.entries()].map(([value, label]) => ({ value, label })),
     }
-  }, [transactions])
+  }, [rows])
 
   function updateSearch(patch: Partial<TransactionsSearch>) {
     const next = { ...search, ...patch }
@@ -199,6 +223,7 @@ export function AllTransactionsTable({
       next.q === search.q &&
       next.cols === search.cols &&
       next.account === search.account &&
+      next.accountType === search.accountType &&
       next.type === search.type &&
       next.category === search.category &&
       next.payee === search.payee &&
@@ -216,7 +241,7 @@ export function AllTransactionsTable({
   }
 
   function setFacetFilter(
-    key: 'account' | 'type' | 'category' | 'payee' | 'tags',
+    key: 'account' | 'accountType' | 'type' | 'category' | 'payee' | 'tags',
     values: string[],
   ) {
     updateSearch({ [key]: serializeCsvValues(values), page: 1 })
@@ -366,7 +391,7 @@ export function AllTransactionsTable({
   )
 
   const table = useReactTable({
-    data: transactions,
+    data: rows,
     columns,
     state: {
       sorting,
@@ -471,6 +496,13 @@ export function AllTransactionsTable({
               options={facetOptions.account}
               selected={parseCsvValues(search.account)}
               onChange={(next) => setFacetFilter('account', next)}
+            />
+            <FacetFilter
+              counts={accountTypeCounts}
+              label="Account type"
+              options={ACCOUNT_TYPE_OPTIONS}
+              selected={selectedAccountTypes}
+              onChange={(next) => setFacetFilter('accountType', next)}
             />
             <FacetFilter
               counts={facetCounts.type}

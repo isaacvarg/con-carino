@@ -2,7 +2,7 @@ import { createServerFn, createServerOnlyFn } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
 import { getSession } from 'start-authjs'
 import { ReconciliationStatus as ReconciliationStatusEnum } from '#/generated/prisma/enums'
-import type { ReconciliationStatus } from '#/generated/prisma/enums'
+import type { AccountType, ReconciliationStatus } from '#/generated/prisma/enums'
 import type { PrismaClient } from '#/generated/prisma/client'
 import {
   ACTIVITY_ENTITY_TYPES,
@@ -217,13 +217,21 @@ export type VisibleTransactionListItem = TransactionListItem & {
     id: string
     name: string
     isGlobal: boolean
+    type: AccountType
   }
 }
 
+// `account` is re-declared without `type`: the detail queries do not select it,
+// and only the list views filter by account type.
 export type TransactionDetailDto = Omit<
   VisibleTransactionListItem,
-  'payee' | 'category' | 'tags'
+  'payee' | 'category' | 'tags' | 'account'
 > & {
+  account: {
+    id: string
+    name: string
+    isGlobal: boolean
+  }
   payee: ColoredTaxonomyRef | null
   category: ColoredTaxonomyRef | null
   tags: ColoredTaxonomyRef[]
@@ -273,6 +281,7 @@ type TransactionWithAccount = TransactionWithTaxonomies & {
     id: string
     name: string
     isGlobal: boolean
+    type: AccountType
   }
 }
 
@@ -331,6 +340,7 @@ function toVisibleTransactionListItem(
       id: txn.financialAccount.id,
       name: txn.financialAccount.name,
       isGlobal: txn.financialAccount.isGlobal,
+      type: txn.financialAccount.type,
     },
   }
 }
@@ -618,7 +628,7 @@ export const listVisibleTransactions = createServerFn({ method: 'GET' }).handler
       orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
       include: {
         financialAccount: {
-          select: { id: true, name: true, isGlobal: true },
+          select: { id: true, name: true, isGlobal: true, type: true },
         },
         type: { select: TRANSACTION_TYPE_REF_SELECT },
         payee: { select: TAXONOMY_COLOR_SELECT },
@@ -657,7 +667,7 @@ export const listRecentTransactions = createServerFn({ method: 'GET' })
       take: data.take,
       include: {
         financialAccount: {
-          select: { id: true, name: true, isGlobal: true },
+          select: { id: true, name: true, isGlobal: true, type: true },
         },
         type: { select: TRANSACTION_TYPE_REF_SELECT },
         payee: { select: TAXONOMY_COLOR_SELECT },
