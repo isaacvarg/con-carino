@@ -1,4 +1,4 @@
-import { useNavigate, useRouter } from '@tanstack/react-router'
+import { useNavigate, useRouteContext, useRouter } from '@tanstack/react-router'
 import { useMemo, useRef, useState } from 'react'
 import {
   HiCheck,
@@ -13,6 +13,7 @@ import {
 } from '#/components/app/accounts/account-utils'
 import type { AccountTransactionsSearch } from '#/components/app/accounts/account-detail-search'
 import { TaxonomySelectField } from '#/components/app/transactions/TaxonomySelectField'
+import { WeekSelectField } from '#/components/app/transactions/WeekSelectField'
 import type { ReconciliationStatus } from '#/generated/prisma/enums'
 import {
   nextStatusOnCardTap,
@@ -351,6 +352,7 @@ function NeedsReviewQueue({
   onSaved,
   onError,
 }: NeedsReviewQueueProps) {
+  const { weekStartsOn } = useRouteContext({ from: '/_app' })
   const [payeeOptions, setPayeeOptions] = useState(initialPayees)
   const payeeDialogRef = useRef<HTMLDialogElement>(null)
   const [drafts, setDrafts] = useState<
@@ -361,6 +363,7 @@ function NeedsReviewQueue({
         payeeId: string
         amount: string
         direction: 'in' | 'out'
+        weekStart: string
       }
     >
   >({})
@@ -373,6 +376,7 @@ function NeedsReviewQueue({
         payeeId: txn.payee?.id ?? '',
         amount: magnitudeFromSignedAmount(txn.amount),
         direction: directionFromSignedAmount(txn.amount),
+        weekStart: txn.weekStart ?? '',
       }
     )
   }
@@ -404,6 +408,7 @@ function NeedsReviewQueue({
           payee: isTransfer ? null : draft.payeeId || null,
           category: isTransfer ? null : txn.category?.id || null,
           tags: isTransfer ? [] : txn.tags.map((tag) => tag.id),
+          weekStart: draft.weekStart || null,
           keepAttachmentIds: txn.attachments.map((item) => item.id),
           attachments: [],
           duringReconciliation: true,
@@ -459,6 +464,22 @@ function NeedsReviewQueue({
                   onChange={(event) =>
                     updateDraft(txn.id, txn, { date: event.target.value })
                   }
+                />
+              </label>
+
+              <label className="form-control w-full">
+                <span className="label-text text-xs">Week</span>
+                <WeekSelectField
+                  id={`week-${txn.id}`}
+                  name={`week-${txn.id}`}
+                  className="select select-bordered select-sm w-full"
+                  value={draft.weekStart}
+                  disabled={busy}
+                  onChange={(next) =>
+                    updateDraft(txn.id, txn, { weekStart: next })
+                  }
+                  anchorDate={draft.date}
+                  weekStartsOn={weekStartsOn}
                 />
               </label>
 

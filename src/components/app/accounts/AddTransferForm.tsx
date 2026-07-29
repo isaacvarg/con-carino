@@ -1,7 +1,9 @@
 import { useForm } from '@tanstack/react-form'
-import { Link, useNavigate } from '@tanstack/react-router'
+import { Link, useNavigate, useRouteContext } from '@tanstack/react-router'
 import { useRef, useState } from 'react'
 import { transactionsSearchDefaults } from '#/components/app/transactions/transactions-search'
+import { WeekSelectField } from '#/components/app/transactions/WeekSelectField'
+import { fromYmd, weekStartYmd } from '#/lib/week-start'
 import {
   FORM_INPUT_CLASS,
   FORM_SELECT_CLASS,
@@ -26,6 +28,7 @@ type AddTransferFormValues = {
   toAccountId: string
   amount: string
   date: string
+  weekStart: string
   description: string
 }
 
@@ -97,6 +100,9 @@ export function AddTransferForm({
 }: AddTransferFormProps) {
   const navigate = useNavigate()
   const attachmentsRef = useRef<AttachmentsZoneHandle>(null)
+  const { weekStartsOn } = useRouteContext({ from: '/_app' })
+  // Once the week has been set by hand, the date stops driving it.
+  const weekTouched = useRef(false)
   const [attachmentsUploading, setAttachmentsUploading] = useState(false)
 
   const defaultToAccountId =
@@ -107,6 +113,7 @@ export function AddTransferForm({
     toAccountId: defaultToAccountId,
     amount: '',
     date: todayDateInputValue(),
+    weekStart: weekStartYmd(new Date(), weekStartsOn),
     description: '',
   }
 
@@ -121,6 +128,7 @@ export function AddTransferForm({
           amount: value.amount,
           date: value.date,
           description: value.description,
+          weekStart: value.weekStart || null,
           attachments: attachments ?? [],
         },
       })
@@ -340,7 +348,17 @@ export function AddTransferForm({
                     className={FORM_INPUT_CLASS}
                     value={field.state.value}
                     onBlur={field.handleBlur}
-                    onChange={(event) => field.handleChange(event.target.value)}
+                    onChange={(event) => {
+                      const nextDate = event.target.value
+                      field.handleChange(nextDate)
+                      // The week follows the date until the user takes it over.
+                      if (weekTouched.current) return
+                      const parsed = fromYmd(nextDate)
+                      form.setFieldValue(
+                        'weekStart',
+                        parsed ? weekStartYmd(parsed, weekStartsOn) : '',
+                      )
+                    }}
                     aria-invalid={hasError}
                     aria-describedby={hasError ? errorId : undefined}
                   />
@@ -349,6 +367,33 @@ export function AddTransferForm({
             }}
           </form.Field>
         </FormRow>
+
+        <form.Subscribe selector={(state) => state.values.date}>
+          {(date) => (
+            <form.Field name="weekStart">
+              {(field) => (
+                <FormField
+                  label="Week"
+                  htmlFor={field.name}
+                  hint="Optional. Both sides of the transfer are filed under the same week."
+                >
+                  <WeekSelectField
+                    id={field.name}
+                    name={field.name}
+                    value={field.state.value}
+                    onBlur={field.handleBlur}
+                    onChange={(next) => {
+                      weekTouched.current = true
+                      field.handleChange(next)
+                    }}
+                    anchorDate={date}
+                    weekStartsOn={weekStartsOn}
+                  />
+                </FormField>
+              )}
+            </form.Field>
+          )}
+        </form.Subscribe>
 
         <form.Field name="description">
           {(field) => (

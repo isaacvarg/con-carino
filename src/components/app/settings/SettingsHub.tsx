@@ -8,6 +8,7 @@ import {
   HiOutlineHeart,
   HiOutlineLightningBolt,
   HiOutlineOfficeBuilding,
+  HiOutlineAdjustments,
   HiOutlineArchive,
   HiOutlineSwitchHorizontal,
   HiOutlineTag,
@@ -20,6 +21,7 @@ import { isModuleEnabled, type AppModule } from '#/components/app/nav'
 type SettingsCard = {
   to:
     | '/settings/users'
+    | '/settings/preferences'
     | '/settings/modules'
     | '/settings/loved-one'
     | '/settings/people'
@@ -47,6 +49,12 @@ const SETTINGS_CARDS: SettingsCard[] = [
     description: 'App accounts, profile photos, sessions, and admin access.',
     icon: HiOutlineUser,
     adminOnly: true,
+  },
+  {
+    to: '/settings/preferences',
+    title: 'Preferences',
+    description: 'Where a week starts, for the calendar and for transactions.',
+    icon: HiOutlineAdjustments,
   },
   {
     to: '/settings/modules',

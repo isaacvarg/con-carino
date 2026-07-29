@@ -52,6 +52,11 @@ model Transaction {
   payeeId            String?
   categoryId         String?
   date               DateTime
+  /// Optional organizational week, independent of tags. Stores the week's first
+  /// day as a local YYYY-MM-DD string rather than a DateTime: labels render from
+  /// the stored value, so changing the household week start later cannot
+  /// silently relabel or orphan already-filed rows.
+  weekStart          String?
   // Links the two paired rows that make up a single transfer.
   transferGroupId    String?
   reconciliationStatus      ReconciliationStatus @default(UNCLEARED)
@@ -85,6 +90,7 @@ model Transaction {
   @@index([financialAccountId, reconciliationStatus])
   @@index([payeeId])
   @@index([categoryId])
+  @@index([weekStart])
   @@index([transferGroupId])
   @@index([reconciliationUpdatedById])
   @@index([createdByAutomationId])

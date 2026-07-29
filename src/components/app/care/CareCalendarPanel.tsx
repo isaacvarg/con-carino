@@ -24,6 +24,7 @@ import type {
   CarePersonDto,
   CareSettingsDto,
 } from '#/server/care'
+import { orderedDayIndices } from '#/lib/week-start'
 import {
   claimOccurrences,
   clearCoverageResponsibility,
@@ -89,7 +90,17 @@ export function CareCalendarPanel({
   onSelectDay,
 }: CareCalendarPanelProps) {
   const router = useRouter()
-  const cells = useMemo(() => monthGrid(year, month), [year, month])
+  const { weekStartsOn } = useRouteContext({ from: '/_app' })
+  const cells = useMemo(
+    () => monthGrid(year, month, weekStartsOn),
+    [year, month, weekStartsOn],
+  )
+  // Sunday-indexed labels read in display order. DAY_NAMES itself stays
+  // Sunday-first so DAY_NAMES[storedDayOfWeek] keeps working elsewhere.
+  const headerDays = useMemo(
+    () => orderedDayIndices(weekStartsOn),
+    [weekStartsOn],
+  )
   const selectedDate = useMemo(() => {
     const [y, m, d] = selectedDay.split('-').map(Number)
     return new Date(y!, m! - 1, d!)
@@ -829,9 +840,9 @@ export function CareCalendarPanel({
           </div>
         ) : null}
         <div className="grid grid-cols-7 gap-1 text-center text-xs font-medium text-base-content/50 sm:text-sm lg:gap-1.5">
-          {DAY_NAMES.map((d) => (
-            <div key={d} className="py-1 lg:py-1.5">
-              {d}
+          {headerDays.map((dow) => (
+            <div key={dow} className="py-1 lg:py-1.5">
+              {DAY_NAMES[dow]}
             </div>
           ))}
         </div>
@@ -1480,19 +1491,25 @@ export function CareCalendarPanel({
                 <>
                   <FormField label="Applies on">
                     <div className="flex flex-wrap gap-2">
-                      {DAY_NAMES.map((dayLabel, i) => (
+                      {/*
+                        Iterate day *indices*, never the array position: these
+                        checkboxes write straight into the rule's persisted
+                        0=Sun … 6=Sat list, so display order must not be able to
+                        change what a checkbox means.
+                      */}
+                      {headerDays.map((dow) => (
                         <label
-                          key={dayLabel}
+                          key={dow}
                           className="flex cursor-pointer items-center gap-1.5"
                         >
                           <input
                             type="checkbox"
                             className="checkbox checkbox-sm"
-                            checked={daysOfWeek.includes(i)}
-                            onChange={() => toggleDay(i)}
+                            checked={daysOfWeek.includes(dow)}
+                            onChange={() => toggleDay(dow)}
                           />
                           <span className="text-sm font-medium text-base-content">
-                            {dayLabel}
+                            {DAY_NAMES[dow]}
                           </span>
                         </label>
                       ))}

@@ -43,6 +43,7 @@ import { Route as AppSettingsUsersRouteImport } from './routes/_app/settings/use
 import { Route as AppSettingsTransactionTypesRouteImport } from './routes/_app/settings/transaction-types'
 import { Route as AppSettingsTagsRouteImport } from './routes/_app/settings/tags'
 import { Route as AppSettingsScheduleRouteImport } from './routes/_app/settings/schedule'
+import { Route as AppSettingsPreferencesRouteImport } from './routes/_app/settings/preferences'
 import { Route as AppSettingsPeopleRouteImport } from './routes/_app/settings/people'
 import { Route as AppSettingsPayeesRouteImport } from './routes/_app/settings/payees'
 import { Route as AppSettingsModulesRouteImport } from './routes/_app/settings/modules'
@@ -235,6 +236,11 @@ const AppSettingsScheduleRoute = AppSettingsScheduleRouteImport.update({
   path: '/schedule',
   getParentRoute: () => AppSettingsRoute,
 } as any)
+const AppSettingsPreferencesRoute = AppSettingsPreferencesRouteImport.update({
+  id: '/preferences',
+  path: '/preferences',
+  getParentRoute: () => AppSettingsRoute,
+} as any)
 const AppSettingsPeopleRoute = AppSettingsPeopleRouteImport.update({
   id: '/people',
   path: '/people',
@@ -378,6 +384,7 @@ export interface FileRoutesByFullPath {
   '/settings/modules': typeof AppSettingsModulesRoute
   '/settings/payees': typeof AppSettingsPayeesRoute
   '/settings/people': typeof AppSettingsPeopleRoute
+  '/settings/preferences': typeof AppSettingsPreferencesRoute
   '/settings/schedule': typeof AppSettingsScheduleRoute
   '/settings/tags': typeof AppSettingsTagsRoute
   '/settings/transaction-types': typeof AppSettingsTransactionTypesRoute
@@ -427,6 +434,7 @@ export interface FileRoutesByTo {
   '/settings/modules': typeof AppSettingsModulesRoute
   '/settings/payees': typeof AppSettingsPayeesRoute
   '/settings/people': typeof AppSettingsPeopleRoute
+  '/settings/preferences': typeof AppSettingsPreferencesRoute
   '/settings/schedule': typeof AppSettingsScheduleRoute
   '/settings/tags': typeof AppSettingsTagsRoute
   '/settings/transaction-types': typeof AppSettingsTransactionTypesRoute
@@ -483,6 +491,7 @@ export interface FileRoutesById {
   '/_app/settings/modules': typeof AppSettingsModulesRoute
   '/_app/settings/payees': typeof AppSettingsPayeesRoute
   '/_app/settings/people': typeof AppSettingsPeopleRoute
+  '/_app/settings/preferences': typeof AppSettingsPreferencesRoute
   '/_app/settings/schedule': typeof AppSettingsScheduleRoute
   '/_app/settings/tags': typeof AppSettingsTagsRoute
   '/_app/settings/transaction-types': typeof AppSettingsTransactionTypesRoute
@@ -540,6 +549,7 @@ export interface FileRouteTypes {
     | '/settings/modules'
     | '/settings/payees'
     | '/settings/people'
+    | '/settings/preferences'
     | '/settings/schedule'
     | '/settings/tags'
     | '/settings/transaction-types'
@@ -589,6 +599,7 @@ export interface FileRouteTypes {
     | '/settings/modules'
     | '/settings/payees'
     | '/settings/people'
+    | '/settings/preferences'
     | '/settings/schedule'
     | '/settings/tags'
     | '/settings/transaction-types'
@@ -644,6 +655,7 @@ export interface FileRouteTypes {
     | '/_app/settings/modules'
     | '/_app/settings/payees'
     | '/_app/settings/people'
+    | '/_app/settings/preferences'
     | '/_app/settings/schedule'
     | '/_app/settings/tags'
     | '/_app/settings/transaction-types'
@@ -916,6 +928,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsScheduleRouteImport
       parentRoute: typeof AppSettingsRoute
     }
+    '/_app/settings/preferences': {
+      id: '/_app/settings/preferences'
+      path: '/preferences'
+      fullPath: '/settings/preferences'
+      preLoaderRoute: typeof AppSettingsPreferencesRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
     '/_app/settings/people': {
       id: '/_app/settings/people'
       path: '/people'
@@ -1144,6 +1163,7 @@ interface AppSettingsRouteChildren {
   AppSettingsModulesRoute: typeof AppSettingsModulesRoute
   AppSettingsPayeesRoute: typeof AppSettingsPayeesRoute
   AppSettingsPeopleRoute: typeof AppSettingsPeopleRoute
+  AppSettingsPreferencesRoute: typeof AppSettingsPreferencesRoute
   AppSettingsScheduleRoute: typeof AppSettingsScheduleRoute
   AppSettingsTagsRoute: typeof AppSettingsTagsRoute
   AppSettingsTransactionTypesRoute: typeof AppSettingsTransactionTypesRoute
@@ -1161,6 +1181,7 @@ const AppSettingsRouteChildren: AppSettingsRouteChildren = {
   AppSettingsModulesRoute: AppSettingsModulesRoute,
   AppSettingsPayeesRoute: AppSettingsPayeesRoute,
   AppSettingsPeopleRoute: AppSettingsPeopleRoute,
+  AppSettingsPreferencesRoute: AppSettingsPreferencesRoute,
   AppSettingsScheduleRoute: AppSettingsScheduleRoute,
   AppSettingsTagsRoute: AppSettingsTagsRoute,
   AppSettingsTransactionTypesRoute: AppSettingsTransactionTypesRoute,

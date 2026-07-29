@@ -76,6 +76,7 @@ const TRANSACTION_ACTIVITY_FIELDS = [
   'amount',
   'description',
   'date',
+  'weekStart',
   'payeeId',
   'categoryId',
   'transferGroupId',
@@ -454,6 +455,7 @@ type SourceTransaction = {
   amount: { toString(): string }
   date: Date
   description: string | null
+  weekStart: string | null
   payeeId: string | null
   categoryId: string | null
   createdByAutomationId: string | null
@@ -547,6 +549,9 @@ async function applyAutomation(
           amount: signedAmountFor(source.type, magnitude),
           date: source.date,
           description: source.description ?? `Automation: ${automation.name}`,
+          // Carried over with the rest of the organizing fields: a copy filed
+          // under a different week than its source would be a surprise.
+          weekStart: source.weekStart,
           payeeId: source.payeeId,
           categoryId: source.categoryId,
           createdByAutomationId: automation.id,
@@ -590,6 +595,7 @@ async function applyAutomation(
         amount: created.amount.toString(),
         description: created.description,
         date: created.date.toISOString(),
+        weekStart: created.weekStart,
         payeeId: created.payeeId,
         categoryId: created.categoryId,
         transferGroupId: created.transferGroupId,
@@ -635,6 +641,7 @@ export const runAutomationsForTransaction = createServerOnlyFn(
         amount: true,
         date: true,
         description: true,
+        weekStart: true,
         payeeId: true,
         categoryId: true,
         createdByAutomationId: true,

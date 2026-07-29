@@ -78,7 +78,9 @@ import {
 import { isCallerAdmin, requireAdminId } from '#/server/auth-guards'
 import { requireTransactionTypeByKey } from '#/server/transaction-type-lookup'
 import { requireHexColor } from '#/lib/validators'
+import { startOfWeek, type WeekStart } from '#/lib/week-start'
 import { logActivity } from '#/server/activity-log'
+import { loadWeekStart } from '#/server/week-start'
 import {
   requireContributionsEnabled,
   requireInvoicingAdvanced,
@@ -2266,11 +2268,14 @@ export type CoverageAssigneeStat = {
   textColor: string | null
 }
 
-/** Local Sunday 00:00 through Saturday of the following week 23:59:59. */
-function thisAndNextWeekRange(now = new Date()) {
-  const rangeStart = new Date(now)
-  rangeStart.setHours(0, 0, 0, 0)
-  rangeStart.setDate(rangeStart.getDate() - rangeStart.getDay())
+/**
+ * Local 00:00 on the first day of this week through 23:59:59 on the last day of
+ * the following week — two whole weeks, anchored wherever the household's week
+ * starts. Runs server-side, where there is no React context, so the anchor is
+ * passed in by the caller.
+ */
+function thisAndNextWeekRange(weekStartsOn: WeekStart, now = new Date()) {
+  const rangeStart = startOfWeek(now, weekStartsOn)
 
   const rangeEnd = new Date(rangeStart)
   rangeEnd.setDate(rangeEnd.getDate() + 13)
@@ -2284,7 +2289,7 @@ export const listOpenCoverageSlots = createServerFn({
 }).handler(async (): Promise<OpenCoverageSlotDto[]> => {
   await requireUserId()
 
-  const { rangeStart, rangeEnd } = thisAndNextWeekRange()
+  const { rangeStart, rangeEnd } = thisAndNextWeekRange(await loadWeekStart())
 
   const padStart = new Date(rangeStart)
   padStart.setDate(padStart.getDate() - 7)
@@ -2320,7 +2325,7 @@ export const getCoverageAssigneeStats = createServerFn({
 }).handler(async (): Promise<CoverageAssigneeStat[]> => {
   await requireUserId()
 
-  const { rangeStart, rangeEnd } = thisAndNextWeekRange()
+  const { rangeStart, rangeEnd } = thisAndNextWeekRange(await loadWeekStart())
 
   const padStart = new Date(rangeStart)
   padStart.setDate(padStart.getDate() - 7)
@@ -5196,7 +5201,12 @@ export const getCarePayOverview = createServerFn({ method: 'GET' })
     startDevJobTick()
 
     const now = new Date()
-    const range = payOverviewRange(data.mode, data.offset, now)
+    const range = payOverviewRange(
+      data.mode,
+      data.offset,
+      await loadWeekStart(),
+      now,
+    )
 
     // A future period may not have been materialized yet by the rolling window
     // job, and unfilled slots may still be waiting on assignment rules.

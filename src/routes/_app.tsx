@@ -5,14 +5,16 @@ import AppHeader from '#/components/app/AppHeader'
 import AppSidebar from '#/components/app/AppSidebar'
 import { getModuleFlagsCached } from '#/lib/care-module-flags'
 import { getTransactionTypesCached } from '#/lib/transaction-type-registry'
+import { getWeekStartCached } from '#/lib/week-start-cache'
 
 export const Route = createFileRoute('/_app')({
   beforeLoad: async () => {
-    const [modules, transactionTypes] = await Promise.all([
+    const [modules, transactionTypes, weekStartsOn] = await Promise.all([
       getModuleFlagsCached(),
       getTransactionTypesCached(),
+      getWeekStartCached(),
     ])
-    return { modules, transactionTypes }
+    return { modules, transactionTypes, weekStartsOn }
   },
   component: AppLayout,
 })

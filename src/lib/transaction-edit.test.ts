@@ -74,6 +74,7 @@ describe('transaction activity snapshots', () => {
       amount: '-10',
       description: 'Coffee',
       date: '2026-07-01T00:00:00.000Z',
+      weekStart: '2026-06-28',
       payeeId: 'payee-1',
       categoryId: null,
       transferGroupId: null,
@@ -87,6 +88,7 @@ describe('transaction activity snapshots', () => {
       amount: '-12',
       description: null,
       date: '2026-07-01T00:00:00.000Z',
+      weekStart: null,
       payeeId: null,
       categoryId: 'cat-1',
       transferGroupId: null,
@@ -106,6 +108,7 @@ describe('transaction activity snapshots', () => {
     expect(changes.amount).toEqual({ before: '-10', after: '-12' })
     expect(changes.description).toEqual({ before: 'Coffee', after: null })
     expect(changes.payeeId).toEqual({ before: 'payee-1', after: null })
+    expect(changes.weekStart).toEqual({ before: '2026-06-28', after: null })
     expect(changes.categoryId).toEqual({ before: null, after: 'cat-1' })
     expect(changes.tagIds).toEqual({
       before: JSON.stringify(['tag-a', 'tag-b']),

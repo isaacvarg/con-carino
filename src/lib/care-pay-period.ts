@@ -6,6 +6,13 @@
  * is recomputed from it on every load.
  */
 
+import {
+  addWeeks,
+  DEFAULT_WEEK_START,
+  startOfWeek,
+  type WeekStart,
+} from '#/lib/week-start'
+
 export type PayOverviewMode = 'WEEKLY' | 'MONTHLY'
 
 export type PayOverviewRange = {
@@ -24,19 +31,23 @@ function startOfLocalDay(date: Date): Date {
 }
 
 /**
- * Weeks run Sunday–Saturday to match the `0=Sun … 6=Sat` convention used by
- * every other day-of-week field in the care domain.
+ * Weeks run from whichever day the household picked as its week start, so the
+ * overview lines up with the calendar rather than contradicting it.
+ *
+ * That preference is a *display* choice only. It is unrelated to the persisted
+ * `0=Sun … 6=Sat` values elsewhere in the care domain (coverage days, pay
+ * weekdays), which always mean what they always meant.
  */
 export function payOverviewRange(
   mode: PayOverviewMode,
   offset: number,
+  weekStartsOn: WeekStart = DEFAULT_WEEK_START,
   now: Date = new Date(),
 ): PayOverviewRange {
   const today = startOfLocalDay(now)
 
   if (mode === 'WEEKLY') {
-    const start = new Date(today)
-    start.setDate(start.getDate() - start.getDay() + offset * 7)
+    const start = addWeeks(startOfWeek(today, weekStartsOn), offset)
     const end = new Date(start)
     end.setDate(end.getDate() + 7)
     return { mode, offset, start, end }

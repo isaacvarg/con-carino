@@ -263,6 +263,13 @@ model CareSettings {
   /// Only meaningful with ADVANCED invoicing: a period's actual cost is summed
   /// from real invoice rows, which SIMPLE and OFF never create.
   contributionsEnabled Boolean                @default(true)
+  /// 0=Sun or 1=Mon: which day a *displayed* week starts on, app-wide — the
+  /// calendar grid, the pay overview, and the week filed on a transaction. Lives
+  /// here because this row is already the household's settings, even though it
+  /// reaches well beyond care. Same 0=Sun … 6=Sat convention as the fields
+  /// above, but unlike them it is a display choice, not stored data: changing it
+  /// must never reinterpret a persisted day-of-week value.
+  weekStartsOn         Int                    @default(0)
   createdAt            DateTime               @default(now())
   updatedAt            DateTime               @updatedAt
 

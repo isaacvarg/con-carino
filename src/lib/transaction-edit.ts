@@ -65,6 +65,7 @@ export const TRANSACTION_UPDATE_ACTIVITY_FIELDS = [
   'amount',
   'description',
   'date',
+  'weekStart',
   'payeeId',
   'categoryId',
   'transferGroupId',
@@ -79,6 +80,7 @@ export type TransactionActivitySnapshot = {
   amount: string
   description: string | null
   date: string
+  weekStart: string | null
   payeeId: string | null
   categoryId: string | null
   transferGroupId: string | null
@@ -93,6 +95,7 @@ export function buildTransactionActivitySnapshot(input: {
   amount: { toString(): string } | string
   description: string | null
   date: Date | string
+  weekStart: string | null
   payeeId: string | null
   categoryId: string | null
   transferGroupId: string | null
@@ -109,6 +112,7 @@ export function buildTransactionActivitySnapshot(input: {
       typeof input.amount === 'string' ? input.amount : input.amount.toString(),
     description: input.description,
     date,
+    weekStart: input.weekStart,
     payeeId: input.payeeId,
     categoryId: input.categoryId,
     transferGroupId: input.transferGroupId,

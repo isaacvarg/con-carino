@@ -8,6 +8,7 @@ export const accountDetailSearchDefaults = {
   category: '',
   payee: '',
   tags: '',
+  week: '',
   mode: '',
   reconView: 'list',
 } as const
@@ -24,6 +25,8 @@ export type AccountTransactionsSearch = {
   category: string
   payee: string
   tags: string
+  /** CSV of week start dates (YYYY-MM-DD), or the "unfiled" sentinel. */
+  week: string
   mode: '' | 'reconcile'
   reconView: AccountReconView
 }
@@ -73,6 +76,7 @@ export function validateAccountTransactionsSearch(
     category: parseCsvParam(search.category),
     payee: parseCsvParam(search.payee),
     tags: parseCsvParam(search.tags),
+    week: parseCsvParam(search.week),
     mode: parseMode(search.mode),
     reconView: parseReconView(search.reconView),
   }

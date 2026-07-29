@@ -5,7 +5,7 @@ import {
   useRouteContext,
   useRouter,
 } from '@tanstack/react-router'
-import { useRef, useState, type ReactNode } from 'react'
+import { useCallback, useRef, useState, type ReactNode } from 'react'
 import {
   HiOutlineDocument,
   HiOutlineLockOpen,
@@ -28,6 +28,7 @@ import { CreatePayeeForm } from '#/components/app/accounts/CreatePayeeForm'
 import { CreateTagForm } from '#/components/app/accounts/CreateTagForm'
 import { TaxonomyCreateDialog } from '#/components/app/accounts/TaxonomyCreateDialog'
 import { TagSelectField } from '#/components/app/transactions/TagSelectField'
+import { WeekSelectField } from '#/components/app/transactions/WeekSelectField'
 import { TaxonomyBadge } from '#/components/app/transactions/TaxonomyBadge'
 import {
   TaxonomyRectangle,
@@ -46,6 +47,7 @@ import { ConfirmDialog } from '#/components/app/ui/confirm-dialog'
 import { formatActivityAction } from '#/lib/activity'
 import type { AttachmentListItem } from '#/lib/attachment-types'
 import { sortByName, type ColoredTaxonomyRef } from '#/lib/taxonomy-types'
+import { weekLabelFromYmd } from '#/lib/week-start'
 import {
   directionFromSignedAmount,
   magnitudeFromSignedAmount,
@@ -80,6 +82,7 @@ type EditFormValues = {
   payeeId: string
   categoryId: string
   tagIds: string[]
+  weekStart: string
   description: string
 }
 
@@ -303,7 +306,7 @@ export function TransactionDetailPanel({
 }: TransactionDetailPanelProps) {
   const router = useRouter()
   const navigate = useNavigate()
-  const { modules, session, transactionTypes } = useRouteContext({
+  const { modules, session, transactionTypes, weekStartsOn } = useRouteContext({
     from: '/_app',
   })
   const [editing, setEditing] = useState(false)
@@ -377,16 +380,24 @@ export function TransactionDetailPanel({
     }
   }
 
-  const form = useForm({
-    defaultValues: {
+  // One source of truth for the edit defaults: they are needed on mount, on
+  // entering edit mode, and on cancel, and three hand-kept copies would drift.
+  const editDefaults = useCallback(
+    (): EditFormValues => ({
       typeId: transaction.type.id,
       amount: magnitudeFromSignedAmount(transaction.amount),
       direction: directionFromSignedAmount(transaction.amount),
       payeeId: transaction.payee?.id ?? '',
       categoryId: transaction.category?.id ?? '',
       tagIds: transaction.tags.map((tag) => tag.id),
+      weekStart: transaction.weekStart ?? '',
       description: transaction.description ?? '',
-    } satisfies EditFormValues,
+    }),
+    [transaction],
+  )
+
+  const form = useForm({
+    defaultValues: editDefaults(),
     onSubmit: async ({ value }) => {
       setSubmitError(null)
       try {
@@ -404,6 +415,7 @@ export function TransactionDetailPanel({
             payee: isTransfer ? null : value.payeeId || null,
             category: isTransfer ? null : value.categoryId || null,
             tags: isTransfer ? [] : value.tagIds,
+            weekStart: value.weekStart || null,
             keepAttachmentIds,
             attachments: uploaded,
             ...(directionNeededFor(value.typeId)
@@ -425,29 +437,13 @@ export function TransactionDetailPanel({
 
   function startEditing() {
     setSubmitError(null)
-    form.reset({
-      typeId: transaction.type.id,
-      amount: magnitudeFromSignedAmount(transaction.amount),
-      direction: directionFromSignedAmount(transaction.amount),
-      payeeId: transaction.payee?.id ?? '',
-      categoryId: transaction.category?.id ?? '',
-      tagIds: transaction.tags.map((tag) => tag.id),
-      description: transaction.description ?? '',
-    })
+    form.reset(editDefaults())
     setEditing(true)
   }
 
   function cancelEditing() {
     setSubmitError(null)
-    form.reset({
-      typeId: transaction.type.id,
-      amount: magnitudeFromSignedAmount(transaction.amount),
-      direction: directionFromSignedAmount(transaction.amount),
-      payeeId: transaction.payee?.id ?? '',
-      categoryId: transaction.category?.id ?? '',
-      tagIds: transaction.tags.map((tag) => tag.id),
-      description: transaction.description ?? '',
-    })
+    form.reset(editDefaults())
     setEditing(false)
   }
 
@@ -638,6 +634,30 @@ export function TransactionDetailPanel({
                   ) : null
                 }
               </form.Subscribe>
+              {/*
+                In Summary rather than Organizing so it is editable on transfers
+                too — Organizing is hidden for them, and a hidden field would
+                silently clear the week on every save.
+              */}
+              <form.Field name="weekStart">
+                {(field) => (
+                  <FormField
+                    label="Week"
+                    htmlFor={field.name}
+                    hint="Optional, for your own organizing."
+                  >
+                    <WeekSelectField
+                      id={field.name}
+                      name={field.name}
+                      value={field.state.value}
+                      onBlur={field.handleBlur}
+                      onChange={field.handleChange}
+                      anchorDate={transaction.date.slice(0, 10)}
+                      weekStartsOn={weekStartsOn}
+                    />
+                  </FormField>
+                )}
+              </form.Field>
               <div className="sm:col-span-2">
                 <form.Field name="description">
                   {(field) => (
@@ -878,6 +898,11 @@ export function TransactionDetailPanel({
                   {transaction.account.name}
                   {transaction.account.isGlobal ? ' (Global)' : null}
                 </Link>
+              </DetailField>
+              <DetailField label="Week">
+                {transaction.weekStart
+                  ? weekLabelFromYmd(transaction.weekStart)
+                  : '—'}
               </DetailField>
               <div className="sm:col-span-2">
                 <DetailField label="Description">

@@ -1,4 +1,4 @@
-const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
+import { DAY_NAMES, startOfWeek, type WeekStart } from '#/lib/week-start'
 
 export function formatDayTime(iso: string): string {
   const d = new Date(iso)
@@ -51,12 +51,9 @@ export function formatClockRange(startsAt: string, endsAt: string): string {
   ).toLocaleTimeString(undefined, timeOpts)}`
 }
 
-/** Sunday-anchored start of the week containing `date`. */
-export function startOfWeek(date: Date): Date {
-  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate())
-  start.setDate(start.getDate() - start.getDay())
-  return start
-}
+// Re-exported so care components keep importing their date helpers from one
+// place; the implementation lives with the rest of the week-anchoring logic.
+export { startOfWeek } from '#/lib/week-start'
 
 export function toDateInputValue(date: Date): string {
   const y = date.getFullYear()
@@ -71,10 +68,19 @@ export function toLocalIsoFromParts(dateStr: string, timeStr: string): string {
   return new Date(y!, m! - 1, d!, hh!, mm!, 0, 0).toISOString()
 }
 
-export function monthGrid(year: number, month: number): Date[] {
+/**
+ * Six weeks of consecutive days covering `month`, always 42 real dates — the
+ * leading and trailing cells are the neighbouring months' days, dimmed by the
+ * caller rather than blanked out. Fixed at 42 so the row count never changes
+ * with the week start.
+ */
+export function monthGrid(
+  year: number,
+  month: number,
+  weekStartsOn: WeekStart,
+): Date[] {
   const first = new Date(year, month, 1)
-  const start = new Date(first)
-  start.setDate(1 - first.getDay())
+  const start = startOfWeek(first, weekStartsOn)
   const cells: Date[] = []
   for (let i = 0; i < 42; i++) {
     const day = new Date(start)

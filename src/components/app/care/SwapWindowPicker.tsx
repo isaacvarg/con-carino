@@ -1,3 +1,4 @@
+import { useRouteContext } from '@tanstack/react-router'
 import { useEffect, useMemo, useState } from 'react'
 import type { CareSwapWindowDto } from '#/server/care'
 import { listSwapCandidateWindows } from '#/server/care'
@@ -32,8 +33,9 @@ export function SwapWindowPicker({
   initialDay,
   emptyLabel,
 }: SwapWindowPickerProps) {
+  const { weekStartsOn } = useRouteContext({ from: '/_app' })
   const [weekStart, setWeekStart] = useState(() =>
-    startOfWeek(parseDay(initialDay)),
+    startOfWeek(parseDay(initialDay), weekStartsOn),
   )
   const [windows, setWindows] = useState<CareSwapWindowDto[]>([])
   const [loading, setLoading] = useState(false)

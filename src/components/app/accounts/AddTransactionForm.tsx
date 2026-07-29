@@ -2,6 +2,7 @@ import { useForm } from '@tanstack/react-form'
 import { Link, useNavigate, useRouteContext } from '@tanstack/react-router'
 import { useRef, useState } from 'react'
 import { TagSelectField } from '#/components/app/transactions/TagSelectField'
+import { WeekSelectField } from '#/components/app/transactions/WeekSelectField'
 import { TaxonomySelectField } from '#/components/app/transactions/TaxonomySelectField'
 import { transactionsSearchDefaults } from '#/components/app/transactions/transactions-search'
 import {
@@ -15,6 +16,7 @@ import {
   FormShell,
 } from '#/components/app/ui/form'
 import { sortByName, type ColoredTaxonomyRef } from '#/lib/taxonomy-types'
+import { fromYmd, weekStartYmd } from '#/lib/week-start'
 import type { AccountListItem } from '#/server/accounts'
 import { createTransaction } from '#/server/transactions'
 import {
@@ -44,6 +46,7 @@ type AddTransactionFormValues = {
   payeeId: string
   categoryId: string
   tagIds: string[]
+  weekStart: string
   description: string
 }
 
@@ -148,8 +151,12 @@ export function AddTransactionForm(props: AddTransactionFormProps) {
   const [tagOptions, setTagOptions] = useState(initialTags)
   const [attachmentsUploading, setAttachmentsUploading] = useState(false)
 
-  const { transactionTypes } = useRouteContext({ from: '/_app' })
+  const { transactionTypes, weekStartsOn } = useRouteContext({ from: '/_app' })
   const typeOptions = transactionTypeOptions(transactionTypes)
+
+  // Once the week has been set by hand, the date stops driving it. Without this
+  // flag, clearing the week would silently refill on the next date edit.
+  const weekTouched = useRef(false)
 
   function directionNeededFor(typeId: string): boolean {
     const type = findTransactionType(transactionTypes, typeId)
@@ -167,6 +174,7 @@ export function AddTransactionForm(props: AddTransactionFormProps) {
     payeeId: '',
     categoryId: '',
     tagIds: [],
+    weekStart: weekStartYmd(new Date(), weekStartsOn),
     description: '',
   }
 
@@ -184,6 +192,7 @@ export function AddTransactionForm(props: AddTransactionFormProps) {
           payee: value.payeeId || null,
           category: value.categoryId || null,
           tags: value.tagIds,
+          weekStart: value.weekStart || null,
           attachments: attachments ?? [],
           ...(directionNeededFor(value.typeId)
             ? { direction: value.direction }
@@ -416,7 +425,17 @@ export function AddTransactionForm(props: AddTransactionFormProps) {
                     className={FORM_INPUT_CLASS}
                     value={field.state.value}
                     onBlur={field.handleBlur}
-                    onChange={(event) => field.handleChange(event.target.value)}
+                    onChange={(event) => {
+                      const nextDate = event.target.value
+                      field.handleChange(nextDate)
+                      // The week follows the date until the user takes it over.
+                      if (weekTouched.current) return
+                      const parsed = fromYmd(nextDate)
+                      form.setFieldValue(
+                        'weekStart',
+                        parsed ? weekStartYmd(parsed, weekStartsOn) : '',
+                      )
+                    }}
                     aria-invalid={hasError}
                     aria-describedby={hasError ? errorId : undefined}
                   />
@@ -472,6 +491,33 @@ export function AddTransactionForm(props: AddTransactionFormProps) {
             </FormField>
           )}
         </form.Field>
+
+        <form.Subscribe selector={(state) => state.values.date}>
+          {(date) => (
+            <form.Field name="weekStart">
+              {(field) => (
+                <FormField
+                  label="Week"
+                  htmlFor={field.name}
+                  hint="Optional. Only for your own organizing — nothing depends on it."
+                >
+                  <WeekSelectField
+                    id={field.name}
+                    name={field.name}
+                    value={field.state.value}
+                    onBlur={field.handleBlur}
+                    onChange={(next) => {
+                      weekTouched.current = true
+                      field.handleChange(next)
+                    }}
+                    anchorDate={date}
+                    weekStartsOn={weekStartsOn}
+                  />
+                </FormField>
+              )}
+            </form.Field>
+          )}
+        </form.Subscribe>
 
         <form.Field name="description">
           {(field) => (

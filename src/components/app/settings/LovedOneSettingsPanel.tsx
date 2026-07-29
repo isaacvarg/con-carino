@@ -1,4 +1,4 @@
-import { useRouter } from '@tanstack/react-router'
+import { useRouteContext, useRouter } from '@tanstack/react-router'
 import { useMemo, useState, type FormEvent } from 'react'
 import { HiOutlineTrash } from 'react-icons/hi'
 import { DAY_NAMES } from '#/components/app/care/care-utils'
@@ -10,6 +10,7 @@ import {
   FormShell,
 } from '#/components/app/ui/form'
 import { shiftsCoverFullDay } from '#/lib/care-required'
+import { orderedDayIndices } from '#/lib/week-start'
 import type { CareSettingsDto } from '#/server/care'
 import { upsertCareSettings } from '#/server/care'
 
@@ -51,6 +52,11 @@ function toDraftShifts(settings: CareSettingsDto): ShiftDraft[] {
 
 export function LovedOneSettingsPanel({ settings }: LovedOneSettingsPanelProps) {
   const router = useRouter()
+  const { weekStartsOn } = useRouteContext({ from: '/_app' })
+  const orderedDays = useMemo(
+    () => orderedDayIndices(weekStartsOn),
+    [weekStartsOn],
+  )
   const [lovedOneName, setLovedOneName] = useState(settings.lovedOneName)
   const [coverageNeed, setCoverageNeed] = useState(settings.coverageNeed)
   const [coverageWindowKind, setCoverageWindowKind] = useState(
@@ -184,15 +190,20 @@ export function LovedOneSettingsPanel({ settings }: LovedOneSettingsPanelProps) 
         <fieldset>
           <legend className="font-medium text-base-content">Days needed</legend>
           <div className="mt-2 flex flex-wrap gap-2">
-            {DAY_NAMES.map((label, i) => (
-              <label key={label} className="label cursor-pointer gap-1">
+            {/*
+              Iterate day *indices*, never the array position: these checkboxes
+              write straight into the persisted 0=Sun … 6=Sat list, so display
+              order must not be able to change what a checkbox means.
+            */}
+            {orderedDays.map((dow) => (
+              <label key={dow} className="label cursor-pointer gap-1">
                 <input
                   type="checkbox"
                   className="checkbox checkbox-sm"
-                  checked={partialDaysOfWeek.includes(i)}
-                  onChange={() => toggleDay(i)}
+                  checked={partialDaysOfWeek.includes(dow)}
+                  onChange={() => toggleDay(dow)}
                 />
-                <span className="label-text text-sm">{label}</span>
+                <span className="label-text text-sm">{DAY_NAMES[dow]}</span>
               </label>
             ))}
           </div>

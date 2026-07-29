@@ -35,6 +35,7 @@ import {
   type TransactionDirection,
   type TransactionTypeRef,
 } from '#/lib/transaction-types'
+import { fromYmd, isYmd } from '#/lib/week-start'
 import {
   assertCanMutateReconciliationStatus,
   isMutableReconciliationStatus,
@@ -61,6 +62,7 @@ const TRANSACTION_ACTIVITY_FIELDS = [
   'amount',
   'description',
   'date',
+  'weekStart',
   'payeeId',
   'categoryId',
   'transferGroupId',
@@ -90,6 +92,8 @@ export type TransactionListItem = {
   amount: string
   description: string | null
   date: string
+  /** Optional organizational week: local YYYY-MM-DD of the week's first day. */
+  weekStart: string | null
   payee: ColoredTaxonomyRef | null
   category: ColoredTaxonomyRef | null
   tags: ColoredTaxonomyRef[]
@@ -267,6 +271,7 @@ type TransactionWithTaxonomies = {
   amount: { toString(): string }
   description: string | null
   date: Date
+  weekStart: string | null
   payee: ColoredTaxonomyRef | null
   category: ColoredTaxonomyRef | null
   tags: ColoredTaxonomyRef[]
@@ -312,6 +317,7 @@ function toTransactionListItem(
     amount: txn.amount.toString(),
     description: txn.description,
     date: txn.date.toISOString(),
+    weekStart: txn.weekStart,
     payee: toColoredTaxonomyRef(txn.payee),
     category: toColoredTaxonomyRef(txn.category),
     tags: txn.tags.map(
@@ -578,6 +584,28 @@ function parseDate(value: string): Date {
 function parseDirection(value: unknown): TransactionDirection | undefined {
   if (value === 'in' || value === 'out') return value
   return undefined
+}
+
+/**
+ * Three-way, and the three ways matter on update:
+ *
+ * - `undefined` — the caller said nothing, so keep whatever is stored. The
+ *   reconciliation inline editor hand-builds its payload and omits this field,
+ *   and must not wipe the week as a side effect of clearing a checkbox.
+ * - `null` — the caller explicitly cleared it.
+ * - a `YYYY-MM-DD` string — file it under that week.
+ *
+ * The stored value is only ever a week's first day. It is deliberately not
+ * validated against the household's current week start: an already-filed week
+ * has to survive that setting changing under it.
+ */
+function parseWeekStartInput(value: unknown): string | null | undefined {
+  if (value === undefined) return undefined
+  if (value === null || value === '') return null
+  if (typeof value !== 'string' || !isYmd(value) || !fromYmd(value)) {
+    throw new Error('Week must be YYYY-MM-DD.')
+  }
+  return value
 }
 
 export const listAccountTransactions = createServerFn({ method: 'GET' })
@@ -1035,6 +1063,7 @@ function toTransactionDetailDto(
     amount: { toString(): string }
     description: string | null
     date: Date
+    weekStart: string | null
     transferGroupId: string | null
     createdAt: Date
     updatedAt: Date
@@ -1062,6 +1091,7 @@ function toTransactionDetailDto(
     amount: txn.amount.toString(),
     description: txn.description,
     date: txn.date.toISOString(),
+    weekStart: txn.weekStart,
     payee: toColoredTaxonomyRef(txn.payee),
     category: toColoredTaxonomyRef(txn.category),
     tags: txn.tags.map(
@@ -1179,6 +1209,7 @@ export const createTransaction = createServerFn({ method: 'POST' })
       date,
       description: description || null,
       direction,
+      weekStart: parseWeekStartInput(input.weekStart) ?? null,
       payee,
       category,
       tags,
@@ -1210,6 +1241,7 @@ export const createTransaction = createServerFn({ method: 'POST' })
         amount: signedAmount,
         date: parseDate(data.date),
         description: data.description,
+        weekStart: data.weekStart,
         payeeId,
         categoryId,
         ...(tagIds.length > 0
@@ -1243,6 +1275,7 @@ export const createTransaction = createServerFn({ method: 'POST' })
           amount: created.amount.toString(),
           description: created.description,
           date: created.date.toISOString(),
+          weekStart: created.weekStart,
           payeeId: created.payeeId,
           categoryId: created.categoryId,
           transferGroupId: created.transferGroupId,
@@ -1310,6 +1343,8 @@ export type TransferRowsInput = {
   magnitude: number
   date: Date
   description: string | null
+  /** Optional organizational week; both legs always get the same one. */
+  weekStart?: string | null
   fromPayeeId: string
   toPayeeId: string
   fromAccount: { name: string; isGlobal: boolean; userId: string | null }
@@ -1344,6 +1379,7 @@ export const createTransferRows = createServerOnlyFn(async (
       amount: outAmount,
       date: input.date,
       description: input.description,
+      weekStart: input.weekStart ?? null,
       transferGroupId,
       payeeId: input.fromPayeeId,
     },
@@ -1356,6 +1392,7 @@ export const createTransferRows = createServerOnlyFn(async (
       amount: inAmount,
       date: input.date,
       description: input.description,
+      weekStart: input.weekStart ?? null,
       transferGroupId,
       payeeId: input.toPayeeId,
     },
@@ -1375,6 +1412,7 @@ export const createTransferRows = createServerOnlyFn(async (
           amount: from.amount.toString(),
           description: from.description,
           date: from.date.toISOString(),
+          weekStart: from.weekStart,
           payeeId: from.payeeId,
           categoryId: from.categoryId,
           transferGroupId: from.transferGroupId,
@@ -1429,6 +1467,7 @@ export const createTransfer = createServerFn({ method: 'POST' })
       amount,
       date,
       description: description || null,
+      weekStart: parseWeekStartInput(input.weekStart) ?? null,
       attachments,
     }
   })
@@ -1481,6 +1520,7 @@ export const createTransfer = createServerFn({ method: 'POST' })
           magnitude,
           date,
           description: data.description,
+          weekStart: data.weekStart,
           fromPayeeId,
           toPayeeId,
           fromAccount,
@@ -1504,6 +1544,7 @@ export const createTransfer = createServerFn({ method: 'POST' })
         amount: fromTxn.amount.toString(),
         description: fromTxn.description,
         date: fromTxn.date.toISOString(),
+        weekStart: fromTxn.weekStart,
         ...empty,
         payee: fromPayee,
         attachments,
@@ -1516,6 +1557,7 @@ export const createTransfer = createServerFn({ method: 'POST' })
         amount: toTxn.amount.toString(),
         description: toTxn.description,
         date: toTxn.date.toISOString(),
+        weekStart: toTxn.weekStart,
         ...empty,
         payee: toPayee,
         attachments,
@@ -1647,6 +1689,8 @@ export const updateTransaction = createServerFn({ method: 'POST' })
       description: description || null,
       direction,
       date: dateRaw || null,
+      // undefined here means "keep the stored week" — see parseWeekStartInput.
+      weekStart: parseWeekStartInput(input.weekStart),
       payee,
       category,
       tags,
@@ -1736,6 +1780,7 @@ export const updateTransaction = createServerFn({ method: 'POST' })
       amount: { toString(): string }
       description: string | null
       date: Date
+      weekStart: string | null
       type: TransactionTypeRef
       payeeId: string | null
       categoryId: string | null
@@ -1781,6 +1826,7 @@ export const updateTransaction = createServerFn({ method: 'POST' })
       amount: existing.amount,
       description: existing.description,
       date: existing.date,
+      weekStart: existing.weekStart,
       payeeId: existing.payeeId,
       categoryId: existing.categoryId,
       transferGroupId: existing.transferGroupId,
@@ -1796,6 +1842,7 @@ export const updateTransaction = createServerFn({ method: 'POST' })
           amount: counterpart.amount,
           description: counterpart.description,
           date: counterpart.date,
+          weekStart: counterpart.weekStart,
           payeeId: counterpart.payeeId,
           categoryId: counterpart.categoryId,
           transferGroupId: counterpart.transferGroupId,
@@ -1820,6 +1867,7 @@ export const updateTransaction = createServerFn({ method: 'POST' })
           amount: signedAmount,
           description: data.description,
           date: nextDate,
+          ...(data.weekStart === undefined ? {} : { weekStart: data.weekStart }),
           ...(isTransfer
             ? {}
             : {
@@ -1838,6 +1886,11 @@ export const updateTransaction = createServerFn({ method: 'POST' })
             amount: counterpartSignedAmount,
             description: data.description,
             date: nextDate,
+            // Both legs of a transfer are one movement of money, so they must
+            // never end up filed under different weeks.
+            ...(data.weekStart === undefined
+              ? {}
+              : { weekStart: data.weekStart }),
           },
         })
       }
@@ -1902,6 +1955,7 @@ export const updateTransaction = createServerFn({ method: 'POST' })
       amount: updated.amount,
       description: updated.description,
       date: updated.date,
+      weekStart: updated.weekStart,
       payeeId: updated.payeeId,
       categoryId: updated.categoryId,
       transferGroupId: updated.transferGroupId,
@@ -1957,6 +2011,7 @@ export const updateTransaction = createServerFn({ method: 'POST' })
         amount: updatedCounterpart.amount,
         description: updatedCounterpart.description,
         date: updatedCounterpart.date,
+        weekStart: updatedCounterpart.weekStart,
         payeeId: updatedCounterpart.payeeId,
         categoryId: updatedCounterpart.categoryId,
         transferGroupId: updatedCounterpart.transferGroupId,
@@ -2236,6 +2291,7 @@ export const deleteTransaction = createServerFn({ method: 'POST' })
                 amount: row.amount,
                 description: row.description,
                 date: row.date,
+                weekStart: row.weekStart,
                 payeeId: row.payeeId,
                 categoryId: row.categoryId,
                 transferGroupId: row.transferGroupId,

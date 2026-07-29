@@ -3,6 +3,7 @@ import {
   formatAccountCurrency,
   formatTransactionDate,
 } from '#/components/app/accounts/account-utils'
+import { weekLabelFromYmd } from '#/lib/week-start'
 
 export const TRANSACTION_SEARCH_KEYS = [
   'date',
@@ -11,6 +12,7 @@ export const TRANSACTION_SEARCH_KEYS = [
   'payee',
   'category',
   'tags',
+  'week',
   'description',
   'amount',
 ] as const
@@ -29,6 +31,8 @@ export type TransactionSearchable = {
   payee: TaxonomyName | null
   category: TaxonomyName | null
   tags: TaxonomyName[]
+  /** Stored week start (YYYY-MM-DD), or null when unfiled. */
+  weekStart?: string | null
   account?: { name: string } | null
 }
 
@@ -40,6 +44,7 @@ export type TransactionSearchDoc = {
   payee: string
   category: string
   tags: string
+  week: string
   description: string
   amount: string
 }
@@ -65,6 +70,8 @@ export function toTransactionSearchDoc(
     payee: row.payee?.name?.trim() ?? '',
     category: row.category?.name?.trim() ?? '',
     tags: row.tags.map((tag) => tag.name).join(', '),
+    // Indexed as the rendered label so "Jan 15" finds the week containing it.
+    week: row.weekStart ? weekLabelFromYmd(row.weekStart) : '',
     description: row.description?.trim() ?? '',
     // Include formatted currency and raw number so both "$12.34" and "12.34" match.
     amount: `${formatAccountCurrency(amountRaw)} ${amountRaw}`,

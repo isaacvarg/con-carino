@@ -22,6 +22,7 @@ import {
   searchTransactionIds,
   type TransactionSearchKey,
 } from '#/lib/transaction-search'
+import { weekLabelFromYmd } from '#/lib/week-start'
 import { DataTableCards } from '#/components/app/ui/DataTableCards'
 import { FacetFilter } from '#/components/app/ui/FacetFilter'
 import { TaxonomyBadge } from '#/components/app/transactions/TaxonomyBadge'
@@ -56,6 +57,7 @@ const COLUMN_IDS = [
   'tags',
   'description',
   'amount',
+  'week',
 ] as const
 
 const multiValueFilter: FilterFn<TransactionListItem> = (
@@ -88,12 +90,17 @@ function serializeSort(sorting: SortingState): string {
   return first.desc ? `-${first.id}` : first.id
 }
 
+// `week` exists only so TanStack can facet and filter on it; it is never
+// rendered as a column, so it starts hidden and is not offered in the Columns
+// menu. serializeCols therefore has to keep emitting it, or a round-trip
+// through the URL would quietly turn it back on.
+const ALWAYS_HIDDEN_COLUMNS = new Set<(typeof COLUMN_IDS)[number]>(['week'])
+
 function parseCols(cols: string): VisibilityState {
-  if (!cols) return {}
   const hidden = new Set(cols.split(',').filter(Boolean))
   const visibility: VisibilityState = {}
   for (const id of COLUMN_IDS) {
-    if (hidden.has(id)) visibility[id] = false
+    if (hidden.has(id) || ALWAYS_HIDDEN_COLUMNS.has(id)) visibility[id] = false
   }
   return visibility
 }
@@ -110,10 +117,12 @@ function searchToColumnFilters(
   const category = parseCsvValues(search.category)
   const payee = parseCsvValues(search.payee)
   const tags = parseCsvValues(search.tags)
+  const week = parseCsvValues(search.week)
   if (type.length) filters.push({ id: 'type', value: type })
   if (category.length) filters.push({ id: 'category', value: category })
   if (payee.length) filters.push({ id: 'payee', value: payee })
   if (tags.length) filters.push({ id: 'tags', value: tags })
+  if (week.length) filters.push({ id: 'week', value: week })
   return filters
 }
 
@@ -138,13 +147,16 @@ export function TransactionsTable({
   const columnVisibility = useMemo(() => parseCols(search.cols), [search.cols])
   const columnFilters = useMemo(
     () => searchToColumnFilters(search),
-    [search.type, search.category, search.payee, search.tags],
+    [search.type, search.category, search.payee, search.tags, search.week],
   )
 
+  // Search keys normally track column visibility, so hiding a column also
+  // drops it from the fuzzy index. `week` is always hidden but still meant to
+  // be searchable, so it is included unconditionally.
   const visibleSearchKeys = useMemo(
     () =>
       COLUMN_IDS.filter(
-        (id) => columnVisibility[id] !== false,
+        (id) => ALWAYS_HIDDEN_COLUMNS.has(id) || columnVisibility[id] !== false,
       ) as TransactionSearchKey[],
     [columnVisibility],
   )
@@ -158,6 +170,7 @@ export function TransactionsTable({
     const categories = new Map<string, string>()
     const payees = new Map<string, string>()
     const tags = new Map<string, string>()
+    const weeks = new Map<string, string>()
 
     for (const txn of transactions) {
       types.set(txn.type.key, txn.type.label)
@@ -174,6 +187,11 @@ export function TransactionsTable({
       for (const tag of txn.tags) {
         tags.set(tag.id, tag.name)
       }
+      if (txn.weekStart) {
+        weeks.set(txn.weekStart, weekLabelFromYmd(txn.weekStart))
+      } else {
+        weeks.set(NONE_FACET, '—')
+      }
     }
 
     return {
@@ -184,6 +202,10 @@ export function TransactionsTable({
       })),
       payee: [...payees.entries()].map(([value, label]) => ({ value, label })),
       tags: [...tags.entries()].map(([value, label]) => ({ value, label })),
+      // Newest week first; the '—' sentinel sorts to the end on its own.
+      week: [...weeks.entries()]
+        .sort((a, b) => b[0].localeCompare(a[0]))
+        .map(([value, label]) => ({ value, label })),
     }
   }, [transactions])
 
@@ -198,7 +220,8 @@ export function TransactionsTable({
       next.type === search.type &&
       next.category === search.category &&
       next.payee === search.payee &&
-      next.tags === search.tags
+      next.tags === search.tags &&
+      next.week === search.week
 
     if (unchanged) return
 
@@ -212,7 +235,7 @@ export function TransactionsTable({
   }
 
   function setFacetFilter(
-    key: 'type' | 'category' | 'payee' | 'tags',
+    key: 'type' | 'category' | 'payee' | 'tags' | 'week',
     values: string[],
   ) {
     updateSearch({ [key]: serializeCsvValues(values), page: 1 })
@@ -329,6 +352,16 @@ export function TransactionsTable({
         },
         enableColumnFilter: false,
       },
+      {
+        id: 'week',
+        accessorFn: (row) => row.weekStart ?? NONE_FACET,
+        header: 'Week',
+        cell: ({ row }) =>
+          row.original.weekStart
+            ? weekLabelFromYmd(row.original.weekStart)
+            : '—',
+        filterFn: multiValueFilter,
+      },
     ],
     [],
   )
@@ -379,6 +412,7 @@ export function TransactionsTable({
         category: read('category'),
         payee: read('payee'),
         tags: read('tags'),
+        week: read('week'),
         page: 1,
       })
     },
@@ -404,6 +438,10 @@ export function TransactionsTable({
       number
     >,
     tags: table.getColumn('tags')!.getFacetedUniqueValues() as Map<string, number>,
+    week: table.getColumn('week')!.getFacetedUniqueValues() as Map<
+      string,
+      number
+    >,
   }
 
   const pageCount = table.getPageCount()
@@ -503,6 +541,13 @@ export function TransactionsTable({
               options={facetOptions.tags}
               selected={parseCsvValues(search.tags)}
               onChange={(next) => setFacetFilter('tags', next)}
+            />
+            <FacetFilter
+              counts={facetCounts.week}
+              label="Week"
+              options={facetOptions.week}
+              selected={parseCsvValues(search.week)}
+              onChange={(next) => setFacetFilter('week', next)}
             />
           </div>
         </div>

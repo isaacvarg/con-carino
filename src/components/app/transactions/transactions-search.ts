@@ -27,6 +27,7 @@ export const transactionsSearchDefaults = {
   category: '',
   payee: '',
   tags: '',
+  week: '',
 } as const
 
 export type TransactionsSearch = {
@@ -42,6 +43,8 @@ export type TransactionsSearch = {
   category: string
   payee: string
   tags: string
+  /** CSV of week start dates (YYYY-MM-DD), or the "unfiled" sentinel. */
+  week: string
 }
 
 export function validateTransactionsSearch(
@@ -73,5 +76,6 @@ export function validateTransactionsSearch(
     category: parseCsvParam(search.category),
     payee: parseCsvParam(search.payee),
     tags: parseCsvParam(search.tags),
+    week: parseCsvParam(search.week),
   }
 }

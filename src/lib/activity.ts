@@ -267,6 +267,8 @@ export const ACTIVITY_FIELD_LABELS: Record<string, string> = {
   amount: 'Amount',
   description: 'Description',
   date: 'Date',
+  weekStart: 'Week',
+  weekStartsOn: 'Week starts on',
   payeeId: 'Payee',
   categoryId: 'Category',
   transferGroupId: 'Transfer group',
