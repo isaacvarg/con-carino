@@ -1864,6 +1864,7 @@ export const updateTransaction = createServerFn({ method: 'POST' })
       await tx.transaction.update({
         where: { id: existing.id },
         data: {
+          typeId: nextType.id,
           amount: signedAmount,
           description: data.description,
           date: nextDate,
