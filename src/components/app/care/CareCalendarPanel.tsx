@@ -33,6 +33,7 @@ import {
   createCalendarEvent,
   createCoverageAssignmentRule,
   createSwapRequest,
+  deleteCalendarEvent,
   deleteCoverageAssignmentRule,
   deleteCoverageSeries,
   listCoverageAssignmentRules,
@@ -198,7 +199,14 @@ export function CareCalendarPanel({
   const [confirmDeleteSeriesId, setConfirmDeleteSeriesId] = useState<
     string | null
   >(null)
+  const [confirmDeleteEventId, setConfirmDeleteEventId] = useState<
+    string | null
+  >(null)
   const [deleting, setDeleting] = useState(false)
+  const [eventDeleteError, setEventDeleteError] = useState<string | null>(null)
+  const pendingDeleteEvent = confirmDeleteEventId
+    ? (events.find((e) => e.id === confirmDeleteEventId) ?? null)
+    : null
   const [ruleSummary, setRuleSummary] = useState<string | null>(null)
   const [releaseId, setReleaseId] = useState<string | null>(null)
   const [notifyOnRelease, setNotifyOnRelease] = useState(true)
@@ -648,18 +656,34 @@ export function CareCalendarPanel({
                   key={ev.id}
                   className="rounded-lg border border-base-300 p-3"
                 >
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium"
-                      style={personChipStyle(ev.bgColor, ev.textColor)}
-                    >
-                      {ev.typeName}
-                    </span>
-                    <p className="font-medium">{ev.title}</p>
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium"
+                          style={personChipStyle(ev.bgColor, ev.textColor)}
+                        >
+                          {ev.typeName}
+                        </span>
+                        <p className="font-medium">{ev.title}</p>
+                      </div>
+                      <p className="mt-1 text-sm text-base-content/60">
+                        {formatTimeRange(ev.startsAt, ev.endsAt)}
+                      </p>
+                    </div>
+                    {adminMode ? (
+                      <button
+                        type="button"
+                        className="btn btn-error btn-outline btn-xs"
+                        onClick={() => {
+                          setEventDeleteError(null)
+                          setConfirmDeleteEventId(ev.id)
+                        }}
+                      >
+                        Delete
+                      </button>
+                    ) : null}
                   </div>
-                  <p className="mt-1 text-sm text-base-content/60">
-                    {formatTimeRange(ev.startsAt, ev.endsAt)}
-                  </p>
                 </li>
               ))}
             </ul>
@@ -771,6 +795,22 @@ export function CareCalendarPanel({
         err instanceof Error ? err.message : 'Could not delete series.',
       )
       setConfirmDeleteSeriesId(null)
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  async function deleteEvent(id: string) {
+    setEventDeleteError(null)
+    setDeleting(true)
+    try {
+      await deleteCalendarEvent({ data: { id, adminMode } })
+      setConfirmDeleteEventId(null)
+      await router.invalidate()
+    } catch (err) {
+      setEventDeleteError(
+        err instanceof Error ? err.message : 'Could not delete event.',
+      )
     } finally {
       setDeleting(false)
     }
@@ -928,8 +968,9 @@ export function CareCalendarPanel({
         {adminMode ? (
           <div className="mb-3 alert alert-warning py-2 text-sm">
             <span>
-              Admin mode: you can reassign and release anyone&rsquo;s windows.
-              Every change is recorded as an admin action.
+              Admin mode: you can reassign and release anyone&rsquo;s windows,
+              and delete extra events. Every change is recorded as an admin
+              action.
             </span>
           </div>
         ) : null}
@@ -1258,6 +1299,40 @@ export function CareCalendarPanel({
           if (confirmDeleteId) void deleteRule(confirmDeleteId)
         }}
         onCancel={() => setConfirmDeleteId(null)}
+      />
+
+      <ConfirmDialog
+        open={confirmDeleteEventId !== null}
+        tone="danger"
+        title="Delete event"
+        message={
+          <div className="space-y-3">
+            <p>
+              This removes the extra calendar event
+              {pendingDeleteEvent ? (
+                <>
+                  {' '}
+                  &ldquo;{pendingDeleteEvent.title}&rdquo;
+                </>
+              ) : null}
+              . Coverage slots are not affected.
+            </p>
+            {eventDeleteError ? (
+              <p className="text-sm text-error" role="alert">
+                {eventDeleteError}
+              </p>
+            ) : null}
+          </div>
+        }
+        confirmLabel="Delete"
+        busy={deleting}
+        onConfirm={() => {
+          if (confirmDeleteEventId) void deleteEvent(confirmDeleteEventId)
+        }}
+        onCancel={() => {
+          setConfirmDeleteEventId(null)
+          setEventDeleteError(null)
+        }}
       />
 
       <ConfirmDialog
