@@ -11,10 +11,15 @@ import {
   assertUploadSize,
   deriveThumbnailKey,
 } from '#/lib/attachment-types'
+import { canDeleteDocument } from '#/lib/document-access'
 import type { DocumentListItem, DocumentTypeRecord } from '#/lib/document-types'
 import { buildSignedFileUrl } from '#/lib/file-tokens'
 import { prisma } from '#/lib/prisma'
-import { assertObjectKeyOwnedByUser, getBucketName } from '#/lib/storage'
+import {
+  assertObjectKeyOwnedByUser,
+  deleteObject,
+  getBucketName,
+} from '#/lib/storage'
 import {
   optionalString,
   requireHexColor,
@@ -22,6 +27,7 @@ import {
   requireName,
 } from '#/lib/validators'
 import { logActivity } from '#/server/activity-log'
+import { isCallerAdmin } from '#/server/auth-guards'
 import { authConfig } from '#/utils/auth'
 
 export type { DocumentListItem, DocumentTypeRecord } from '#/lib/document-types'
@@ -37,6 +43,7 @@ const DOCUMENT_TYPE_SELECT = {
 
 const DOCUMENT_SELECT = {
   id: true,
+  userId: true,
   name: true,
   fileName: true,
   contentType: true,
@@ -56,6 +63,7 @@ const DOCUMENT_SELECT = {
 
 type DocumentRow = {
   id: string
+  userId: string
   name: string
   fileName: string
   contentType: string
@@ -69,6 +77,11 @@ type DocumentRow = {
     bgColor: string
     textColor: string
   }
+}
+
+type DocumentViewer = {
+  userId: string
+  isAdmin: boolean
 }
 
 const DEFAULT_DOCUMENT_TYPES = [
@@ -126,6 +139,12 @@ async function requireUserId() {
   return userId
 }
 
+async function requireViewer(): Promise<DocumentViewer> {
+  const userId = await requireUserId()
+  const isAdmin = await isCallerAdmin()
+  return { userId, isAdmin }
+}
+
 /**
  * The migration seeds these, but fresh and test databases need them too —
  * a document cannot be created without a type to assign it.
@@ -140,7 +159,10 @@ async function ensureDefaultDocumentTypes() {
   }
 }
 
-function toDocumentListItem(row: DocumentRow): DocumentListItem {
+function toDocumentListItem(
+  row: DocumentRow,
+  viewer: DocumentViewer,
+): DocumentListItem {
   const bucket = getBucketName()
   return {
     id: row.id,
@@ -154,6 +176,26 @@ function toDocumentListItem(row: DocumentRow): DocumentListItem {
     thumbnailUrl: row.thumbnailKey
       ? buildSignedFileUrl(bucket, row.thumbnailKey)
       : null,
+    canDelete: canDeleteDocument(row.userId, viewer),
+  }
+}
+
+async function deleteStoredDocumentFiles(document: {
+  id: string
+  storageKey: string
+  thumbnailKey: string | null
+}): Promise<void> {
+  try {
+    await deleteObject(document.storageKey)
+    if (document.thumbnailKey) {
+      await deleteObject(document.thumbnailKey)
+    }
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : 'Unknown storage error'
+    console.error(
+      `[documents] Failed to delete stored file for document ${document.id}: ${message}`,
+    )
   }
 }
 
@@ -287,12 +329,12 @@ export const updateDocumentType = createServerFn({ method: 'POST' })
 
 export const listDocuments = createServerFn({ method: 'GET' }).handler(
   async (): Promise<DocumentListItem[]> => {
-    await requireUserId()
+    const viewer = await requireViewer()
     const rows = await prisma.document.findMany({
       select: DOCUMENT_SELECT,
       orderBy: { createdAt: 'desc' },
     })
-    return rows.map(toDocumentListItem)
+    return rows.map((row) => toDocumentListItem(row, viewer))
   },
 )
 
@@ -303,12 +345,12 @@ export const getDocument = createServerFn({ method: 'GET' })
     return { id: requireId(input.id) }
   })
   .handler(async ({ data }): Promise<DocumentListItem> => {
-    await requireUserId()
+    const viewer = await requireViewer()
     const row = await prisma.document.findUniqueOrThrow({
       where: { id: data.id },
       select: DOCUMENT_SELECT,
     })
-    return toDocumentListItem(row)
+    return toDocumentListItem(row, viewer)
   })
 
 export const createDocument = createServerFn({ method: 'POST' })
@@ -356,12 +398,12 @@ export const createDocument = createServerFn({ method: 'POST' })
     }
   })
   .handler(async ({ data }): Promise<DocumentListItem> => {
-    const userId = await requireUserId()
-    assertObjectKeyOwnedByUser(data.storageKey, userId)
+    const viewer = await requireViewer()
+    assertObjectKeyOwnedByUser(data.storageKey, viewer.userId)
 
     const created = await prisma.document.create({
       data: {
-        userId,
+        userId: viewer.userId,
         documentTypeId: data.documentTypeId,
         name: data.name,
         storageKey: data.storageKey,
@@ -374,7 +416,7 @@ export const createDocument = createServerFn({ method: 'POST' })
     })
 
     await logActivity({
-      actorUserId: userId,
+      actorUserId: viewer.userId,
       action: 'CREATE',
       entityType: ACTIVITY_ENTITY_TYPES.document,
       entityId: created.id,
@@ -385,7 +427,7 @@ export const createDocument = createServerFn({ method: 'POST' })
       ),
       visibilityUserId: null,
     })
-    return toDocumentListItem(created)
+    return toDocumentListItem(created, viewer)
   })
 
 export const updateDocument = createServerFn({ method: 'POST' })
@@ -399,7 +441,7 @@ export const updateDocument = createServerFn({ method: 'POST' })
     }
   })
   .handler(async ({ data }): Promise<DocumentListItem> => {
-    const userId = await requireUserId()
+    const viewer = await requireViewer()
 
     const before = await prisma.document.findUniqueOrThrow({
       where: { id: data.id },
@@ -421,7 +463,7 @@ export const updateDocument = createServerFn({ method: 'POST' })
     )
     if (Object.keys(changes).length > 0) {
       await logActivity({
-        actorUserId: userId,
+        actorUserId: viewer.userId,
         action: 'UPDATE',
         entityType: ACTIVITY_ENTITY_TYPES.document,
         entityId: updated.id,
@@ -430,5 +472,62 @@ export const updateDocument = createServerFn({ method: 'POST' })
         visibilityUserId: null,
       })
     }
-    return toDocumentListItem(updated)
+    return toDocumentListItem(updated, viewer)
+  })
+
+export const deleteDocument = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    if (!data || typeof data !== 'object') throw new Error('Invalid payload.')
+    return { id: requireId((data as Record<string, unknown>).id) }
+  })
+  .handler(async ({ data }): Promise<{ id: string }> => {
+    const viewer = await requireViewer()
+
+    const existing = await prisma.document.findUnique({
+      where: { id: data.id },
+      select: {
+        id: true,
+        userId: true,
+        name: true,
+        fileName: true,
+        documentTypeId: true,
+        storageKey: true,
+        thumbnailKey: true,
+      },
+    })
+    if (!existing) {
+      throw new Error('Document not found.')
+    }
+    if (!canDeleteDocument(existing.userId, viewer)) {
+      throw new Error(
+        'You can only delete documents you uploaded. Ask an admin otherwise.',
+      )
+    }
+
+    await prisma.document.delete({ where: { id: existing.id } })
+
+    const viaAdmin = viewer.isAdmin && existing.userId !== viewer.userId
+    await logActivity({
+      actorUserId: viewer.userId,
+      action: 'DELETE',
+      entityType: ACTIVITY_ENTITY_TYPES.document,
+      entityId: existing.id,
+      summary: viaAdmin
+        ? `Deleted document ${existing.name} (admin)`
+        : `Deleted document ${existing.name}`,
+      changes: diffChanges(
+        {
+          name: existing.name,
+          documentTypeId: existing.documentTypeId,
+          fileName: existing.fileName,
+        },
+        null,
+        ['name', 'documentTypeId', 'fileName'],
+      ),
+      linkMeta: viaAdmin ? { viaAdminMode: true } : null,
+      visibilityUserId: null,
+    })
+
+    await deleteStoredDocumentFiles(existing)
+    return { id: existing.id }
   })

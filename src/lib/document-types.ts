@@ -30,6 +30,8 @@ export type DocumentListItem = {
   fileUrl: string
   /** Same-origin signed URL for the thumbnail, when one was generated. */
   thumbnailUrl: string | null
+  /** Uploader or admin. Enforced again in `deleteDocument`. */
+  canDelete: boolean
 }
 
 export const DEFAULT_DOCUMENT_TYPE_BG_COLOR = '#0ea5e9'

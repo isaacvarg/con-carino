@@ -1,10 +1,11 @@
 import { useForm } from '@tanstack/react-form'
-import { Link, useRouter } from '@tanstack/react-router'
+import { Link, useNavigate, useRouter } from '@tanstack/react-router'
 import { useState } from 'react'
-import { HiOutlinePencil } from 'react-icons/hi'
+import { HiOutlinePencil, HiOutlineTrash } from 'react-icons/hi'
 import { DocumentViewer } from '#/components/app/documents/DocumentViewer'
 import { documentsSearchDefaults } from '#/components/app/documents/documents-search'
 import { TaxonomyBadge } from '#/components/app/transactions/TaxonomyBadge'
+import { ConfirmDialog } from '#/components/app/ui/confirm-dialog'
 import {
   FORM_INPUT_CLASS,
   FORM_SELECT_CLASS,
@@ -14,7 +15,7 @@ import {
 } from '#/components/app/ui/form'
 import type { DocumentListItem, DocumentTypeRecord } from '#/lib/document-types'
 import { formatBytes } from '#/lib/format-bytes'
-import { updateDocument } from '#/server/documents'
+import { deleteDocument, updateDocument } from '#/server/documents'
 
 type EditFormValues = {
   name: string
@@ -39,8 +40,11 @@ export function DocumentDetailPanel({
   documentTypes,
 }: DocumentDetailPanelProps) {
   const router = useRouter()
+  const navigate = useNavigate()
   const [editing, setEditing] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   const form = useForm({
     defaultValues: {
@@ -83,6 +87,26 @@ export function DocumentDetailPanel({
     })
     setSubmitError(null)
     setEditing(false)
+  }
+
+  async function confirmDelete() {
+    setDeleting(true)
+    setSubmitError(null)
+    try {
+      await deleteDocument({ data: { id: document.id } })
+      setConfirmingDelete(false)
+      await navigate({
+        to: '/documents',
+        search: documentsSearchDefaults,
+      })
+    } catch (err) {
+      setSubmitError(
+        err instanceof Error ? err.message : 'Could not delete document.',
+      )
+      setConfirmingDelete(false)
+    } finally {
+      setDeleting(false)
+    }
   }
 
   return (
@@ -212,14 +236,26 @@ export function DocumentDetailPanel({
                 <h3 className="text-xl font-bold tracking-tight text-base-content">
                   {document.name}
                 </h3>
-                <button
-                  type="button"
-                  className="btn btn-outline btn-sm shrink-0 gap-1.5"
-                  onClick={startEditing}
-                >
-                  <HiOutlinePencil className="size-4" aria-hidden />
-                  Edit
-                </button>
+                <div className="flex shrink-0 flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    className="btn btn-outline btn-sm gap-1.5"
+                    onClick={startEditing}
+                  >
+                    <HiOutlinePencil className="size-4" aria-hidden />
+                    Edit
+                  </button>
+                  {document.canDelete ? (
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm gap-1.5 text-error"
+                      onClick={() => setConfirmingDelete(true)}
+                    >
+                      <HiOutlineTrash className="size-4" aria-hidden />
+                      Delete
+                    </button>
+                  ) : null}
+                </div>
               </div>
 
               <div>
@@ -254,10 +290,27 @@ export function DocumentDetailPanel({
                   </dd>
                 </div>
               </dl>
+
+              {submitError ? (
+                <p className="text-sm text-error" role="alert">
+                  {submitError}
+                </p>
+              ) : null}
             </div>
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmingDelete}
+        title={`Delete “${document.name}”?`}
+        message="This cannot be undone. The file is removed from the library and from storage."
+        confirmLabel="Delete"
+        busy={deleting}
+        tone="danger"
+        onConfirm={() => void confirmDelete()}
+        onCancel={() => setConfirmingDelete(false)}
+      />
     </div>
   )
 }
