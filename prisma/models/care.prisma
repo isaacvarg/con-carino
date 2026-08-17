@@ -43,6 +43,13 @@ enum CareSwapItemRole {
   GIVE
 }
 
+enum CareHireStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
 enum CareInvoiceStatus {
   OPEN
   PAID
@@ -270,6 +277,12 @@ model CareSettings {
   /// above, but unlike them it is a display choice, not stored data: changing it
   /// must never reinterpret a persisted day-of-week value.
   weekStartsOn         Int                    @default(0)
+  /// When true, a hired slot on the month grid uses calendarHireLabel and the
+  /// original (responsible) person's colors. When false, chips show only the
+  /// hired employee, matching an un-hired assignee chip.
+  calendarShowHireOrigin Boolean              @default(true)
+  /// Placeholders: %originalUser (who hired / pays), %employedUser (who covers).
+  calendarHireLabel      String               @default("%originalUser hired %employedUser")
   createdAt            DateTime               @default(now())
   updatedAt            DateTime               @updatedAt
 
@@ -333,10 +346,10 @@ model CarePerson {
   /// 1–28; used for MONTHLY
   payMonthDay   Int?
   /// Typical working schedule, 0=Sun … 6=Sat. Empty means no schedule is
-  /// configured, which makes every window bill at the standard rate.
-  /// Rate classification only — recurring assignment is still driven by
-  /// CareCoverageAssignmentRule, so a person can be regularly assigned to a
-  /// day that bills off-schedule.
+  /// configured, which makes every window bill at the standard rate and lets
+  /// hire-cover apply immediately. Also gates off-schedule hire approval.
+  /// Recurring assignment is still driven by CareCoverageAssignmentRule, so a
+  /// person can be regularly assigned to a day that bills off-schedule.
   standardDaysOfWeek Int[]      @default([])
   /// Local wall time "HH:mm" bounding the standard part of a standard day.
   /// Both null = the whole of a standard day is standard. An end at or before
@@ -372,6 +385,8 @@ model CarePerson {
   assignmentRules CareCoverageAssignmentRule[]
   swapsRequested CareSwapRequest[]        @relation("SwapRequesterPerson")
   swapsTargeted  CareSwapRequest[]        @relation("SwapTargetPerson")
+  hiresRequested CareHireRequest[]        @relation("HireRequesterPerson")
+  hiresTargeted  CareHireRequest[]        @relation("HireTargetPerson")
   invoices      CareInvoice[]
 
   @@index([typeId])
@@ -445,6 +460,7 @@ model CareCoverageOccurrence {
   assignedByRule   CareCoverageAssignmentRule? @relation(fields: [assignedByRuleId], references: [id], onDelete: SetNull)
   invoiceLines     CareInvoiceLine[]
   swapItems        CareSwapItem[]
+  hireItems        CareHireItem[]
 
   @@unique([seriesId, startsAt])
   @@index([startsAt, endsAt])
@@ -559,6 +575,48 @@ model CareSwapItem {
   @@unique([swapId, occurrenceId])
   @@index([occurrenceId])
   @@map("care_swap_items")
+}
+
+/// A family member asking a paid caregiver to cover one or more of the
+/// requester's windows that fall outside the caregiver's typical schedule.
+/// On-schedule hires apply immediately and never become a row here.
+model CareHireRequest {
+  id                String         @id @default(uuid())
+  /// Person who currently holds the windows and will owe 100% of the cost
+  requesterPersonId String
+  /// Paid caregiver being asked to work the windows
+  targetPersonId    String
+  requestedByUserId String
+  status            CareHireStatus @default(PENDING)
+  reviewedByUserId  String?
+  reviewedAt        DateTime?
+  notes             String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  requesterPerson CarePerson @relation("HireRequesterPerson", fields: [requesterPersonId], references: [id], onDelete: Restrict)
+  targetPerson    CarePerson @relation("HireTargetPerson", fields: [targetPersonId], references: [id], onDelete: Restrict)
+  requestedByUser User       @relation("HireRequestedBy", fields: [requestedByUserId], references: [id], onDelete: Cascade)
+  reviewedByUser  User?      @relation("HireReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  items           CareHireItem[]
+
+  @@index([status])
+  @@index([targetPersonId, status])
+  @@index([requestedByUserId])
+  @@map("care_hire_requests")
+}
+
+model CareHireItem {
+  id           String @id @default(uuid())
+  hireId       String
+  occurrenceId String
+
+  hire       CareHireRequest        @relation(fields: [hireId], references: [id], onDelete: Cascade)
+  occurrence CareCoverageOccurrence @relation(fields: [occurrenceId], references: [id], onDelete: Cascade)
+
+  @@unique([hireId, occurrenceId])
+  @@index([occurrenceId])
+  @@map("care_hire_items")
 }
 
 model CareInvoice {

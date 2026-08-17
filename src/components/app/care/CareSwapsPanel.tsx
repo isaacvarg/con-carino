@@ -1,11 +1,16 @@
 import { useRouteContext, useRouter } from '@tanstack/react-router'
 import { useState } from 'react'
-import type { CareSwapRequestDto, CareSwapWindowDto } from '#/server/care'
-import { reviewSwapRequest } from '#/server/care'
+import type {
+  CareHireRequestDto,
+  CareSwapRequestDto,
+  CareSwapWindowDto,
+} from '#/server/care'
+import { reviewHireRequest, reviewSwapRequest } from '#/server/care'
 import { formatTimeRange } from './care-utils'
 
 type CareSwapsPanelProps = {
   swaps: CareSwapRequestDto[]
+  hires: CareHireRequestDto[]
 }
 
 function WindowList({
@@ -37,18 +42,20 @@ function WindowList({
   )
 }
 
-export function CareSwapsPanel({ swaps }: CareSwapsPanelProps) {
+export function CareSwapsPanel({ swaps, hires }: CareSwapsPanelProps) {
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
 
   const { session } = useRouteContext({ from: '/_app' })
   const isAdmin = Boolean(session?.user?.isAdmin)
-  /** Lets an admin settle a swap stuck on someone who has gone quiet. */
+  /** Lets an admin settle a swap or hire stuck on someone who has gone quiet. */
   const [adminMode, setAdminMode] = useState(false)
 
   const pending = swaps.filter((s) => s.status === 'PENDING')
   const history = swaps.filter((s) => s.status !== 'PENDING')
+  const pendingHires = hires.filter((h) => h.status === 'PENDING')
+  const hireHistory = hires.filter((h) => h.status !== 'PENDING')
 
   async function review(
     id: string,
@@ -61,6 +68,22 @@ export function CareSwapsPanel({ swaps }: CareSwapsPanelProps) {
       await router.invalidate()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not update swap.')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function reviewHire(
+    id: string,
+    decision: 'APPROVED' | 'REJECTED' | 'CANCELLED',
+  ) {
+    setBusyId(id)
+    setError(null)
+    try {
+      await reviewHireRequest({ data: { id, decision, adminMode } })
+      await router.invalidate()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not update hire.')
     } finally {
       setBusyId(null)
     }
@@ -86,7 +109,8 @@ export function CareSwapsPanel({ swaps }: CareSwapsPanelProps) {
           </button>
           {adminMode ? (
             <span className="text-sm text-base-content/70">
-              You can settle any swap, including ones you are not part of.
+              You can settle any swap or hire, including ones you are not part
+              of.
             </span>
           ) : null}
         </div>
@@ -171,9 +195,84 @@ export function CareSwapsPanel({ swaps }: CareSwapsPanelProps) {
       </section>
 
       <section className="app-card p-4">
+        <h3 className="font-semibold">Pending hire requests</h3>
+        <p className="mt-1 text-sm text-base-content/60">
+          Off-schedule cover waits for the employee when they have an app
+          account. If they do not, an admin confirms in person and then
+          approves.
+        </p>
+        {pendingHires.length === 0 ? (
+          <p className="mt-4 text-sm text-base-content/50">No pending requests.</p>
+        ) : (
+          <ul className="mt-4 space-y-3">
+            {pendingHires.map((hire) => (
+              <li
+                key={hire.id}
+                className="rounded-lg border border-base-300 p-4"
+              >
+                <p className="font-medium">
+                  {hire.requesterPersonName} wants to hire{' '}
+                  {hire.targetPersonName} for {hire.windows.length} window
+                  {hire.windows.length === 1 ? '' : 's'}
+                </p>
+                <div className="mt-3">
+                  <WindowList
+                    label="Windows"
+                    windows={hire.windows}
+                  />
+                </div>
+                <p className="mt-3 text-xs text-base-content/50">
+                  Requested by {hire.requestedByName || 'a user'}
+                  {hire.notes ? ` · ${hire.notes}` : ''}
+                </p>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  {hire.canReview || adminMode ? (
+                    <>
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        disabled={busyId === hire.id}
+                        onClick={() => reviewHire(hire.id, 'APPROVED')}
+                      >
+                        Approve
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-outline btn-sm"
+                        disabled={busyId === hire.id}
+                        onClick={() => reviewHire(hire.id, 'REJECTED')}
+                      >
+                        Decline
+                      </button>
+                    </>
+                  ) : (
+                    <span className="text-sm text-base-content/60">
+                      {hire.targetUserId
+                        ? `Waiting on ${hire.targetPersonName} to approve.`
+                        : `Waiting on an admin to confirm with ${hire.targetPersonName} in person.`}
+                    </span>
+                  )}
+                  {hire.canCancel || adminMode ? (
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      disabled={busyId === hire.id}
+                      onClick={() => reviewHire(hire.id, 'CANCELLED')}
+                    >
+                      Cancel
+                    </button>
+                  ) : null}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="app-card p-4">
         <h3 className="font-semibold">History</h3>
-        {history.length === 0 ? (
-          <p className="mt-4 text-sm text-base-content/50">No past swaps.</p>
+        {history.length === 0 && hireHistory.length === 0 ? (
+          <p className="mt-4 text-sm text-base-content/50">No past requests.</p>
         ) : (
           <ul className="mt-4 divide-y divide-base-300">
             {history.map((swap) => (
@@ -184,7 +283,7 @@ export function CareSwapsPanel({ swaps }: CareSwapsPanelProps) {
                       {swap.requesterPersonName} ← {swap.targetPersonName}
                     </p>
                     <p className="text-sm text-base-content/60">
-                      {swap.takeWindows.length} taken
+                      Swap · {swap.takeWindows.length} taken
                       {swap.giveWindows.length > 0
                         ? ` · ${swap.giveWindows.length} given back`
                         : ''}
@@ -197,6 +296,28 @@ export function CareSwapsPanel({ swaps }: CareSwapsPanelProps) {
                     </p>
                   </div>
                   <span className="badge badge-outline">{swap.status}</span>
+                </div>
+              </li>
+            ))}
+            {hireHistory.map((hire) => (
+              <li key={hire.id} className="py-3">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <p className="font-medium">
+                      {hire.requesterPersonName} hired {hire.targetPersonName}
+                    </p>
+                    <p className="text-sm text-base-content/60">
+                      Hire · {hire.windows.length} window
+                      {hire.windows.length === 1 ? '' : 's'}
+                      {hire.windows[0]
+                        ? ` · from ${formatTimeRange(
+                            hire.windows[0].startsAt,
+                            hire.windows[0].endsAt,
+                          )}`
+                        : ''}
+                    </p>
+                  </div>
+                  <span className="badge badge-outline">{hire.status}</span>
                 </div>
               </li>
             ))}

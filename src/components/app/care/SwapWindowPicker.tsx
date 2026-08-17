@@ -13,6 +13,11 @@ type SwapWindowPickerProps = {
   /** Day whose week the picker opens on */
   initialDay: string
   emptyLabel: string
+  /** Override the default swap-candidate fetch (used for off-schedule hire). */
+  loadWindows?: (range: {
+    rangeStart: string
+    rangeEnd: string
+  }) => Promise<CareSwapWindowDto[]>
 }
 
 function parseDay(day: string): Date {
@@ -32,6 +37,7 @@ export function SwapWindowPicker({
   onToggle,
   initialDay,
   emptyLabel,
+  loadWindows,
 }: SwapWindowPickerProps) {
   const { weekStartsOn } = useRouteContext({ from: '/_app' })
   const [weekStart, setWeekStart] = useState(() =>
@@ -52,13 +58,19 @@ export function SwapWindowPicker({
     let cancelled = false
     setLoading(true)
     setError(null)
-    listSwapCandidateWindows({
-      data: {
-        personId,
-        rangeStart: weekStart.toISOString(),
-        rangeEnd: weekEnd.toISOString(),
-      },
-    })
+    const fetchWindows = loadWindows
+      ? loadWindows({
+          rangeStart: weekStart.toISOString(),
+          rangeEnd: weekEnd.toISOString(),
+        })
+      : listSwapCandidateWindows({
+          data: {
+            personId,
+            rangeStart: weekStart.toISOString(),
+            rangeEnd: weekEnd.toISOString(),
+          },
+        })
+    fetchWindows
       .then((rows) => {
         if (!cancelled) setWindows(rows)
       })

@@ -124,6 +124,30 @@ function maskContains(mask: Interval[], t: number): boolean {
   return mask.some((i) => t >= i.start && t < i.end)
 }
 
+/**
+ * Whether any part of [startsAt, endsAt) sits outside the person's typical
+ * schedule. Empty `daysOfWeek` means no schedule is configured, so nothing is
+ * "outside" — the same convention billing uses.
+ *
+ * Independent of whether an off-schedule *rate* is set: consent to work extra
+ * is about the calendar, not the premium.
+ */
+export function isOffTypicalSchedule(
+  startsAt: Date,
+  endsAt: Date,
+  schedule: StandardSchedule,
+): boolean {
+  if (endsAt.getTime() <= startsAt.getTime()) return false
+  if (normalizeDays(schedule.daysOfWeek).size === 0) return false
+  const total = endsAt.getTime() - startsAt.getTime()
+  const covered = maskOverlapMs(
+    buildStandardMask(schedule, startsAt, endsAt),
+    startsAt.getTime(),
+    endsAt.getTime(),
+  )
+  return covered < total
+}
+
 /** Total milliseconds of [lo, hi) that fall inside the mask. */
 function maskOverlapMs(mask: Interval[], lo: number, hi: number): number {
   let total = 0

@@ -24,6 +24,8 @@ model User {
   carePerson        CarePerson?
   swapRequestsMade  CareSwapRequest[] @relation("SwapRequestedBy")
   swapRequestsReviewed CareSwapRequest[] @relation("SwapReviewedBy")
+  hireRequestsMade  CareHireRequest[] @relation("HireRequestedBy")
+  hireRequestsReviewed CareHireRequest[] @relation("HireReviewedBy")
   activityLogs      ActivityLog[]
   configuration     UserConfiguration?
   careLedgerEntries   CareContributionLedgerEntry[]

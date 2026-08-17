@@ -10,6 +10,7 @@ import {
   listCareCalendar,
   listCarePeople,
   listSwapRequests,
+  listHireRequests,
 } from '#/server/care'
 
 const TABS = new Set<CareTab>(['calendar', 'swaps'])
@@ -75,11 +76,12 @@ export const Route = createFileRoute('/_app/schedule')({
   }),
   loader: async ({ deps }) => {
     const range = monthRange(deps.year, deps.month)
-    const [settings, people, calendar, swaps] = await Promise.all([
+    const [settings, people, calendar, swaps, hires] = await Promise.all([
       getCareSettings(),
       listCarePeople(),
       listCareCalendar({ data: range }),
       listSwapRequests(),
+      listHireRequests(),
     ])
 
     return {
@@ -91,7 +93,9 @@ export const Route = createFileRoute('/_app/schedule')({
       events: calendar.events,
       eventTypes: calendar.eventTypes,
       swaps,
+      hires,
       pendingSwapCount: calendar.pendingSwapCount,
+      pendingHireCount: calendar.pendingHireCount,
       year: deps.year,
       month: deps.month,
     }

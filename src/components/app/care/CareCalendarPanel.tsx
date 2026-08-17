@@ -6,6 +6,8 @@ import {
   canReleaseOccurrence,
 } from '#/lib/care-release'
 import { canTakeResponsibility } from '#/lib/care-responsibility'
+import { formatHireCalendarLabel } from '#/lib/care-hire-label'
+import { isOffTypicalSchedule } from '#/lib/care-rate-segments'
 import {
   FORM_INPUT_CLASS,
   FORM_SELECT_CLASS,
@@ -35,7 +37,9 @@ import {
   deleteCoverageSeries,
   listCoverageAssignmentRules,
   hireCoverageForWindow,
+  createHireRequest,
   listCoverageSeries,
+  listHireCandidateWindows,
   releaseOccurrence,
   updateOccurrence,
 } from '#/server/care'
@@ -50,6 +54,64 @@ import {
   toDateInputValue,
   toLocalIsoFromParts,
 } from './care-utils'
+
+function hirePickerRateLabel(
+  person: CarePersonDto,
+  occ: CareCoverageOccurrenceDto | null,
+): string {
+  const suffix = person.effectiveRateType === 'DAILY' ? '/day' : '/hr'
+  const standard = Number(person.effectiveHourlyRate).toFixed(2)
+  if (!occ) return `$${standard}${suffix}`
+  const offSchedule = isOffTypicalSchedule(
+    new Date(occ.startsAt),
+    new Date(occ.endsAt),
+    {
+      daysOfWeek: person.standardDaysOfWeek,
+      startTime: person.standardStartTime,
+      endTime: person.standardEndTime,
+    },
+  )
+  if (!offSchedule) return `$${standard}${suffix}`
+  const amount =
+    person.offScheduleRate != null
+      ? Number(person.offScheduleRate).toFixed(2)
+      : standard
+  return `$${amount}${suffix} off-schedule`
+}
+
+const OPEN_CHIP_STYLE = { backgroundColor: '#94a3b8', color: '#fff' }
+
+function hireGridChipPresentation(
+  o: CareCoverageOccurrenceDto,
+  settings: CareSettingsDto,
+): {
+  text: string
+  style: ReturnType<typeof personChipStyle>
+  title?: string
+} {
+  if (settings.calendarShowHireOrigin && o.responsiblePersonName) {
+    const text = formatHireCalendarLabel(settings.calendarHireLabel, {
+      originalUser: o.responsiblePersonName,
+      employedUser: o.assigneeName ?? 'Open',
+    })
+    return {
+      text,
+      title: text,
+      style: o.responsiblePersonBgColor
+        ? personChipStyle(
+            o.responsiblePersonBgColor,
+            o.responsiblePersonTextColor,
+          )
+        : OPEN_CHIP_STYLE,
+    }
+  }
+  return {
+    text: o.assigneeName ?? 'Open',
+    style: o.assigneeBgColor
+      ? personChipStyle(o.assigneeBgColor, o.assigneeTextColor)
+      : OPEN_CHIP_STYLE,
+  }
+}
 
 type CareCalendarPanelProps = {
   lovedOneName: string
@@ -144,6 +206,7 @@ export function CareCalendarPanel({
   const [releaseError, setReleaseError] = useState<string | null>(null)
   const [hireId, setHireId] = useState<string | null>(null)
   const [hireAssigneeId, setHireAssigneeId] = useState('')
+  const [hireExtraIds, setHireExtraIds] = useState<string[]>([])
   const [hiring, setHiring] = useState(false)
   const [hireError, setHireError] = useState<string | null>(null)
 
@@ -198,7 +261,7 @@ export function CareCalendarPanel({
    * still owning the open-vs-paid invoice distinction.
    */
   function canRelease(o: CareCoverageOccurrenceDto): boolean {
-    if (selectMode || o.hasInvoice) return false
+    if (selectMode || o.hasInvoice || o.pendingHire) return false
     return canReleaseOccurrence(
       {
         assigneeId: o.assigneeId,
@@ -213,7 +276,7 @@ export function CareCalendarPanel({
 
   /** Admin mode only: take an assigned window off whoever holds it. */
   function canReassign(o: CareCoverageOccurrenceDto): boolean {
-    if (!adminMode || selectMode || o.hasInvoice) return false
+    if (!adminMode || selectMode || o.hasInvoice || o.pendingHire) return false
     return canReassignOccurrence(
       { assigneeId: o.assigneeId, status: o.status },
       linkedPerson?.id ?? null,
@@ -229,6 +292,7 @@ export function CareCalendarPanel({
   function canHire(o: CareCoverageOccurrenceDto): boolean {
     if (selectMode || o.hasInvoice) return false
     if (o.responsiblePersonId) return false
+    if (o.pendingHire) return false
     return canTakeResponsibility(
       {
         assigneeId: o.assigneeId,
@@ -240,6 +304,26 @@ export function CareCalendarPanel({
       { adminOverride: adminMode },
     ).ok
   }
+
+  const hireOccurrence = hireId
+    ? (occurrences.find((o) => o.id === hireId) ?? null)
+    : null
+  const hireTarget = hireAssigneeId
+    ? (activePeople.find((p) => p.id === hireAssigneeId) ?? null)
+    : null
+  const hireRequesterId = hireOccurrence?.assigneeId ?? linkedPerson?.id ?? null
+  const hireOffSchedule =
+    Boolean(hireOccurrence) && Boolean(hireTarget)
+      ? isOffTypicalSchedule(
+          new Date(hireOccurrence!.startsAt),
+          new Date(hireOccurrence!.endsAt),
+          {
+            daysOfWeek: hireTarget!.standardDaysOfWeek,
+            startTime: hireTarget!.standardStartTime,
+            endTime: hireTarget!.standardEndTime,
+          },
+        )
+      : false
 
   /** Who receives the taken windows. Unlinked users arrange on someone's behalf. */
   const [swapRequesterPersonId, setSwapRequesterPersonId] = useState('')
@@ -453,6 +537,16 @@ export function CareCalendarPanel({
                               </span>
                             </p>
                           ) : null}
+                          {o.pendingHire ? (
+                            <p className="mt-0.5">
+                              <span
+                                className="badge badge-info badge-sm"
+                                title={`Waiting on ${o.pendingHire.targetPersonName} to approve this hire`}
+                              >
+                                Hire pending: {o.pendingHire.targetPersonName}
+                              </span>
+                            </p>
+                          ) : null}
                           <p className="text-xs text-base-content/50">
                             {o.status}
                           </p>
@@ -483,7 +577,8 @@ export function CareCalendarPanel({
                         ) : null}
                         {o.assigneeId &&
                         o.status === 'SCHEDULED' &&
-                        o.assigneeId !== linkedPerson?.id ? (
+                        o.assigneeId !== linkedPerson?.id &&
+                        !o.pendingHire ? (
                           <button
                             type="button"
                             className="btn btn-outline btn-xs"
@@ -526,6 +621,7 @@ export function CareCalendarPanel({
                             onClick={() => {
                               setHireError(null)
                               setHireAssigneeId('')
+                              setHireExtraIds([])
                               setHireId(o.id)
                             }}
                           >
@@ -618,12 +714,22 @@ export function CareCalendarPanel({
     setHireError(null)
     setHiring(true)
     try {
-      await hireCoverageForWindow({
-        data: {
-          adminMode, id: hireId, assigneeId: hireAssigneeId },
-      })
+      if (hireOffSchedule) {
+        await createHireRequest({
+          data: {
+            adminMode,
+            targetPersonId: hireAssigneeId,
+            occurrenceIds: [...new Set([hireId, ...hireExtraIds])],
+          },
+        })
+      } else {
+        await hireCoverageForWindow({
+          data: { adminMode, id: hireId, assigneeId: hireAssigneeId },
+        })
+      }
       setHireId(null)
       setHireAssigneeId('')
+      setHireExtraIds([])
       await router.invalidate()
     } catch (err) {
       setHireError(
@@ -863,7 +969,7 @@ export function CareCalendarPanel({
                 key={key}
                 type="button"
                 onClick={() => handleSelectDay(key)}
-                className={`flex min-h-16 flex-col items-start rounded-lg border p-1.5 text-left transition lg:aspect-square lg:min-h-24 lg:rounded-xl lg:p-2 ${
+                className={`flex min-h-16 min-w-0 flex-col items-stretch rounded-lg border p-1.5 text-left transition lg:min-h-24 lg:rounded-xl lg:p-2 ${
                   selected
                     ? 'border-primary bg-primary/10'
                     : 'border-base-300 hover:bg-base-200'
@@ -878,29 +984,27 @@ export function CareCalendarPanel({
                   </span>
                 </div>
                 <div className="mt-1 flex w-full flex-col gap-0.5 lg:mt-1.5 lg:gap-1">
-                  {dayOccs.slice(0, 2).map((o, i) => (
-                    <span
-                      key={o.id}
-                      className={`truncate rounded-md px-1 py-0.5 text-[10px] font-medium leading-snug lg:px-1.5 lg:text-xs ${
-                        i > 0 ? 'hidden lg:block' : ''
-                      }`}
-                      style={
-                        o.assigneeBgColor
-                          ? personChipStyle(
-                              o.assigneeBgColor,
-                              o.assigneeTextColor,
-                            )
-                          : { backgroundColor: '#94a3b8', color: '#fff' }
-                      }
-                    >
-                      {o.assigneeName ?? 'Open'}
-                    </span>
-                  ))}
+                  {dayOccs.slice(0, 2).map((o, i) => {
+                    const chip = hireGridChipPresentation(o, settings)
+                    return (
+                      <span
+                        key={o.id}
+                        className={`wrap-break-word line-clamp-2 w-full rounded-md px-1 py-0.5 text-[10px] font-medium leading-snug lg:line-clamp-3 lg:px-1.5 lg:text-xs ${
+                          i > 0 ? 'hidden lg:block' : ''
+                        }`}
+                        style={chip.style}
+                        title={chip.title ?? chip.text}
+                      >
+                        {chip.text}
+                      </span>
+                    )
+                  })}
                   {dayEvts.slice(0, 1).map((ev) => (
                     <span
                       key={ev.id}
-                      className="hidden truncate rounded-md px-1.5 py-0.5 text-xs font-medium leading-snug lg:block"
+                      className="wrap-break-word line-clamp-2 hidden w-full rounded-md px-1.5 py-0.5 text-xs font-medium leading-snug lg:block"
                       style={personChipStyle(ev.bgColor, ev.textColor)}
+                      title={ev.title}
                     >
                       {ev.title}
                     </span>
@@ -1191,59 +1295,136 @@ export function CareCalendarPanel({
         onCancel={() => setReleaseId(null)}
       />
 
-      <ConfirmDialog
-        open={hireId !== null}
-        tone="warning"
-        title="Hire cover for this slot"
-        message={
-          <div className="space-y-3">
-            <p>
-              This hands the window to someone paid and keeps it as your
-              allotment — <strong>you cover 100% of the cost</strong> rather than
-              splitting it across contributors.
-            </p>
-            <label className="block text-sm">
-              <span className="mb-1 block text-base-content/70">
-                Who is covering?
-              </span>
-              <select
-                className={FORM_SELECT_CLASS}
-                value={hireAssigneeId}
-                disabled={hiring}
-                onChange={(e) => setHireAssigneeId(e.target.value)}
-              >
-                <option value="">Select someone…</option>
-                {activePeople
-                  .filter(
-                    (p) =>
-                      p.isPaid &&
-                      p.effectiveHourlyRate !== null &&
-                      p.id !== linkedPerson?.id,
-                  )
-                  .map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} — ${Number(p.effectiveHourlyRate).toFixed(2)}
-                      {p.effectiveRateType === 'DAILY' ? '/day' : '/hr'}
-                    </option>
-                  ))}
-              </select>
-            </label>
-            {hireError ? (
-              <p className="text-sm text-error" role="alert">
-                {hireError}
+      {hireId !== null ? (
+        <dialog className="modal modal-open">
+          <div className="modal-box max-w-lg">
+            <h3 className="text-lg font-semibold">Hire cover for this slot</h3>
+            <FormShell
+              card={false}
+              onSubmit={(e) => {
+                e.preventDefault()
+                void hireCover()
+              }}
+              className="mt-4"
+            >
+              <p className="text-sm text-base-content/70">
+                This hands the window to someone paid and keeps it as your
+                allotment — <strong>you cover 100% of the cost</strong> rather
+                than splitting it across contributors.
               </p>
-            ) : null}
+              <FormField label="Who is covering?" htmlFor="hire-person">
+                <select
+                  id="hire-person"
+                  className={FORM_SELECT_CLASS}
+                  value={hireAssigneeId}
+                  disabled={hiring}
+                  onChange={(e) => {
+                    setHireAssigneeId(e.target.value)
+                    setHireExtraIds([])
+                  }}
+                >
+                  <option value="">Select someone…</option>
+                  {activePeople
+                    .filter(
+                      (p) =>
+                        p.isPaid &&
+                        p.effectiveHourlyRate !== null &&
+                        p.id !== hireRequesterId,
+                    )
+                    .map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} — {hirePickerRateLabel(p, hireOccurrence)}
+                      </option>
+                    ))}
+                </select>
+              </FormField>
+              {hireOffSchedule && hireTarget && hireRequesterId ? (
+                <>
+                  <p className="text-sm text-base-content/70">
+                    {hireTarget.userId
+                      ? `This is outside ${hireTarget.name}'s typical schedule, so they need to approve. We'll email them.`
+                      : `${hireTarget.name} has no app account and this is outside their typical schedule. An admin will confirm with them in person, then approve.`}
+                  </p>
+                  <FormField label="Also hire them for">
+                    <SwapWindowPicker
+                      key={hireAssigneeId}
+                      personId={hireRequesterId}
+                      personName={
+                        activePeople.find((p) => p.id === hireRequesterId)
+                          ?.name ?? 'you'
+                      }
+                      selectedIds={[hireId, ...hireExtraIds]}
+                      onToggle={(id) => {
+                        if (id === hireId) return
+                        setHireExtraIds((prev) =>
+                          prev.includes(id)
+                            ? prev.filter((x) => x !== id)
+                            : [...prev, id],
+                        )
+                      }}
+                      initialDay={selectedDay}
+                      emptyLabel="No other off-schedule windows this week."
+                      loadWindows={({ rangeStart, rangeEnd }) =>
+                        listHireCandidateWindows({
+                          data: {
+                            requesterPersonId: hireRequesterId,
+                            targetPersonId: hireAssigneeId,
+                            rangeStart,
+                            rangeEnd,
+                          },
+                        })
+                      }
+                    />
+                  </FormField>
+                </>
+              ) : null}
+              {hireError ? (
+                <p className="text-sm text-error" role="alert">
+                  {hireError}
+                </p>
+              ) : null}
+              <FormActions>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  disabled={hiring}
+                  onClick={() => {
+                    setHireId(null)
+                    setHireAssigneeId('')
+                    setHireExtraIds([])
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-warning"
+                  disabled={!hireAssigneeId || hiring}
+                >
+                  {hiring
+                    ? 'Working…'
+                    : hireOffSchedule
+                      ? 'Send hire request'
+                      : 'Hire and take the cost'}
+                </button>
+              </FormActions>
+            </FormShell>
           </div>
-        }
-        confirmLabel="Hire and take the cost"
-        confirmDisabled={!hireAssigneeId}
-        busy={hiring}
-        onConfirm={() => void hireCover()}
-        onCancel={() => {
-          setHireId(null)
-          setHireAssigneeId('')
-        }}
-      />
+          <form method="dialog" className="modal-backdrop">
+            <button
+              type="button"
+              onClick={() => {
+                if (hiring) return
+                setHireId(null)
+                setHireAssigneeId('')
+                setHireExtraIds([])
+              }}
+            >
+              close
+            </button>
+          </form>
+        </dialog>
+      ) : null}
 
       {modal && modal !== 'manage' ? (
         <dialog className="modal modal-open">

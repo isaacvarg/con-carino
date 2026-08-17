@@ -85,7 +85,8 @@ const SETTINGS_CARDS: SettingsCard[] = [
   {
     to: '/settings/schedule',
     title: 'Schedule',
-    description: 'Event types and how appointments appear on the calendar.',
+    description:
+      'Event types and how hired cover and appointments appear on the calendar.',
     icon: HiOutlineCalendar,
   },
   {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  isOffTypicalSchedule,
   segmentCoverageWindow,
   totalSegmentAmount,
   type SegmentationInput,
@@ -342,5 +343,53 @@ describe('segmentCoverageWindow — quantity conservation (property)', () => {
       }
     }
     expect(cases).toBeGreaterThan(600)
+  })
+})
+
+describe('isOffTypicalSchedule', () => {
+  const SUN = new Date(2026, 6, 26)
+
+  it('is false when no typical schedule is configured', () => {
+    expect(
+      isOffTypicalSchedule(at(SAT, 9), at(SAT, 17), {
+        daysOfWeek: [],
+        startTime: null,
+        endTime: null,
+      }),
+    ).toBe(false)
+  })
+
+  it('is false for a weekday window wholly inside the schedule', () => {
+    expect(
+      isOffTypicalSchedule(at(MON, 9), at(MON, 17), WEEKDAYS),
+    ).toBe(false)
+  })
+
+  it('is true for a Saturday window when the typical days are weekdays', () => {
+    expect(
+      isOffTypicalSchedule(at(SAT, 9), at(SAT, 17), WEEKDAYS_ALLDAY),
+    ).toBe(true)
+  })
+
+  it('is true for a Sunday window when the typical days are weekdays', () => {
+    expect(
+      isOffTypicalSchedule(at(SUN, 9), at(SUN, 17), WEEKDAYS_ALLDAY),
+    ).toBe(true)
+  })
+
+  it('is true when a Friday-night window straddles into Saturday', () => {
+    expect(
+      isOffTypicalSchedule(at(FRI, 22), at(SAT, 8), WEEKDAYS_ALLDAY),
+    ).toBe(true)
+  })
+
+  it('is true for evening hours on a standard day', () => {
+    expect(
+      isOffTypicalSchedule(at(FRI, 18), at(FRI, 22), WEEKDAYS),
+    ).toBe(true)
+  })
+
+  it('is false for a zero-length window', () => {
+    expect(isOffTypicalSchedule(at(SAT, 9), at(SAT, 9), WEEKDAYS)).toBe(false)
   })
 })

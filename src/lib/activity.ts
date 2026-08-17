@@ -14,6 +14,7 @@ export const ACTIVITY_ENTITY_TYPES = {
   coverage_assignment_rule: 'coverage_assignment_rule',
   calendar_event: 'calendar_event',
   swap: 'swap',
+  hire: 'hire',
   care_person: 'care_person',
   care_person_type: 'care_person_type',
   care_event_type: 'care_event_type',
@@ -100,6 +101,7 @@ export const ACTIVITY_ENTITY_LABELS: Record<string, string> = {
   coverage_assignment_rule: 'Recurring assignment',
   calendar_event: 'Calendar event',
   swap: 'Swap',
+  hire: 'Hire',
   care_person: 'Care person',
   care_person_type: 'Person type',
   care_event_type: 'Event type',
@@ -216,6 +218,7 @@ export function resolveActivityHref(entry: ResolveActivityInput): ActivityHref {
         search: id ? { invoiceId: id } : undefined,
       }
     case ACTIVITY_ENTITY_TYPES.swap:
+    case ACTIVITY_ENTITY_TYPES.hire:
       return {
         to: '/schedule',
         search: {

@@ -18,6 +18,7 @@ import type {
   CareSplitPolicy,
   CareSwapItemRole,
   CareSwapStatus,
+  CareHireStatus,
 } from '#/generated/prisma/enums'
 import {
   CareAssignmentScope as CareAssignmentScopeEnum,
@@ -37,7 +38,8 @@ import {
   payPeriodStart,
 } from '#/lib/care-invoice'
 import type { StandardSchedule } from '#/lib/care-rate-segments'
-import { segmentCoverageWindow } from '#/lib/care-rate-segments'
+import { isOffTypicalSchedule, segmentCoverageWindow } from '#/lib/care-rate-segments'
+import { canReviewHire, canCancelHire } from '#/lib/care-hire'
 import { allocateCarePeriod } from '#/lib/care-allocation'
 import { projectCareCosts } from '#/lib/care-forecast'
 import type { PayOverviewMode } from '#/lib/care-pay-period'
@@ -68,6 +70,11 @@ import {
   resolveAppOrigin,
   shouldNotifyParticipant,
 } from '#/lib/swap-notify'
+import type { HireEmailAudience, HireEmailKind } from '#/lib/hire-notify'
+import {
+  buildHireEmail,
+  buildHireScheduleUrl,
+} from '#/lib/hire-notify'
 import type { Prisma, PrismaClient } from '#/generated/prisma/client'
 import { signedAmountFor } from '#/lib/transaction-types'
 import {
@@ -384,6 +391,8 @@ export type CareSettingsDto = {
   backstopPersonId: string | null
   plannedMonthlyBudget: string | null
   fundingPeriodDay: number
+  calendarShowHireOrigin: boolean
+  calendarHireLabel: string
 }
 
 export type CareCoverageSeriesDto = {
@@ -472,6 +481,10 @@ export type CareCoverageOccurrenceDto = {
   /// Set when someone hired paid help for their own window and owes 100% of it.
   responsiblePersonId: string | null
   responsiblePersonName: string | null
+  responsiblePersonBgColor: string | null
+  responsiblePersonTextColor: string | null
+  /// Set while an off-schedule hire for this window is waiting on approval.
+  pendingHire: { id: string; targetPersonName: string } | null
 }
 
 export type CareEventTypeDto = {
@@ -521,6 +534,27 @@ export type CareSwapRequestDto = {
   reviewedByUserId: string | null
   reviewedByName: string | null
   /** Computed for the requesting viewer; drives which buttons render */
+  canReview: boolean
+  canCancel: boolean
+}
+
+export type CareHireRequestDto = {
+  id: string
+  status: CareHireStatus
+  notes: string | null
+  createdAt: string
+  reviewedAt: string | null
+  requesterPersonId: string
+  requesterPersonName: string
+  targetPersonId: string
+  targetPersonName: string
+  /** null when the employee has no linked app user (offline) */
+  targetUserId: string | null
+  windows: CareSwapWindowDto[]
+  requestedByUserId: string
+  requestedByName: string | null
+  reviewedByUserId: string | null
+  reviewedByName: string | null
   canReview: boolean
   canCancel: boolean
 }
@@ -639,8 +673,17 @@ function toOccurrenceDto(row: {
   } | null
   invoiceLines: Array<{ id: string }>
   responsiblePersonId: string | null
-  responsiblePerson: { name: string } | null
+  responsiblePerson: {
+    name: string
+    bgColor: string | null
+    textColor: string | null
+  } | null
+  hireItems?: Array<{
+    hireId: string
+    hire: { targetPerson: { name: string } }
+  }>
 }): CareCoverageOccurrenceDto {
+  const pending = row.hireItems?.[0]
   return {
     id: row.id,
     seriesId: row.seriesId,
@@ -657,6 +700,14 @@ function toOccurrenceDto(row: {
       row.invoiceLines.length > 0 || row.billingStatus === 'INVOICED',
     responsiblePersonId: row.responsiblePersonId,
     responsiblePersonName: row.responsiblePerson?.name ?? null,
+    responsiblePersonBgColor: row.responsiblePerson?.bgColor ?? null,
+    responsiblePersonTextColor: row.responsiblePerson?.textColor ?? null,
+    pendingHire: pending
+      ? {
+          id: pending.hireId,
+          targetPersonName: pending.hire.targetPerson.name,
+        }
+      : null,
   }
 }
 
@@ -723,7 +774,23 @@ const occurrenceInclude = {
   // take: 1 — callers only need "is this invoiced at all", and this include
   // runs for every occurrence rendered on the calendar.
   invoiceLines: { select: { id: true }, take: 1 },
-  responsiblePerson: { select: { name: true } },
+  responsiblePerson: {
+    select: { name: true, bgColor: true, textColor: true },
+  },
+  hireItems: {
+    where: { hire: { status: 'PENDING' as const } },
+    take: 1,
+    select: {
+      hireId: true,
+      hire: { select: { targetPerson: { select: { name: true } } } },
+    },
+  },
+} as const
+
+/** Future/open writes skip windows already promised to a swap or hire. */
+const notPromisedOccurrence = {
+  swapItems: { none: { swap: { status: 'PENDING' as const } } },
+  hireItems: { none: { hire: { status: 'PENDING' as const } } },
 } as const
 
 function optionalColor(value: unknown): string | null {
@@ -1249,6 +1316,55 @@ async function occurrencesOverlap(
   return Boolean(conflict)
 }
 
+async function promisedKind(
+  occurrenceIds: string[],
+): Promise<'swap' | 'hire' | null> {
+  if (occurrenceIds.length === 0) return null
+  const swap = await prisma.careSwapItem.findFirst({
+    where: {
+      occurrenceId: { in: occurrenceIds },
+      swap: { status: 'PENDING' },
+    },
+    select: { id: true },
+  })
+  if (swap) return 'swap'
+  const hire = await prisma.careHireItem.findFirst({
+    where: {
+      occurrenceId: { in: occurrenceIds },
+      hire: { status: 'PENDING' },
+    },
+    select: { id: true },
+  })
+  return hire ? 'hire' : null
+}
+
+function promisedError(kind: 'swap' | 'hire', many: boolean): Error {
+  if (kind === 'swap') {
+    return new Error(
+      many
+        ? 'One of these windows is already in a pending swap.'
+        : 'This window is part of a pending swap. Cancel the swap first.',
+    )
+  }
+  return new Error(
+    many
+      ? 'One of these windows is already in a pending hire request.'
+      : 'This window is part of a pending hire request. Cancel the hire first.',
+  )
+}
+
+function personTypicalSchedule(person: {
+  standardDaysOfWeek: number[]
+  standardStartTime: string | null
+  standardEndTime: string | null
+}): StandardSchedule {
+  return {
+    daysOfWeek: person.standardDaysOfWeek,
+    startTime: person.standardStartTime,
+    endTime: person.standardEndTime,
+  }
+}
+
 function startOfLocalToday(): Date {
   const now = new Date()
   return new Date(now.getFullYear(), now.getMonth(), now.getDate())
@@ -1265,6 +1381,8 @@ function toSettingsDto(settings: {
   backstopPersonId: string | null
   plannedMonthlyBudget: { toString(): string } | null
   fundingPeriodDay: number
+  calendarShowHireOrigin: boolean
+  calendarHireLabel: string
   shifts: Array<{
     id: string
     label: string | null
@@ -1284,6 +1402,8 @@ function toSettingsDto(settings: {
     backstopPersonId: settings.backstopPersonId,
     plannedMonthlyBudget: decimalToString(settings.plannedMonthlyBudget),
     fundingPeriodDay: settings.fundingPeriodDay,
+    calendarShowHireOrigin: settings.calendarShowHireOrigin,
+    calendarHireLabel: settings.calendarHireLabel,
     shifts: settings.shifts.map((s) => ({
       id: s.id,
       label: s.label,
@@ -1311,6 +1431,7 @@ async function detachProtectedOccurrences(seriesId: string) {
         { status: { not: 'SCHEDULED' } },
         { invoiceLines: { some: {} } },
         { swapItems: { some: { swap: { status: 'PENDING' } } } },
+        { hireItems: { some: { hire: { status: 'PENDING' } } } },
         { startsAt: { lt: startOfLocalToday() } },
       ],
     },
@@ -1355,7 +1476,7 @@ async function deleteOpenFutureForSeries(seriesId: string) {
       status: 'SCHEDULED',
       startsAt: { gte: startOfLocalToday() },
       invoiceLines: { none: {} },
-      swapItems: { none: { swap: { status: 'PENDING' } } },
+      ...notPromisedOccurrence,
     },
   })
 }
@@ -1373,7 +1494,7 @@ async function deleteManualCoverageSeries(seriesId: string) {
       status: 'SCHEDULED',
       startsAt: { gte: startOfLocalToday() },
       invoiceLines: { none: {} },
-      swapItems: { none: { swap: { status: 'PENDING' } } },
+      ...notPromisedOccurrence,
     },
   })
   await prisma.careCoverageOccurrence.updateMany({
@@ -1743,6 +1864,60 @@ export const upsertCareSettings = createServerFn({ method: 'POST' })
 
     await syncRequiredCoverageSeries()
     return loadCareSettingsDto()
+  })
+
+export const updateCalendarDisplaySettings = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    if (!data || typeof data !== 'object') throw new Error('Invalid payload.')
+    const input = data as Record<string, unknown>
+    if (typeof input.calendarShowHireOrigin !== 'boolean') {
+      throw new Error('Show hire origin must be true or false.')
+    }
+    const calendarShowHireOrigin = input.calendarShowHireOrigin
+    const raw =
+      typeof input.calendarHireLabel === 'string'
+        ? input.calendarHireLabel.trim()
+        : ''
+    if (!raw) throw new Error('Hire label is required.')
+    if (raw.length > 120) {
+      throw new Error('Hire label must be 120 characters or fewer.')
+    }
+    return { calendarShowHireOrigin, calendarHireLabel: raw }
+  })
+  .handler(async ({ data }): Promise<CareSettingsDto> => {
+    const userId = await requireUserId()
+    const before = await prisma.careSettings.findUnique({
+      where: { id: 'default' },
+    })
+    const updated = await prisma.careSettings.upsert({
+      where: { id: 'default' },
+      create: {
+        id: 'default',
+        calendarShowHireOrigin: data.calendarShowHireOrigin,
+        calendarHireLabel: data.calendarHireLabel,
+      },
+      update: {
+        calendarShowHireOrigin: data.calendarShowHireOrigin,
+        calendarHireLabel: data.calendarHireLabel,
+      },
+      include: { shifts: { orderBy: { sortOrder: 'asc' } } },
+    })
+    const changes = diffChanges(before, updated, [
+      'calendarShowHireOrigin',
+      'calendarHireLabel',
+    ])
+    if (Object.keys(changes).length > 0) {
+      await logActivity({
+        actorUserId: userId,
+        action: 'UPDATE',
+        entityType: ACTIVITY_ENTITY_TYPES.care_settings,
+        entityId: updated.id,
+        summary: 'Updated calendar hire display',
+        changes,
+        visibilityUserId: null,
+      })
+    }
+    return toSettingsDto(updated)
   })
 
 // --- People / types ---
@@ -2183,6 +2358,7 @@ export type CareCalendarPayload = {
   events: CareCalendarEventDto[]
   eventTypes: CareEventTypeDto[]
   pendingSwapCount: number
+  pendingHireCount: number
   openInvoiceCount: number
 }
 
@@ -2381,6 +2557,7 @@ export const listCareCalendar = createServerFn({ method: 'GET' })
   })
   .handler(async ({ data }): Promise<CareCalendarPayload> => {
     const userId = await requireUserId()
+    const viewerIsAdmin = await isCallerAdmin()
 
     const padStart = new Date(data.rangeStart)
     padStart.setDate(padStart.getDate() - 7)
@@ -2391,7 +2568,14 @@ export const listCareCalendar = createServerFn({ method: 'GET' })
 
     const settings = await loadCareSettingsDto()
 
-    const [occurrences, events, eventTypes, pendingSwapCount, openInvoiceCount] =
+    const [
+      occurrences,
+      events,
+      eventTypes,
+      pendingSwapCount,
+      pendingHireCount,
+      openInvoiceCount,
+    ] =
       await Promise.all([
         prisma.careCoverageOccurrence.findMany({
           where: {
@@ -2426,6 +2610,16 @@ export const listCareCalendar = createServerFn({ method: 'GET' })
             ],
           },
         }),
+        prisma.careHireRequest.count({
+          where: {
+            status: 'PENDING',
+            OR: [
+              { targetPerson: { userId } },
+              { requestedByUserId: userId },
+              ...(viewerIsAdmin ? [{ targetPerson: { userId: null } }] : []),
+            ],
+          },
+        }),
         prisma.careInvoice.count({ where: { status: 'OPEN' } }),
       ])
 
@@ -2435,6 +2629,7 @@ export const listCareCalendar = createServerFn({ method: 'GET' })
       events: events.map(toEventDto),
       eventTypes: eventTypes.map(toEventTypeDto),
       pendingSwapCount,
+      pendingHireCount,
       openInvoiceCount,
     }
   })
@@ -2842,15 +3037,8 @@ export const releaseOccurrence = createServerFn({ method: 'POST' })
       )
     }
 
-    const promised = await prisma.careSwapItem.findFirst({
-      where: { occurrenceId: data.id, swap: { status: 'PENDING' } },
-      select: { id: true },
-    })
-    if (promised) {
-      throw new Error(
-        'This window is part of a pending swap. Cancel the swap first.',
-      )
-    }
+    const promised = await promisedKind([data.id])
+    if (promised) throw promisedError(promised, false)
 
     // Ownership stays in the WHERE so a concurrent rule fill, swap approval, or
     // admin reassign loses the race loudly instead of being clobbered.
@@ -2981,15 +3169,8 @@ export const hireCoverageForWindow = createServerFn({ method: 'POST' })
       )
     }
 
-    const promised = await prisma.careSwapItem.findFirst({
-      where: { occurrenceId: data.id, swap: { status: 'PENDING' } },
-      select: { id: true },
-    })
-    if (promised) {
-      throw new Error(
-        'This window is part of a pending swap. Cancel the swap first.',
-      )
-    }
+    const promised = await promisedKind([data.id])
+    if (promised) throw promisedError(promised, false)
 
     if (
       await occurrencesOverlap(
@@ -3000,6 +3181,18 @@ export const hireCoverageForWindow = createServerFn({ method: 'POST' })
       )
     ) {
       throw new Error('They already have overlapping coverage then.')
+    }
+
+    if (
+      isOffTypicalSchedule(
+        existing.startsAt,
+        existing.endsAt,
+        personTypicalSchedule(target),
+      )
+    ) {
+      throw new Error(
+        'This window is outside their typical schedule, so they need to approve it first. Send a hire request instead.',
+      )
     }
 
     // Ownership stays in the WHERE so a concurrent reassign loses the race
@@ -3393,7 +3586,7 @@ export const deleteCoverageAssignmentRule = createServerFn({ method: 'POST' })
         status: 'SCHEDULED',
         startsAt: { gte: startOfLocalToday() },
         invoiceLines: { none: {} },
-        swapItems: { none: { swap: { status: 'PENDING' } } },
+        ...notPromisedOccurrence,
       },
       data: {
         assigneeId: null,
@@ -3904,6 +4097,7 @@ export const listSwapCandidateWindows = createServerFn({ method: 'POST' })
           lte: data.rangeEnd,
         },
         swapItems: { none: { swap: { status: 'PENDING' } } },
+        hireItems: { none: { hire: { status: 'PENDING' } } },
       },
       select: { id: true, startsAt: true, endsAt: true },
       orderBy: { startsAt: 'asc' },
@@ -4040,13 +4234,8 @@ export const createSwapRequest = createServerFn({ method: 'POST' })
       }
     }
 
-    const promised = await prisma.careSwapItem.findFirst({
-      where: { occurrenceId: { in: allIds }, swap: { status: 'PENDING' } },
-      select: { id: true },
-    })
-    if (promised) {
-      throw new Error('One of these windows is already in a pending swap.')
-    }
+    const promised = await promisedKind(allIds)
+    if (promised) throw promisedError(promised, true)
 
     const created = await prisma.careSwapRequest.create({
       data: {
@@ -4302,6 +4491,670 @@ export const reviewSwapRequest = createServerFn({ method: 'POST' })
     })
     await notifySwapParticipants(updated, 'APPROVED', userId, actorName)
     return toSwapDto(updated, userId)
+  })
+
+// --- Off-schedule hires ---
+
+const hireInclude = {
+  requesterPerson: {
+    select: {
+      id: true,
+      name: true,
+      userId: true,
+      user: { select: { email: true } },
+    },
+  },
+  targetPerson: {
+    select: {
+      id: true,
+      name: true,
+      userId: true,
+      user: { select: { email: true } },
+    },
+  },
+  requestedByUser: { select: { name: true, email: true } },
+  reviewedByUser: { select: { name: true } },
+  items: {
+    select: {
+      occurrenceId: true,
+      occurrence: {
+        select: { startsAt: true, endsAt: true, assigneeId: true, status: true },
+      },
+    },
+    orderBy: { occurrence: { startsAt: 'asc' } },
+  },
+} satisfies Prisma.CareHireRequestInclude
+
+type HireRow = {
+  id: string
+  status: CareHireStatus
+  notes: string | null
+  createdAt: Date
+  reviewedAt: Date | null
+  requesterPersonId: string
+  targetPersonId: string
+  requestedByUserId: string
+  reviewedByUserId: string | null
+  requesterPerson: {
+    name: string
+    userId: string | null
+    user: { email: string | null } | null
+  }
+  targetPerson: {
+    name: string
+    userId: string | null
+    user: { email: string | null } | null
+  }
+  requestedByUser: { name: string | null; email: string | null }
+  reviewedByUser: { name: string | null } | null
+  items: Array<{
+    occurrenceId: string
+    occurrence: {
+      startsAt: Date
+      endsAt: Date
+      assigneeId: string | null
+      status: CareOccurrenceStatus
+    }
+  }>
+}
+
+function hireWindows(row: HireRow): CareSwapWindowDto[] {
+  return row.items.map((item) => ({
+    occurrenceId: item.occurrenceId,
+    startsAt: item.occurrence.startsAt.toISOString(),
+    endsAt: item.occurrence.endsAt.toISOString(),
+  }))
+}
+
+function toHireDto(
+  row: HireRow,
+  viewer: { userId: string; isAdmin: boolean },
+): CareHireRequestDto {
+  return {
+    id: row.id,
+    status: row.status,
+    notes: row.notes,
+    createdAt: row.createdAt.toISOString(),
+    reviewedAt: row.reviewedAt?.toISOString() ?? null,
+    requesterPersonId: row.requesterPersonId,
+    requesterPersonName: row.requesterPerson.name,
+    targetPersonId: row.targetPersonId,
+    targetPersonName: row.targetPerson.name,
+    targetUserId: row.targetPerson.userId,
+    windows: hireWindows(row),
+    requestedByUserId: row.requestedByUserId,
+    requestedByName: row.requestedByUser.name,
+    reviewedByUserId: row.reviewedByUserId,
+    reviewedByName: row.reviewedByUser?.name ?? null,
+    canReview: canReviewHire(
+      { status: row.status, targetUserId: row.targetPerson.userId },
+      viewer,
+    ),
+    canCancel: canCancelHire(
+      { status: row.status, requestedByUserId: row.requestedByUserId },
+      viewer.userId,
+    ),
+  }
+}
+
+function hireAnchorDay(row: HireRow): string {
+  const earliest = row.items.reduce<Date | null>(
+    (acc, item) =>
+      acc === null || item.occurrence.startsAt < acc
+        ? item.occurrence.startsAt
+        : acc,
+    null,
+  )
+  return toDayKey(earliest ?? row.createdAt)
+}
+
+async function targetHasPendingHireOverlap(
+  targetPersonId: string,
+  windows: Array<{ startsAt: Date; endsAt: Date }>,
+  excludeOccurrenceIds: string[],
+): Promise<boolean> {
+  const pending = await prisma.careHireItem.findMany({
+    where: {
+      hire: { status: 'PENDING', targetPersonId },
+      occurrenceId: { notIn: excludeOccurrenceIds },
+    },
+    select: {
+      occurrence: { select: { startsAt: true, endsAt: true } },
+    },
+  })
+  for (const item of pending) {
+    for (const window of windows) {
+      if (
+        item.occurrence.startsAt < window.endsAt &&
+        item.occurrence.endsAt > window.startsAt
+      ) {
+        return true
+      }
+    }
+  }
+  return false
+}
+
+async function notifyHire(
+  row: HireRow,
+  kind: HireEmailKind,
+  actorUserId: string,
+  actorName: string | null,
+) {
+  try {
+    const day = hireAnchorDay(row)
+    const origin = resolveAppOrigin({
+      authUrl: process.env.AUTH_URL,
+      requestUrl: getRequest().url,
+    })
+    const scheduleUrl = origin ? buildHireScheduleUrl(origin, day) : null
+    const windows = row.items.map((item) => item.occurrence)
+
+    type Recipient = { to: string; audience: HireEmailAudience }
+    const recipients: Recipient[] = []
+    const seen = new Set<string>()
+
+    const push = (to: string, audience: HireEmailAudience) => {
+      const key = to.trim().toLowerCase()
+      if (!key || seen.has(key)) return
+      seen.add(key)
+      recipients.push({ to: to.trim(), audience })
+    }
+
+    if (kind === 'REQUESTED') {
+      const targetEmail = row.targetPerson.user?.email ?? null
+      if (
+        shouldNotifyParticipant(
+          { userId: row.targetPerson.userId, email: targetEmail },
+          actorUserId,
+        )
+      ) {
+        push(targetEmail!, 'target')
+      } else if (!row.targetPerson.userId) {
+        const admins = await prisma.user.findMany({
+          where: {
+            isAdmin: true,
+            archivedAt: null,
+            id: { not: actorUserId },
+            email: { not: null },
+          },
+          select: { email: true },
+        })
+        for (const admin of admins) {
+          const email = admin.email?.trim()
+          if (email) push(email, 'admin')
+        }
+      }
+    } else {
+      const candidates = [
+        {
+          userId: row.requesterPerson.userId,
+          email: row.requesterPerson.user?.email ?? null,
+        },
+        {
+          userId: row.targetPerson.userId,
+          email: row.targetPerson.user?.email ?? null,
+        },
+        {
+          userId: row.requestedByUserId,
+          email: row.requestedByUser.email,
+        },
+      ]
+      for (const participant of candidates) {
+        if (
+          shouldNotifyParticipant(
+            { userId: participant.userId, email: participant.email },
+            actorUserId,
+          )
+        ) {
+          push(participant.email!, 'requester')
+        }
+      }
+    }
+
+    for (const recipient of recipients) {
+      const email = buildHireEmail({
+        kind,
+        audience: recipient.audience,
+        actorName,
+        requesterPersonName: row.requesterPerson.name,
+        targetPersonName: row.targetPerson.name,
+        windows,
+        notes: row.notes,
+        scheduleUrl,
+        dayLabel: day,
+      })
+      try {
+        await sendEmail({
+          to: recipient.to,
+          subject: email.subject,
+          html: email.html,
+          text: email.text,
+        })
+      } catch (err) {
+        console.error(
+          `[care] Failed to send hire ${kind} email to ${recipient.to}:`,
+          err,
+        )
+      }
+    }
+  } catch (err) {
+    console.error(`[care] Failed to send hire ${kind} email:`, err)
+  }
+}
+
+export const listHireRequests = createServerFn({ method: 'GET' }).handler(
+  async (): Promise<CareHireRequestDto[]> => {
+    const userId = await requireUserId()
+    const isAdmin = await isCallerAdmin()
+    const rows = await prisma.careHireRequest.findMany({
+      include: hireInclude,
+      orderBy: { createdAt: 'desc' },
+    })
+    return rows.map((row) => toHireDto(row, { userId, isAdmin }))
+  },
+)
+
+export const listHireCandidateWindows = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    if (!data || typeof data !== 'object') throw new Error('Invalid payload.')
+    const input = data as Record<string, unknown>
+    const requesterPersonId =
+      typeof input.requesterPersonId === 'string'
+        ? input.requesterPersonId.trim()
+        : ''
+    if (!requesterPersonId) throw new Error('Requester is required.')
+    const targetPersonId =
+      typeof input.targetPersonId === 'string' ? input.targetPersonId.trim() : ''
+    if (!targetPersonId) throw new Error('Employee is required.')
+    const rangeStart =
+      typeof input.rangeStart === 'string' ? new Date(input.rangeStart) : null
+    const rangeEnd =
+      typeof input.rangeEnd === 'string' ? new Date(input.rangeEnd) : null
+    if (
+      !rangeStart ||
+      !rangeEnd ||
+      Number.isNaN(rangeStart.getTime()) ||
+      Number.isNaN(rangeEnd.getTime())
+    ) {
+      throw new Error('A valid range is required.')
+    }
+    return { requesterPersonId, targetPersonId, rangeStart, rangeEnd }
+  })
+  .handler(async ({ data }): Promise<CareSwapWindowDto[]> => {
+    await requireUserId()
+    const target = await prisma.carePerson.findUnique({
+      where: { id: data.targetPersonId },
+      select: {
+        standardDaysOfWeek: true,
+        standardStartTime: true,
+        standardEndTime: true,
+      },
+    })
+    if (!target) throw new Error('That person is not available.')
+    const schedule = personTypicalSchedule(target)
+    const floor = startOfLocalToday()
+    const rows = await prisma.careCoverageOccurrence.findMany({
+      where: {
+        assigneeId: data.requesterPersonId,
+        status: 'SCHEDULED',
+        startsAt: {
+          gte: data.rangeStart > floor ? data.rangeStart : floor,
+          lte: data.rangeEnd,
+        },
+        ...notPromisedOccurrence,
+        invoiceLines: { none: {} },
+        responsiblePersonId: null,
+      },
+      select: { id: true, startsAt: true, endsAt: true },
+      orderBy: { startsAt: 'asc' },
+    })
+    return rows
+      .filter((row) => isOffTypicalSchedule(row.startsAt, row.endsAt, schedule))
+      .map((row) => ({
+        occurrenceId: row.id,
+        startsAt: row.startsAt.toISOString(),
+        endsAt: row.endsAt.toISOString(),
+      }))
+  })
+
+export const createHireRequest = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    if (!data || typeof data !== 'object') throw new Error('Invalid payload.')
+    const input = data as Record<string, unknown>
+    const targetPersonId =
+      typeof input.targetPersonId === 'string' ? input.targetPersonId.trim() : ''
+    if (!targetPersonId) throw new Error('Choose who will cover the windows.')
+    const occurrenceIds = uniqueIds(input.occurrenceIds, 'Windows')
+    if (occurrenceIds.length === 0) {
+      throw new Error('Pick at least one window to hire cover for.')
+    }
+    const notes =
+      typeof input.notes === 'string' && input.notes.trim()
+        ? input.notes.trim()
+        : null
+    return {
+      targetPersonId,
+      occurrenceIds,
+      notes,
+      adminMode: parseAdminMode(input),
+    }
+  })
+  .handler(async ({ data }): Promise<CareHireRequestDto> => {
+    const userId = await requireUserId()
+    const adminOverride = await resolveAdminOverride(data.adminMode)
+    const linkedPerson = await personForUser(userId)
+    const viewer = { userId, isAdmin: await isCallerAdmin() }
+
+    const target = await prisma.carePerson.findUnique({
+      where: { id: data.targetPersonId },
+      include: { type: true },
+    })
+    if (!target || !target.isActive) {
+      throw new Error('That person is not available.')
+    }
+    if (effectiveRate(personRateInput(target)) === null) {
+      throw new Error(
+        'That person has no pay rate, so there is no cost to take responsibility for. Give the window up instead.',
+      )
+    }
+
+    const occurrences = await prisma.careCoverageOccurrence.findMany({
+      where: { id: { in: data.occurrenceIds } },
+      include: { invoiceLines: { include: { invoice: true } } },
+    })
+    if (occurrences.length !== data.occurrenceIds.length) {
+      throw new Error('One or more windows were not found.')
+    }
+
+    const requesterPersonId = occurrences[0]!.assigneeId
+    if (!requesterPersonId) {
+      throw new Error('You can only hire cover for assigned windows.')
+    }
+    if (requesterPersonId === data.targetPersonId) {
+      throw new Error('That window is already theirs.')
+    }
+    for (const row of occurrences) {
+      if (row.assigneeId !== requesterPersonId) {
+        throw new Error('All windows must belong to the same person.')
+      }
+    }
+
+    const requesterPerson = await prisma.carePerson.findUnique({
+      where: { id: requesterPersonId },
+    })
+    if (!requesterPerson || !requesterPerson.isActive) {
+      throw new Error('The person hiring cover is not active.')
+    }
+    if (!adminOverride && linkedPerson?.id !== requesterPersonId) {
+      throw new Error('You can only hire cover for your own coverage.')
+    }
+
+    const schedule = personTypicalSchedule(target)
+    const floor = startOfLocalToday()
+    for (const row of occurrences) {
+      if (row.status !== 'SCHEDULED') {
+        throw new Error('Only scheduled coverage can be handed over.')
+      }
+      if (!adminOverride && row.startsAt < floor) {
+        throw new Error('Past windows cannot be hired out.')
+      }
+      if (row.invoiceLines.some((line) => line.invoice.status === 'PAID')) {
+        throw new Error(
+          'This coverage is on a paid invoice and cannot be reassigned. Void the invoice first.',
+        )
+      }
+      if (!isOffTypicalSchedule(row.startsAt, row.endsAt, schedule)) {
+        throw new Error(
+          `${formatWindowLabel(row.startsAt, row.endsAt)} is inside ${target.name}'s typical schedule. Hire that window directly instead.`,
+        )
+      }
+      if (
+        await occurrencesOverlap(
+          data.targetPersonId,
+          row.startsAt,
+          row.endsAt,
+          data.occurrenceIds,
+        )
+      ) {
+        throw new Error(
+          `${target.name} already has coverage overlapping ${formatWindowLabel(row.startsAt, row.endsAt)}.`,
+        )
+      }
+    }
+
+    const promised = await promisedKind(data.occurrenceIds)
+    if (promised) throw promisedError(promised, data.occurrenceIds.length > 1)
+
+    if (
+      await targetHasPendingHireOverlap(
+        data.targetPersonId,
+        occurrences,
+        data.occurrenceIds,
+      )
+    ) {
+      throw new Error(
+        `${target.name} already has a pending hire request overlapping one of these windows.`,
+      )
+    }
+
+    const created = await prisma.careHireRequest.create({
+      data: {
+        requesterPersonId,
+        targetPersonId: data.targetPersonId,
+        requestedByUserId: userId,
+        notes: data.notes,
+        status: 'PENDING',
+        items: {
+          create: data.occurrenceIds.map((occurrenceId) => ({ occurrenceId })),
+        },
+      },
+      include: hireInclude,
+    })
+
+    const windowCount = data.occurrenceIds.length
+    const day = hireAnchorDay(created)
+    await logActivity({
+      actorUserId: userId,
+      action: 'CREATE',
+      entityType: ACTIVITY_ENTITY_TYPES.hire,
+      entityId: created.id,
+      summary: `Requested to hire ${target.name} for ${windowCount} window${windowCount === 1 ? '' : 's'}`,
+      changes: createChanges(created, [
+        'requesterPersonId',
+        'targetPersonId',
+        'status',
+        'notes',
+      ]),
+      linkMeta: { day, tab: 'swaps' },
+      visibilityUserId: null,
+    })
+
+    await notifyHire(created, 'REQUESTED', userId, created.requestedByUser.name)
+
+    return toHireDto(created, viewer)
+  })
+
+const HIRE_DECISIONS = ['APPROVED', 'REJECTED', 'CANCELLED'] as const
+type HireDecision = (typeof HIRE_DECISIONS)[number]
+
+export const reviewHireRequest = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    if (!data || typeof data !== 'object') throw new Error('Invalid payload.')
+    const input = data as Record<string, unknown>
+    const id = typeof input.id === 'string' ? input.id : ''
+    if (!id) throw new Error('Hire request id is required.')
+    const decision = input.decision as HireDecision
+    if (!HIRE_DECISIONS.includes(decision)) {
+      throw new Error('Decision must be APPROVED, REJECTED, or CANCELLED.')
+    }
+    return { id, decision, adminMode: parseAdminMode(input) }
+  })
+  .handler(async ({ data }): Promise<CareHireRequestDto> => {
+    const userId = await requireUserId()
+    const adminOverride = await resolveAdminOverride(data.adminMode)
+    const isAdmin = await isCallerAdmin()
+    const viewer = { userId, isAdmin }
+    const existing = await prisma.careHireRequest.findUnique({
+      where: { id: data.id },
+      include: hireInclude,
+    })
+    if (!existing) throw new Error('Hire request not found.')
+    if (existing.status !== 'PENDING') {
+      throw new Error('Only pending hire requests can be reviewed.')
+    }
+
+    if (data.decision === 'CANCELLED') {
+      if (
+        !adminOverride &&
+        !canCancelHire(
+          { status: existing.status, requestedByUserId: existing.requestedByUserId },
+          userId,
+        )
+      ) {
+        throw new Error('Only the person who asked can cancel this hire.')
+      }
+    } else if (
+      !adminOverride &&
+      !canReviewHire(
+        { status: existing.status, targetUserId: existing.targetPerson.userId },
+        viewer,
+      )
+    ) {
+      throw new Error(
+        existing.targetPerson.userId
+          ? `Only ${existing.targetPerson.name} can approve or decline this hire.`
+          : 'An admin needs to confirm this hire in person first.',
+      )
+    }
+
+    const actorName =
+      (
+        await prisma.user.findUnique({
+          where: { id: userId },
+          select: { name: true },
+        })
+      )?.name ?? null
+    const day = hireAnchorDay(existing)
+
+    if (data.decision !== 'APPROVED') {
+      const updated = await prisma.careHireRequest.update({
+        where: { id: data.id },
+        data: {
+          status: data.decision,
+          reviewedByUserId: userId,
+          reviewedAt: new Date(),
+        },
+        include: hireInclude,
+      })
+      await logActivity({
+        actorUserId: userId,
+        action: 'UPDATE',
+        entityType: ACTIVITY_ENTITY_TYPES.hire,
+        entityId: updated.id,
+        summary: `${data.decision === 'REJECTED' ? 'Declined' : 'Cancelled'} hire of ${existing.targetPerson.name} for ${day}`,
+        changes: diffChanges(existing, updated, [
+          'status',
+          'reviewedByUserId',
+          'reviewedAt',
+        ]),
+        linkMeta: { day, tab: 'swaps' },
+        visibilityUserId: null,
+      })
+      await notifyHire(updated, data.decision, userId, actorName)
+      return toHireDto(updated, viewer)
+    }
+
+    const occurrenceIds = existing.items.map((item) => item.occurrenceId)
+    for (const item of existing.items) {
+      if (
+        item.occurrence.status !== 'SCHEDULED' ||
+        item.occurrence.assigneeId !== existing.requesterPersonId
+      ) {
+        throw new Error(
+          `${formatWindowLabel(item.occurrence.startsAt, item.occurrence.endsAt)} is no longer assigned to ${existing.requesterPerson.name}.`,
+        )
+      }
+    }
+
+    const paidLine = await prisma.careInvoiceLine.findFirst({
+      where: {
+        occurrenceId: { in: occurrenceIds },
+        invoice: { status: 'PAID' },
+      },
+      select: { id: true },
+    })
+    if (paidLine) {
+      throw new Error(
+        'One of these windows is on a paid invoice and cannot be reassigned. Void the invoice first.',
+      )
+    }
+
+    for (const item of existing.items) {
+      if (
+        await occurrencesOverlap(
+          existing.targetPersonId,
+          item.occurrence.startsAt,
+          item.occurrence.endsAt,
+          occurrenceIds,
+        )
+      ) {
+        throw new Error(
+          `${existing.targetPerson.name} already has coverage overlapping ${formatWindowLabel(item.occurrence.startsAt, item.occurrence.endsAt)}.`,
+        )
+      }
+    }
+
+    const now = new Date()
+    await prisma.$transaction(async (tx) => {
+      await tx.careCoverageOccurrence.updateMany({
+        where: { id: { in: occurrenceIds } },
+        data: {
+          assigneeId: existing.targetPersonId,
+          assignedByRuleId: null,
+          releasedByPersonId: null,
+          releasedAt: null,
+          responsiblePersonId: existing.requesterPersonId,
+          responsibleSetAt: now,
+          responsibleSetByUserId: userId,
+        },
+      })
+      await tx.careHireRequest.update({
+        where: { id: data.id },
+        data: {
+          status: 'APPROVED',
+          reviewedByUserId: userId,
+          reviewedAt: now,
+        },
+      })
+      await logActivity(
+        {
+          actorUserId: userId,
+          action: 'UPDATE',
+          entityType: ACTIVITY_ENTITY_TYPES.hire,
+          entityId: data.id,
+          summary: `Approved hire of ${existing.targetPerson.name} for ${day}`,
+          changes: {
+            status: { before: 'PENDING', after: 'APPROVED' },
+            reviewedByUserId: { before: null, after: userId },
+          },
+          linkMeta: { day, tab: 'swaps' },
+          visibilityUserId: null,
+        },
+        tx,
+      )
+    })
+
+    for (const id of occurrenceIds) {
+      await syncBillingForAssignee(id, existing.targetPersonId)
+    }
+
+    const updated = await prisma.careHireRequest.findUniqueOrThrow({
+      where: { id: data.id },
+      include: hireInclude,
+    })
+    await notifyHire(updated, 'APPROVED', userId, actorName)
+    return toHireDto(updated, viewer)
   })
 
 // --- Invoices ---

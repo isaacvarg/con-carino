@@ -7,6 +7,7 @@ import type {
   CarePersonDto,
   CareSettingsDto,
   CareSwapRequestDto,
+  CareHireRequestDto,
 } from '#/server/care'
 
 export type CareTab = 'calendar' | 'swaps'
@@ -18,7 +19,9 @@ export type CarePageData = {
   events: CareCalendarEventDto[]
   eventTypes: CareEventTypeDto[]
   swaps: CareSwapRequestDto[]
+  hires: CareHireRequestDto[]
   pendingSwapCount: number
+  pendingHireCount: number
   viewerUserId: string | null
   year: number
   month: number
@@ -35,7 +38,7 @@ type CarePageProps = {
 
 const TABS: Array<{ id: CareTab; label: string }> = [
   { id: 'calendar', label: 'Calendar' },
-  { id: 'swaps', label: 'Swaps' },
+  { id: 'swaps', label: 'Requests' },
 ]
 
 export function CarePage({
@@ -57,9 +60,10 @@ export function CarePage({
             onClick={() => onTabChange(t.id)}
           >
             {t.label}
-            {t.id === 'swaps' && data.pendingSwapCount > 0 ? (
+            {t.id === 'swaps' &&
+            data.pendingSwapCount + data.pendingHireCount > 0 ? (
               <span className="badge badge-primary badge-sm ml-1">
-                {data.pendingSwapCount}
+                {data.pendingSwapCount + data.pendingHireCount}
               </span>
             ) : null}
           </button>
@@ -82,7 +86,9 @@ export function CarePage({
           onSelectDay={onSelectDay}
         />
       ) : null}
-      {tab === 'swaps' ? <CareSwapsPanel swaps={data.swaps} /> : null}
+      {tab === 'swaps' ? (
+        <CareSwapsPanel swaps={data.swaps} hires={data.hires} />
+      ) : null}
     </div>
   )
 }
