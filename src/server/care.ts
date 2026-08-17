@@ -3754,6 +3754,52 @@ export const updateCalendarEvent = createServerFn({ method: 'POST' })
     return toEventDto(updated)
   })
 
+/**
+ * Extra calendar events (not coverage slots). Deleting one is an admin-mode
+ * action: the flag must be on, and the caller must actually be an admin.
+ */
+export const deleteCalendarEvent = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    if (!data || typeof data !== 'object') throw new Error('Invalid payload.')
+    const input = data as Record<string, unknown>
+    const id = typeof input.id === 'string' ? input.id.trim() : ''
+    if (!id) throw new Error('Event id is required.')
+    return { id, adminMode: parseAdminMode(input) }
+  })
+  .handler(async ({ data }): Promise<{ id: string }> => {
+    const userId = await requireUserId()
+    const adminOverride = await resolveAdminOverride(data.adminMode)
+    if (!adminOverride) {
+      throw new Error('Turn on admin mode to delete events.')
+    }
+    const existing = await prisma.careCalendarEvent.findUnique({
+      where: { id: data.id },
+    })
+    if (!existing) throw new Error('Event not found.')
+    await prisma.careCalendarEvent.delete({ where: { id: data.id } })
+    await logActivity({
+      actorUserId: userId,
+      action: 'DELETE',
+      entityType: ACTIVITY_ENTITY_TYPES.calendar_event,
+      entityId: existing.id,
+      summary: `Deleted calendar event ${existing.title} (admin)`,
+      changes: diffChanges(existing, null, [
+        'title',
+        'typeId',
+        'startsAt',
+        'endsAt',
+        'notes',
+      ]),
+      linkMeta: {
+        day: toDayKey(existing.startsAt),
+        tab: 'calendar',
+        viaAdminMode: true,
+      },
+      visibilityUserId: null,
+    })
+    return { id: data.id }
+  })
+
 // --- Swaps ---
 
 const swapInclude = {
@@ -4671,11 +4717,12 @@ async function notifyHire(
       ) {
         push(targetEmail!, 'target')
       } else if (!row.targetPerson.userId) {
+        // Include the acting admin: they still need the in-person confirmation
+        // mail, especially when they are the only admin in the household.
         const admins = await prisma.user.findMany({
           where: {
             isAdmin: true,
             archivedAt: null,
-            id: { not: actorUserId },
             email: { not: null },
           },
           select: { email: true },
