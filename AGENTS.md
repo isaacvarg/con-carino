@@ -55,7 +55,7 @@ pnpm generate-routes
 pnpm exec tsc --noEmit  # typecheck; no script for it
 ```
 
-Dev needs a Postgres you supply — `docker-compose.yml` starts RustFS only, no database.
+Dev supporting services: `docker compose up -d` (or `-f docker-compose.dev.yml`) starts Postgres on :5432 and RustFS on :9000/:9001. Run the app on the host with `pnpm dev`.
 
 ## Deployment
 

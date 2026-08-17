@@ -1,0 +1,53 @@
+# Local supporting services only — Postgres + RustFS.
+# The app itself stays on the host (`pnpm dev`).
+#
+#   docker compose -f docker-compose.dev.yml up -d
+#   # or, equivalently, `docker compose up -d` (docker-compose.yml includes this file)
+#
+# Then: pnpm prisma migrate dev && pnpm prisma db seed && pnpm dev
+#
+# Cron is omitted on purpose: it POSTs the running app, which is not in this
+# stack. In local dev, /api/jobs is open on localhost when JOB_SECRET is unset.
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    container_name: con-carino-postgres
+    restart: unless-stopped
+    ports:
+      - '5432:5432'
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-con_carino}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-con_carino}
+      POSTGRES_DB: ${POSTGRES_DB:-con_carino}
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U ${POSTGRES_USER:-con_carino} -d ${POSTGRES_DB:-con_carino}',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  rustfs:
+    image: rustfs/rustfs:latest
+    container_name: con-carino-rustfs
+    restart: unless-stopped
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    environment:
+      RUSTFS_ACCESS_KEY: ${S3_ACCESS_KEY_ID:-rustfsadmin}
+      RUSTFS_SECRET_KEY: ${S3_SECRET_ACCESS_KEY:-rustfsadmin}
+      RUSTFS_CONSOLE_ENABLE: 'true'
+      RUSTFS_ADDRESS: '0.0.0.0:9000'
+    volumes:
+      - rustfs_data:/data
+    command: ['/data']
+
+volumes:
+  postgres_data:
+  rustfs_data:

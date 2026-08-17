@@ -56,17 +56,24 @@ This is built for a single family on their own hardware. There is no tenancy mod
 
 ## Local development
 
-You need Node 24, pnpm, Docker, and **a PostgreSQL you supply yourself** — `docker-compose.yml` starts RustFS only, not a database. Point `DATABASE_URL` at whatever Postgres you have.
+You need Node 24, pnpm, and Docker. `docker-compose.dev.yml` (also the default `docker compose up`) starts **Postgres and RustFS** — everything except the app, which you run on the host.
 
 ```bash
 pnpm install
-docker compose up -d      # RustFS: API on :9000, console on :9001
-cp .env.example .env      # then fill in DATABASE_URL, AUTH_SECRET, OAuth credentials
+docker compose up -d      # Postgres :5432, RustFS API :9000 / console :9001
+cp .env.dev .env          # DATABASE_URL + S3 already match the compose defaults
+# then fill AUTH_SECRET, OAuth, AUTH_EMAIL_FROM
 pnpm prisma generate      # required — src/generated/prisma is gitignored
 pnpm prisma migrate dev
 pnpm prisma db seed       # care settings + Family/Employee caregiver types
 pnpm dev                  # http://localhost:3000
 ```
+
+`.env.dev` is the local compose template: `DATABASE_URL=postgresql://con_carino:con_carino@localhost:5432/con_carino?schema=public` (host is `localhost`, not the compose service name). `.env.example` is the full commented reference. Production still requires an explicit `POSTGRES_PASSWORD`.
+
+Omit `AUTH_URL` for `pnpm dev`, or set it to `http://localhost:3000/api/auth` (path included). An origin-only value (`http://localhost:3000`) used to break Discord/Google login with `UnknownAction`; the app now appends `/api/auth` if the path is missing. Discord redirect URI: `http://localhost:3000/api/auth/callback/discord`.
+
+The production `cron` service is not part of this stack — it needs a running app container. Locally, scheduled work is a POST to `/api/jobs` (open on localhost when `JOB_SECRET` is unset).
 
 `pnpm prisma generate` has to run before the first dev server or typecheck, since the generated client is not committed.
 
@@ -86,11 +93,12 @@ All of these live in `.env` locally; see `.env.example`. In production they are 
 
 | Variable | Notes |
 | --- | --- |
-| `DATABASE_URL` | Postgres connection string. Used in dev and by `prisma.config.ts`. Production composes its own from the `POSTGRES_*` vars below and ignores this. |
-| `POSTGRES_USER` | Defaults to `con_carino`. Production compose only. |
-| `POSTGRES_PASSWORD` | **Required in production** — compose refuses to start without it. Keep it alphanumeric: it is interpolated into `DATABASE_URL` unescaped, so `@ / :` or `#` would corrupt the connection string. |
+| `DATABASE_URL` | Postgres connection string. Used in dev and by `prisma.config.ts`. Point this at `localhost:5432` when using the local compose stack. Production composes its own from the `POSTGRES_*` vars below and ignores this. |
+| `POSTGRES_USER` | Defaults to `con_carino`. Used by local and production compose. |
+| `POSTGRES_PASSWORD` | Local compose defaults to `con_carino` if empty. **Required in production** — that compose file refuses to start without it. Keep it alphanumeric: it is interpolated into `DATABASE_URL` unescaped, so `@ / :` or `#` would corrupt the connection string. |
 | `POSTGRES_DB` | Defaults to `con_carino`. |
 | `AUTH_SECRET` | `npx auth secret`, or `openssl rand -base64 33`. Signs Auth.js sessions **and** the HMAC on file links — rotating it invalidates both. |
+| `AUTH_URL` | Optional. **Must include `/api/auth`** if set (`http://localhost:3000/api/auth` or `https://your.domain/api/auth`). Omit it for local `pnpm dev`. Production compose requires this (see `docker-compose.prod.yml`). |
 | `AUTH_TRUST_HOST` | `true` when running behind a proxy. |
 | `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | [Google credentials](https://console.cloud.google.com/apis/credentials). |
 | `AUTH_DISCORD_ID` / `AUTH_DISCORD_SECRET` | [Discord application](https://discord.com/developers/applications). |
