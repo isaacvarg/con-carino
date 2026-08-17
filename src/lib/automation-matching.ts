@@ -150,12 +150,17 @@ export function summarizeAutomation(automation: AutomationDto): string {
       return `When a${describeFilters(automation)} transaction lands in ${
         automation.triggerAccount.name
       }, copy it into ${automation.targetAccount?.name ?? '—'}.`
-    case 'PERCENT_MATCH':
+    case 'PERCENT_MATCH': {
+      const target = automation.targetAccount?.name ?? '—'
+      const percent = formatPercent(automation.percent)
+      const action =
+        automation.triggerType?.sign === 'NEGATIVE'
+          ? `remove ${percent} of it from ${target}`
+          : `add ${percent} of it to ${target}`
       return `When a${describeFilters(automation)} transaction lands in ${
         automation.triggerAccount.name
-      }, add ${formatPercent(automation.percent)} of it to ${
-        automation.targetAccount?.name ?? '—'
-      }.`
+      }, ${action}.`
+    }
     case 'LOW_BALANCE_ALERT':
       return `When ${automation.triggerAccount.name} drops below ${formatMoney(
         automation.thresholdAmount,

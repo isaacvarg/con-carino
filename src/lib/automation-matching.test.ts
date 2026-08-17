@@ -222,7 +222,21 @@ describe('summarizeAutomation', () => {
       }),
     )
     expect(summary).toBe(
-      'When a withdrawal transaction lands in Main, add 15% of it to Vacation Pot.',
+      'When a withdrawal transaction lands in Main, remove 15% of it from Vacation Pot.',
+    )
+  })
+
+  it('describes a percent rule on a deposit as an add', () => {
+    const summary = summarizeAutomation(
+      dto({
+        kind: 'PERCENT_MATCH',
+        triggerType: DEPOSIT,
+        triggerTags: [],
+        percent: '15.0000',
+      }),
+    )
+    expect(summary).toBe(
+      'When a deposit transaction lands in Main, add 15% of it to Vacation Pot.',
     )
   })
 
