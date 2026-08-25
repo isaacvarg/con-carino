@@ -34,6 +34,7 @@ export type CarePersonFormValues = {
   name: string
   typeId: string
   userId: string
+  email: string
   hourlyRate: string
   rateType: CareRateType
   flatDailyRate: boolean
@@ -143,6 +144,25 @@ export function CarePersonFormFields({
             </FormField>
           ) : null}
         </FormRow>
+      ) : null}
+      {showLinkedUser && !values.userId ? (
+        <FormField
+          label="Expected sign-in email"
+          htmlFor={`${idPrefix}-expected-email`}
+        >
+          <input
+            id={`${idPrefix}-expected-email`}
+            type="email"
+            className={FORM_INPUT_CLASS}
+            value={values.email}
+            onChange={(e) => onChange({ email: e.target.value })}
+            placeholder="optional"
+          />
+          <p className="mt-1 text-xs text-base-content/60">
+            When this email signs in, it links to this person instead of
+            creating a new one.
+          </p>
+        </FormField>
       ) : null}
       {selectedTypeIsPaid ? (
         <FormField label="Rate Type" htmlFor={`${idPrefix}-rate-type`}>
@@ -393,6 +413,7 @@ export function carePersonFormPayload(values: CarePersonFormValues) {
     name: values.name,
     typeId: values.typeId,
     userId: values.userId,
+    email: values.email,
     hourlyRate: values.hourlyRate,
     rateType: values.rateType,
     flatDailyRate: values.flatDailyRate,

@@ -442,6 +442,7 @@ export type CarePersonDto = {
   id: string
   name: string
   userId: string | null
+  email: string | null
   typeId: string
   typeName: string
   isPaid: boolean
@@ -600,6 +601,7 @@ export function toPersonDto(person: {
   id: string
   name: string
   userId: string | null
+  email: string | null
   typeId: string
   hourlyRate: { toString(): string } | null
   rateType: CareRateType
@@ -631,6 +633,7 @@ export function toPersonDto(person: {
     id: person.id,
     name: person.name,
     userId: person.userId,
+    email: person.email,
     typeId: person.typeId,
     typeName: person.type.name,
     isPaid: person.type.isPaid,
@@ -2170,10 +2173,15 @@ export const createCarePerson = createServerFn({ method: 'POST' })
       typeof input.userId === 'string' && input.userId.trim()
         ? input.userId.trim()
         : null
+    const email =
+      typeof input.email === 'string' && input.email.trim()
+        ? input.email.trim().toLowerCase()
+        : null
     return {
       name,
       typeId,
       userId,
+      email,
       hourlyRate: parseOptionalRate(input.hourlyRate),
       rateType: parseRateType(input.rateType),
       flatDailyRate: Boolean(input.flatDailyRate),
@@ -2195,6 +2203,26 @@ export const createCarePerson = createServerFn({ method: 'POST' })
     if (data.userId) {
       const user = await prisma.user.findUnique({ where: { id: data.userId } })
       if (!user) throw new Error('Linked user not found.')
+      const alreadyLinked = await prisma.carePerson.findFirst({
+        where: { userId: data.userId },
+        select: { name: true },
+      })
+      if (alreadyLinked) {
+        throw new Error(
+          `This app user is already linked to “${alreadyLinked.name}”. Use Merge to combine the records instead.`,
+        )
+      }
+    }
+    if (data.email) {
+      const emailTaken = await prisma.carePerson.findFirst({
+        where: { email: data.email },
+        select: { name: true },
+      })
+      if (emailTaken) {
+        throw new Error(
+          `“${emailTaken.name}” already expects that sign-in email.`,
+        )
+      }
     }
     const pay = parsePaySchedule(data.payRaw, type.isPaid)
     const schedule = parseStandardSchedule(data.payRaw, type.isPaid)
@@ -2203,6 +2231,7 @@ export const createCarePerson = createServerFn({ method: 'POST' })
         name: data.name,
         typeId: data.typeId,
         userId: data.userId,
+        email: data.email,
         hourlyRate: type.isPaid ? data.hourlyRate : null,
         rateType: type.isPaid ? data.rateType : 'HOURLY',
         flatDailyRate:
@@ -2231,6 +2260,7 @@ export const createCarePerson = createServerFn({ method: 'POST' })
         'name',
         'typeId',
         'userId',
+        'email',
         'hourlyRate',
         'rateType',
         'flatDailyRate',
@@ -2265,11 +2295,16 @@ export const updateCarePerson = createServerFn({ method: 'POST' })
       typeof input.userId === 'string' && input.userId.trim()
         ? input.userId.trim()
         : null
+    const email =
+      typeof input.email === 'string' && input.email.trim()
+        ? input.email.trim().toLowerCase()
+        : null
     return {
       id,
       name,
       typeId,
       userId,
+      email,
       hourlyRate: parseOptionalRate(input.hourlyRate),
       rateType: parseRateType(input.rateType),
       flatDailyRate: Boolean(input.flatDailyRate),
@@ -2288,6 +2323,28 @@ export const updateCarePerson = createServerFn({ method: 'POST' })
     if (type.isPaid && data.hourlyRate === null) {
       throw new Error('Rate is required for paid people.')
     }
+    if (data.userId) {
+      const alreadyLinked = await prisma.carePerson.findFirst({
+        where: { userId: data.userId, NOT: { id: data.id } },
+        select: { name: true },
+      })
+      if (alreadyLinked) {
+        throw new Error(
+          `This app user is already linked to “${alreadyLinked.name}”. Use Merge to combine the records instead.`,
+        )
+      }
+    }
+    if (data.email) {
+      const emailTaken = await prisma.carePerson.findFirst({
+        where: { email: data.email, NOT: { id: data.id } },
+        select: { name: true },
+      })
+      if (emailTaken) {
+        throw new Error(
+          `“${emailTaken.name}” already expects that sign-in email.`,
+        )
+      }
+    }
     const pay = parsePaySchedule(data.payRaw, type.isPaid)
     const schedule = parseStandardSchedule(data.payRaw, type.isPaid)
     const before = await prisma.carePerson.findUniqueOrThrow({
@@ -2299,6 +2356,7 @@ export const updateCarePerson = createServerFn({ method: 'POST' })
         name: data.name,
         typeId: data.typeId,
         userId: data.userId,
+        email: data.email,
         hourlyRate: type.isPaid ? data.hourlyRate : null,
         rateType: type.isPaid ? data.rateType : 'HOURLY',
         flatDailyRate:
@@ -2321,6 +2379,7 @@ export const updateCarePerson = createServerFn({ method: 'POST' })
       'name',
       'typeId',
       'userId',
+      'email',
       'hourlyRate',
       'rateType',
       'flatDailyRate',
@@ -6184,6 +6243,8 @@ export const countCarePersonRefs = createServerOnlyFn(async (
     invoices,
     swapsRequested,
     swapsTargeted,
+    hiresRequested,
+    hiresTargeted,
     ledgerEntries,
     occurrences,
     series,
@@ -6195,6 +6256,8 @@ export const countCarePersonRefs = createServerOnlyFn(async (
     prisma.careInvoice.count({ where: { carePersonId: personId } }),
     prisma.careSwapRequest.count({ where: { requesterPersonId: personId } }),
     prisma.careSwapRequest.count({ where: { targetPersonId: personId } }),
+    prisma.careHireRequest.count({ where: { requesterPersonId: personId } }),
+    prisma.careHireRequest.count({ where: { targetPersonId: personId } }),
     prisma.careContributionLedgerEntry.count({
       where: { carePersonId: personId },
     }),
@@ -6217,6 +6280,8 @@ export const countCarePersonRefs = createServerOnlyFn(async (
     invoices +
     swapsRequested +
     swapsTargeted +
+    hiresRequested +
+    hiresTargeted +
     ledgerEntries +
     occurrences +
     series +
@@ -6303,4 +6368,172 @@ export const restoreCarePerson = createServerFn({ method: 'POST' })
       },
       visibilityUserId: null,
     })
+  })
+
+/**
+ * Combine two CarePerson records that turned out to be the same person —
+ * typically an offline record an admin pre-created plus the record that got
+ * auto-created (see ensureCarePersonForUser) once that person actually
+ * signed in. `mergeId` is absorbed into `keepId`: every row that pointed at
+ * it is repointed at `keepId`, its account link (if any) moves over, and the
+ * now-empty `mergeId` row is hard-deleted. Works whether either side is
+ * archived or not, so an admin can reach a duplicate that was already
+ * removed (and therefore archived, not deleted — see removeCarePerson)
+ * straight from Settings → Archived.
+ */
+export const mergeCarePeople = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    if (!data || typeof data !== 'object') throw new Error('Invalid payload.')
+    const input = data as Record<string, unknown>
+    const keepId = typeof input.keepId === 'string' ? input.keepId.trim() : ''
+    const mergeId =
+      typeof input.mergeId === 'string' ? input.mergeId.trim() : ''
+    if (!keepId || !mergeId) {
+      throw new Error('Both people are required.')
+    }
+    if (keepId === mergeId) {
+      throw new Error('Cannot merge a person into themselves.')
+    }
+    return { keepId, mergeId }
+  })
+  .handler(async ({ data }): Promise<CarePersonDto> => {
+    const actorUserId = await requireAdminId()
+
+    const [keepPerson, mergePerson] = await Promise.all([
+      prisma.carePerson.findUnique({ where: { id: data.keepId } }),
+      prisma.carePerson.findUnique({ where: { id: data.mergeId } }),
+    ])
+    if (!keepPerson) throw new Error('Person to keep not found.')
+    if (!mergePerson) throw new Error('Person to merge not found.')
+
+    if (keepPerson.userId && mergePerson.userId) {
+      throw new Error(
+        'Both records are linked to an app user — unlink one before merging.',
+      )
+    }
+    if (keepPerson.email && mergePerson.email) {
+      throw new Error(
+        'Both records have an expected sign-in email — clear one before merging.',
+      )
+    }
+    const [keepProfile, mergeProfile] = await Promise.all([
+      prisma.careContributionProfile.count({
+        where: { carePersonId: data.keepId },
+      }),
+      prisma.careContributionProfile.count({
+        where: { carePersonId: data.mergeId },
+      }),
+    ])
+    if (keepProfile > 0 && mergeProfile > 0) {
+      throw new Error(
+        'Both records have a contribution profile — remove one before merging.',
+      )
+    }
+
+    const { keepId, mergeId } = data
+    const updated = await prisma.$transaction(async (tx) => {
+      await Promise.all([
+        tx.careInvoice.updateMany({
+          where: { carePersonId: mergeId },
+          data: { carePersonId: keepId },
+        }),
+        tx.careSwapRequest.updateMany({
+          where: { requesterPersonId: mergeId },
+          data: { requesterPersonId: keepId },
+        }),
+        tx.careSwapRequest.updateMany({
+          where: { targetPersonId: mergeId },
+          data: { targetPersonId: keepId },
+        }),
+        tx.careHireRequest.updateMany({
+          where: { requesterPersonId: mergeId },
+          data: { requesterPersonId: keepId },
+        }),
+        tx.careHireRequest.updateMany({
+          where: { targetPersonId: mergeId },
+          data: { targetPersonId: keepId },
+        }),
+        tx.careContributionLedgerEntry.updateMany({
+          where: { carePersonId: mergeId },
+          data: { carePersonId: keepId },
+        }),
+        tx.careCoverageOccurrence.updateMany({
+          where: { assigneeId: mergeId },
+          data: { assigneeId: keepId },
+        }),
+        tx.careCoverageOccurrence.updateMany({
+          where: { releasedByPersonId: mergeId },
+          data: { releasedByPersonId: keepId },
+        }),
+        tx.careCoverageOccurrence.updateMany({
+          where: { responsiblePersonId: mergeId },
+          data: { responsiblePersonId: keepId },
+        }),
+        tx.careCoverageSeries.updateMany({
+          where: { assigneeId: mergeId },
+          data: { assigneeId: keepId },
+        }),
+        tx.careCoverageAssignmentRule.updateMany({
+          where: { assigneeId: mergeId },
+          data: { assigneeId: keepId },
+        }),
+        tx.careScheduledContribution.updateMany({
+          where: { carePersonId: mergeId },
+          data: { carePersonId: keepId },
+        }),
+        tx.careSettings.updateMany({
+          where: { backstopPersonId: mergeId },
+          data: { backstopPersonId: keepId },
+        }),
+      ])
+      // 1:1 relation — updateMany can't touch it, and at most one side has a
+      // row at this point (checked above), so this is a plain reassignment.
+      await tx.careContributionProfile.updateMany({
+        where: { carePersonId: mergeId },
+        data: { carePersonId: keepId },
+      })
+
+      const linkData: { userId?: string | null; email?: string | null } = {}
+      if (mergePerson.userId) {
+        await tx.carePerson.update({
+          where: { id: mergeId },
+          data: { userId: null },
+        })
+        linkData.userId = mergePerson.userId
+      }
+      if (mergePerson.email) {
+        await tx.carePerson.update({
+          where: { id: mergeId },
+          data: { email: null },
+        })
+        linkData.email = mergePerson.email
+      }
+
+      await tx.carePerson.delete({ where: { id: mergeId } })
+
+      const result = await tx.carePerson.update({
+        where: { id: keepId },
+        data: linkData,
+        include: {
+          type: true,
+          user: { select: { name: true, email: true } },
+        },
+      })
+
+      await logActivity(
+        {
+          actorUserId,
+          action: 'DELETE',
+          entityType: ACTIVITY_ENTITY_TYPES.care_person,
+          entityId: mergeId,
+          summary: `Merged care person “${mergePerson.name}” into “${result.name}”`,
+          visibilityUserId: null,
+        },
+        tx,
+      )
+
+      return result
+    })
+
+    return toPersonDto(updated)
   })

@@ -1,5 +1,9 @@
 import { useRouter } from '@tanstack/react-router'
 import { useState } from 'react'
+import {
+  MergeCarePersonDialog,
+  type MergeCarePersonSource,
+} from '#/components/app/care/MergeCarePersonDialog'
 import { ConfirmDialog } from '#/components/app/ui/confirm-dialog'
 import { Tabs, type TabItem } from '#/components/app/ui/Tabs'
 import { ACTIVITY_ENTITY_LABELS } from '#/lib/activity'
@@ -91,6 +95,9 @@ export function ArchivedSettingsPanel({ items }: ArchivedSettingsPanelProps) {
   const [error, setError] = useState<string | null>(null)
   const [pendingDelete, setPendingDelete] = useState<ArchivedItem | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [mergeSource, setMergeSource] = useState<MergeCarePersonSource | null>(
+    null,
+  )
 
   // The active tab can vanish once its last item is restored.
   const activeTab = presentKinds.includes(tab) ? tab : (presentKinds[0] ?? tab)
@@ -188,6 +195,17 @@ export function ArchivedSettingsPanel({ items }: ArchivedSettingsPanelProps) {
                   >
                     {busyId === item.id ? 'Restoring…' : 'Restore'}
                   </button>
+                  {item.kind === 'care_person' ? (
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      onClick={() =>
+                        setMergeSource({ id: item.id, name: item.name })
+                      }
+                    >
+                      Merge into…
+                    </button>
+                  ) : null}
                   {TAXONOMY_KINDS.includes(item.kind) ||
                   item.kind === 'transaction_type' ? (
                     <button
@@ -220,6 +238,11 @@ export function ArchivedSettingsPanel({ items }: ArchivedSettingsPanelProps) {
         tone="danger"
         onConfirm={() => void confirmDelete()}
         onCancel={() => setPendingDelete(null)}
+      />
+
+      <MergeCarePersonDialog
+        source={mergeSource}
+        onClose={() => setMergeSource(null)}
       />
     </div>
   )

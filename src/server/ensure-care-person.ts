@@ -29,6 +29,11 @@ function personNameFromUser(user: {
 
 /**
  * Idempotent: every app user gets a linked CarePerson (Family type by default).
+ *
+ * If an admin pre-created an offline person and declared the email they
+ * expect that person to sign in with, link this user to that record instead
+ * of creating a second one — this is the case that otherwise produces the
+ * duplicate-person mess Merge exists to clean up.
  */
 export async function ensureCarePersonForUser(user: {
   id: string
@@ -40,6 +45,21 @@ export async function ensureCarePersonForUser(user: {
     select: { id: true },
   })
   if (existing) return
+
+  const email = user.email?.trim().toLowerCase()
+  if (email) {
+    const expected = await prisma.carePerson.findFirst({
+      where: { userId: null, archivedAt: null, email },
+      select: { id: true },
+    })
+    if (expected) {
+      await prisma.carePerson.update({
+        where: { id: expected.id },
+        data: { userId: user.id },
+      })
+      return
+    }
+  }
 
   const typeId = await ensureFamilyTypeId()
   await prisma.carePerson.create({

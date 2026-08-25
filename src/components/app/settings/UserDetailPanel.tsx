@@ -35,6 +35,7 @@ function personFormFromDetail(user: UserDetail): CarePersonFormValues {
     name: person?.name ?? user.name ?? '',
     typeId: person?.typeId ?? '',
     userId: user.id,
+    email: person?.email ?? '',
     hourlyRate: person?.hourlyRate ?? '',
     rateType: person?.rateType ?? 'HOURLY',
     flatDailyRate: person?.flatDailyRate ?? false,

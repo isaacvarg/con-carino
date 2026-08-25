@@ -330,6 +330,11 @@ model CarePerson {
   id            String          @id @default(uuid())
   name          String
   userId        String?         @unique
+  /// Sign-in email an admin expects this offline person to eventually claim.
+  /// On signup, a matching user is auto-linked here instead of getting a
+  /// second CarePerson created for them. Cleared implicitly by staying set
+  /// after linking — harmless, kept as a record of the original expectation.
+  email         String?         @unique
   typeId        String
   hourlyRate    Decimal?        @db.Decimal(19, 4)
   /// Whether hourlyRate is charged per hour or as a flat daily amount

@@ -26,6 +26,10 @@ import {
   updateCarePersonType,
 } from '#/server/care'
 import { ConfirmDialog } from '#/components/app/ui/confirm-dialog'
+import {
+  MergeCarePersonDialog,
+  type MergeCarePersonSource,
+} from '#/components/app/care/MergeCarePersonDialog'
 import type { CarePayInterval, CareRateType } from '#/generated/prisma/enums'
 import {
   DEFAULT_PERSON_BG_COLOR,
@@ -53,6 +57,7 @@ function emptyPersonForm(types: CarePersonTypeDto[]): CarePersonFormValues {
     name: '',
     typeId: types[0]?.id ?? '',
     userId: '',
+    email: '',
     hourlyRate: '',
     rateType: 'HOURLY',
     flatDailyRate: false,
@@ -94,6 +99,26 @@ export function CarePeoplePanel({
   const [pendingRemove, setPendingRemove] = useState<CarePersonDto | null>(null)
   const [removing, setRemoving] = useState(false)
   const [removeError, setRemoveError] = useState<string | null>(null)
+  const [mergeSource, setMergeSource] = useState<MergeCarePersonSource | null>(
+    null,
+  )
+  const [mergeDefaultTargetId, setMergeDefaultTargetId] = useState<
+    string | undefined
+  >(undefined)
+
+  // Names shared by more than one active person — surfaced as a hint to use
+  // Merge, since that's usually the pre-created-offline-person-plus-signup
+  // duplicate this whole feature exists to clean up.
+  const duplicateNameCounts = new Map<string, number>()
+  for (const p of people) {
+    const key = p.name.trim().toLowerCase()
+    duplicateNameCounts.set(key, (duplicateNameCounts.get(key) ?? 0) + 1)
+  }
+  function possibleDuplicateTargetId(person: CarePersonDto): string | undefined {
+    const key = person.name.trim().toLowerCase()
+    if ((duplicateNameCounts.get(key) ?? 0) < 2) return undefined
+    return people.find((p) => p.id !== person.id && p.name.trim().toLowerCase() === key)?.id
+  }
 
   async function confirmRemove() {
     if (!pendingRemove) return
@@ -155,6 +180,7 @@ export function CarePeoplePanel({
       name: person.name,
       typeId: person.typeId,
       userId: person.userId ?? '',
+      email: person.email ?? '',
       hourlyRate: person.hourlyRate ?? '',
       rateType: person.rateType,
       flatDailyRate: person.flatDailyRate,
@@ -421,6 +447,12 @@ export function CarePeoplePanel({
                   {!person.isActive ? (
                     <span className="badge badge-ghost badge-sm">Inactive</span>
                   ) : null}
+                  {(duplicateNameCounts.get(person.name.trim().toLowerCase()) ?? 0) >
+                  1 ? (
+                    <span className="badge badge-warning badge-sm">
+                      Possible duplicate
+                    </span>
+                  ) : null}
                 </div>
                 <p className="text-sm text-base-content/60">
                   {person.typeName}
@@ -439,6 +471,18 @@ export function CarePeoplePanel({
                   >
                     Edit
                   </button>
+                  {isAdmin ? (
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => {
+                        setMergeDefaultTargetId(possibleDuplicateTargetId(person))
+                        setMergeSource({ id: person.id, name: person.name })
+                      }}
+                    >
+                      Merge into…
+                    </button>
+                  ) : null}
                   {isAdmin ? (
                     <button
                       type="button"
@@ -550,6 +594,12 @@ export function CarePeoplePanel({
         tone="danger"
         onConfirm={() => void confirmRemove()}
         onCancel={() => setPendingRemove(null)}
+      />
+
+      <MergeCarePersonDialog
+        source={mergeSource}
+        defaultTargetId={mergeDefaultTargetId}
+        onClose={() => setMergeSource(null)}
       />
     </div>
   )
