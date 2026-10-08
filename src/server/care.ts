@@ -6371,6 +6371,74 @@ export const restoreCarePerson = createServerFn({ method: 'POST' })
   })
 
 /**
+ * Repoint every row that references CarePerson `mergeId` at `keepId`, except
+ * the 1:1 contribution profile and the person's own user/email link — those
+ * need a conflict decision the caller makes. Shared by mergeCarePeople and the
+ * user merge (src/server/user-merge.ts); a new person-referencing column must
+ * be added here or merges will silently drop it via onDelete.
+ */
+export const repointCarePersonRefs = createServerOnlyFn(async (
+  tx: Prisma.TransactionClient,
+  keepId: string,
+  mergeId: string,
+): Promise<void> => {
+  await Promise.all([
+    tx.careInvoice.updateMany({
+      where: { carePersonId: mergeId },
+      data: { carePersonId: keepId },
+    }),
+    tx.careSwapRequest.updateMany({
+      where: { requesterPersonId: mergeId },
+      data: { requesterPersonId: keepId },
+    }),
+    tx.careSwapRequest.updateMany({
+      where: { targetPersonId: mergeId },
+      data: { targetPersonId: keepId },
+    }),
+    tx.careHireRequest.updateMany({
+      where: { requesterPersonId: mergeId },
+      data: { requesterPersonId: keepId },
+    }),
+    tx.careHireRequest.updateMany({
+      where: { targetPersonId: mergeId },
+      data: { targetPersonId: keepId },
+    }),
+    tx.careContributionLedgerEntry.updateMany({
+      where: { carePersonId: mergeId },
+      data: { carePersonId: keepId },
+    }),
+    tx.careCoverageOccurrence.updateMany({
+      where: { assigneeId: mergeId },
+      data: { assigneeId: keepId },
+    }),
+    tx.careCoverageOccurrence.updateMany({
+      where: { releasedByPersonId: mergeId },
+      data: { releasedByPersonId: keepId },
+    }),
+    tx.careCoverageOccurrence.updateMany({
+      where: { responsiblePersonId: mergeId },
+      data: { responsiblePersonId: keepId },
+    }),
+    tx.careCoverageSeries.updateMany({
+      where: { assigneeId: mergeId },
+      data: { assigneeId: keepId },
+    }),
+    tx.careCoverageAssignmentRule.updateMany({
+      where: { assigneeId: mergeId },
+      data: { assigneeId: keepId },
+    }),
+    tx.careScheduledContribution.updateMany({
+      where: { carePersonId: mergeId },
+      data: { carePersonId: keepId },
+    }),
+    tx.careSettings.updateMany({
+      where: { backstopPersonId: mergeId },
+      data: { backstopPersonId: keepId },
+    }),
+  ])
+})
+
+/**
  * Combine two CarePerson records that turned out to be the same person —
  * typically an offline record an admin pre-created plus the record that got
  * auto-created (see ensureCarePersonForUser) once that person actually
@@ -6432,60 +6500,7 @@ export const mergeCarePeople = createServerFn({ method: 'POST' })
 
     const { keepId, mergeId } = data
     const updated = await prisma.$transaction(async (tx) => {
-      await Promise.all([
-        tx.careInvoice.updateMany({
-          where: { carePersonId: mergeId },
-          data: { carePersonId: keepId },
-        }),
-        tx.careSwapRequest.updateMany({
-          where: { requesterPersonId: mergeId },
-          data: { requesterPersonId: keepId },
-        }),
-        tx.careSwapRequest.updateMany({
-          where: { targetPersonId: mergeId },
-          data: { targetPersonId: keepId },
-        }),
-        tx.careHireRequest.updateMany({
-          where: { requesterPersonId: mergeId },
-          data: { requesterPersonId: keepId },
-        }),
-        tx.careHireRequest.updateMany({
-          where: { targetPersonId: mergeId },
-          data: { targetPersonId: keepId },
-        }),
-        tx.careContributionLedgerEntry.updateMany({
-          where: { carePersonId: mergeId },
-          data: { carePersonId: keepId },
-        }),
-        tx.careCoverageOccurrence.updateMany({
-          where: { assigneeId: mergeId },
-          data: { assigneeId: keepId },
-        }),
-        tx.careCoverageOccurrence.updateMany({
-          where: { releasedByPersonId: mergeId },
-          data: { releasedByPersonId: keepId },
-        }),
-        tx.careCoverageOccurrence.updateMany({
-          where: { responsiblePersonId: mergeId },
-          data: { responsiblePersonId: keepId },
-        }),
-        tx.careCoverageSeries.updateMany({
-          where: { assigneeId: mergeId },
-          data: { assigneeId: keepId },
-        }),
-        tx.careCoverageAssignmentRule.updateMany({
-          where: { assigneeId: mergeId },
-          data: { assigneeId: keepId },
-        }),
-        tx.careScheduledContribution.updateMany({
-          where: { carePersonId: mergeId },
-          data: { carePersonId: keepId },
-        }),
-        tx.careSettings.updateMany({
-          where: { backstopPersonId: mergeId },
-          data: { backstopPersonId: keepId },
-        }),
-      ])
+      await repointCarePersonRefs(tx, keepId, mergeId)
       // 1:1 relation — updateMany can't touch it, and at most one side has a
       // row at this point (checked above), so this is a plain reassignment.
       await tx.careContributionProfile.updateMany({

@@ -21,13 +21,21 @@ import type { ActivityListItem } from '#/server/activity'
 import type { CarePersonTypeDto } from '#/server/care'
 import type { UserDetail } from '#/server/users'
 import {
+  addUserEmailAlias,
   listUserActivity,
   removeUser,
+  removeUserEmailAlias,
   revokeUserSessions,
   updateUserCarePerson,
   updateUserProfile,
 } from '#/server/users'
 import { ConfirmDialog } from '#/components/app/ui/confirm-dialog'
+import { MergeUserDialog } from '#/components/app/settings/MergeUserDialog'
+
+const PROVIDER_LABELS: Record<string, string> = {
+  google: 'Google',
+  discord: 'Discord',
+}
 
 function personFormFromDetail(user: UserDetail): CarePersonFormValues {
   const person = user.carePerson
@@ -83,6 +91,12 @@ export function UserDetailPanel({
   const [sessionError, setSessionError] = useState<string | null>(null)
   const [sessionBusy, setSessionBusy] = useState(false)
 
+  const [newAlias, setNewAlias] = useState('')
+  const [aliasBusy, setAliasBusy] = useState(false)
+  const [aliasError, setAliasError] = useState<string | null>(null)
+
+  const [merging, setMerging] = useState(false)
+
   const [confirmingRemove, setConfirmingRemove] = useState(false)
   const [removing, setRemoving] = useState(false)
   const [removeError, setRemoveError] = useState<string | null>(null)
@@ -114,6 +128,7 @@ export function UserDetailPanel({
     setImageUrl(user.imageUrl)
     setPendingImageKey(null)
     setPersonForm(personFormFromDetail(user))
+    setAliasError(null)
     setExtra([])
     setNextCursor(initialActivity.nextCursor)
   }, [user, initialActivity])
@@ -177,6 +192,45 @@ export function UserDetailPanel({
       )
     } finally {
       setPersonSaving(false)
+    }
+  }
+
+  async function addAlias(e: FormEvent) {
+    e.preventDefault()
+    setAliasBusy(true)
+    setAliasError(null)
+    try {
+      await addUserEmailAlias({ data: { userId: user.id, email: newAlias } })
+      setNewAlias('')
+      await router.invalidate()
+    } catch (err) {
+      setAliasError(
+        err instanceof Error ? err.message : 'Could not add that email.',
+      )
+    } finally {
+      setAliasBusy(false)
+    }
+  }
+
+  async function removeAlias(email: string) {
+    if (
+      !window.confirm(
+        `Remove ${email}? A magic link to it would then create a separate account.`,
+      )
+    ) {
+      return
+    }
+    setAliasBusy(true)
+    setAliasError(null)
+    try {
+      await removeUserEmailAlias({ data: { userId: user.id, email } })
+      await router.invalidate()
+    } catch (err) {
+      setAliasError(
+        err instanceof Error ? err.message : 'Could not remove that email.',
+      )
+    } finally {
+      setAliasBusy(false)
     }
   }
 
@@ -300,6 +354,75 @@ export function UserDetailPanel({
 
       <div className="app-card p-4 sm:p-6">
         <h3 className="text-xl font-bold tracking-tight text-base-content">
+          Sign-in emails
+        </h3>
+        <p className="mt-1 text-sm text-base-content/60">
+          Magic links sent to any of these addresses sign in as this user.
+          Add one before they first use a new address, so they don&rsquo;t end
+          up with a second account.
+        </p>
+        <ul className="mt-4 divide-y divide-base-300 text-sm">
+          <li className="flex flex-wrap items-center justify-between gap-2 py-2">
+            <span className="text-base-content">
+              {user.email ?? 'No primary email'}
+            </span>
+            <span className="flex flex-wrap gap-1">
+              <span className="badge badge-ghost badge-sm">Primary</span>
+              {user.providers.map((p) => (
+                <span key={p} className="badge badge-outline badge-sm">
+                  {PROVIDER_LABELS[p] ?? p}
+                </span>
+              ))}
+            </span>
+          </li>
+          {user.emailAliases.map((email) => (
+            <li
+              key={email}
+              className="flex flex-wrap items-center justify-between gap-2 py-2"
+            >
+              <span className="text-base-content">{email}</span>
+              <button
+                type="button"
+                className="btn btn-ghost btn-xs text-error"
+                disabled={aliasBusy}
+                onClick={() => void removeAlias(email)}
+              >
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+        <FormShell card={false} onSubmit={addAlias} className="mt-4">
+          <FormField label="Add another email" htmlFor="user-alias">
+            <input
+              id="user-alias"
+              type="email"
+              className={FORM_INPUT_CLASS}
+              value={newAlias}
+              onChange={(e) => setNewAlias(e.target.value)}
+              placeholder="name@example.com"
+              autoComplete="off"
+            />
+          </FormField>
+          {aliasError ? (
+            <p className="text-sm text-error" role="alert">
+              {aliasError}
+            </p>
+          ) : null}
+          <FormActions>
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={aliasBusy || !newAlias.trim()}
+            >
+              {aliasBusy ? 'Saving…' : 'Add email'}
+            </button>
+          </FormActions>
+        </FormShell>
+      </div>
+
+      <div className="app-card p-4 sm:p-6">
+        <h3 className="text-xl font-bold tracking-tight text-base-content">
           Care person
         </h3>
         <p className="mt-1 text-sm text-base-content/60">
@@ -400,6 +523,24 @@ export function UserDetailPanel({
 
       <div className="app-card mt-4 p-4 sm:p-6">
         <h3 className="text-xl font-bold tracking-tight text-base-content">
+          Merge user
+        </h3>
+        <p className="mt-1 text-sm text-base-content/60">
+          Same person signed in twice with different emails? Merge the other
+          account into this one. Its records, caregiver history, and sign-in
+          methods move here, and it is deleted.
+        </p>
+        <button
+          type="button"
+          className="btn btn-outline btn-sm mt-3"
+          onClick={() => setMerging(true)}
+        >
+          Merge another user into this one
+        </button>
+      </div>
+
+      <div className="app-card p-4 sm:p-6">
+        <h3 className="text-xl font-bold tracking-tight text-base-content">
           Remove user
         </h3>
         <p className="mt-1 text-sm text-base-content/60">
@@ -420,6 +561,15 @@ export function UserDetailPanel({
           Remove user
         </button>
       </div>
+
+      <MergeUserDialog
+        keep={
+          merging
+            ? { id: user.id, label: user.name ?? user.email ?? 'this user' }
+            : null
+        }
+        onClose={() => setMerging(false)}
+      />
 
       <ConfirmDialog
         open={confirmingRemove}

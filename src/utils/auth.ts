@@ -1,10 +1,12 @@
 import { PrismaAdapter } from '@auth/prisma-adapter'
+import type { Adapter, AdapterUser } from '@auth/core/adapters'
 import Google from '@auth/core/providers/google'
 import Discord from '@auth/core/providers/discord'
 import Resend from '@auth/core/providers/resend'
 import type { StartAuthJSConfig } from 'start-authjs'
 import { ACTIVITY_ENTITY_TYPES } from '#/lib/activity'
 import { prisma } from '#/lib/prisma'
+import { normalizeEmail } from '#/lib/user-email'
 import { logActivity } from '#/server/activity-log'
 import { ensureCarePersonForUser } from '#/server/ensure-care-person'
 
@@ -25,8 +27,29 @@ function getEmailFrom(): string {
   return from
 }
 
+// The email provider resolves a user by address alone — it never consults the
+// Account table — and OAuth checks the same lookup before creating a user. So
+// teaching this one method about admin-managed aliases (UserEmail) is what
+// lets a second address sign in as the same user instead of creating another.
+// Primary address first, so an alias can never shadow someone's User.email.
+function aliasAwareAdapter(): Adapter {
+  const base = PrismaAdapter(prisma)
+  return {
+    ...base,
+    async getUserByEmail(email) {
+      const user = await base.getUserByEmail!(email)
+      if (user) return user
+      const alias = await prisma.userEmail.findUnique({
+        where: { email: normalizeEmail(email) },
+        select: { user: true },
+      })
+      return (alias?.user as AdapterUser | undefined) ?? null
+    },
+  }
+}
+
 export const authConfig: StartAuthJSConfig = {
-  adapter: PrismaAdapter(prisma),
+  adapter: aliasAwareAdapter(),
   secret: process.env.AUTH_SECRET,
   trustHost: true,
   basePath: '/api/auth',
