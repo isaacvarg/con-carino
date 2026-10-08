@@ -8,6 +8,7 @@ import {
 import { canTakeResponsibility } from '#/lib/care-responsibility'
 import { formatHireCalendarLabel } from '#/lib/care-hire-label'
 import { isOffTypicalSchedule } from '#/lib/care-rate-segments'
+import { upcomingRuleDays } from '#/lib/care-assignment'
 import {
   FORM_INPUT_CLASS,
   FORM_SELECT_CLASS,
@@ -42,6 +43,7 @@ import {
   listCoverageSeries,
   listHireCandidateWindows,
   releaseOccurrence,
+  updateCoverageAssignmentRule,
   updateOccurrence,
 } from '#/server/care'
 import { SwapWindowPicker } from './SwapWindowPicker'
@@ -55,6 +57,13 @@ import {
   toDateInputValue,
   toLocalIsoFromParts,
 } from './care-utils'
+
+/** "2026-10-12" → local midnight, or null while the date input is empty. */
+function localDateFromInput(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (!match) return null
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+}
 
 function hirePickerRateLabel(
   person: CarePersonDto,
@@ -208,6 +217,8 @@ export function CareCalendarPanel({
     ? (events.find((e) => e.id === confirmDeleteEventId) ?? null)
     : null
   const [ruleSummary, setRuleSummary] = useState<string | null>(null)
+  /** Set while the assignRule form is editing an existing rule. */
+  const [editingRuleId, setEditingRuleId] = useState<string | null>(null)
   const [releaseId, setReleaseId] = useState<string | null>(null)
   const [notifyOnRelease, setNotifyOnRelease] = useState(true)
   const [releasing, setReleasing] = useState(false)
@@ -365,6 +376,7 @@ export function CareCalendarPanel({
   ) {
     setError(null)
     setModal(kind)
+    setEditingRuleId(null)
     setStartDate(selectedDay)
     setStartTime('09:00')
     setEndTime('17:00')
@@ -389,6 +401,19 @@ export function CareCalendarPanel({
       activePeople.find((p) => p.id !== opts?.swapFrom?.assigneeId)?.id ?? '',
     )
     setAssignOccurrenceId(opts?.assignId ?? null)
+  }
+
+  function openEditRule(rule: CareCoverageAssignmentRuleDto) {
+    openModal('assignRule')
+    setEditingRuleId(rule.id)
+    setAssigneeId(rule.assigneeId)
+    setStartDate(rule.startsOn)
+    setEndDate(rule.endsOn ?? '')
+    setDaysOfWeek(rule.daysOfWeek)
+    setIntervalWeeks(rule.intervalWeeks)
+    setShiftScope(rule.scope)
+    setSelectedShiftIds(rule.shiftIds)
+    setNotes(rule.notes ?? '')
   }
 
   async function openManageSeries() {
@@ -835,18 +860,32 @@ export function CareCalendarPanel({
           usesShifts && shiftScope === 'SPECIFIC_SHIFTS'
             ? 'SPECIFIC_SHIFTS'
             : 'ALL_SHIFTS'
-        const res = await createCoverageAssignmentRule({
-          data: {
-            assigneeId,
-            startsOn: startDate,
-            endsOn: endDate || null,
-            daysOfWeek,
-            intervalWeeks,
-            scope,
-            shiftIds: scope === 'SPECIFIC_SHIFTS' ? selectedShiftIds : [],
-            notes: notes || null,
-          },
-        })
+        const ruleInput = {
+          assigneeId,
+          startsOn: startDate,
+          endsOn: endDate || null,
+          daysOfWeek,
+          intervalWeeks,
+          scope,
+          shiftIds: scope === 'SPECIFIC_SHIFTS' ? selectedShiftIds : [],
+          notes: notes || null,
+        }
+        if (editingRuleId) {
+          const res = await updateCoverageAssignmentRule({
+            data: { id: editingRuleId, ...ruleInput },
+          })
+          setModal(null)
+          setEditingRuleId(null)
+          setRuleSummary(
+            `Updated recurring coverage · reopened ${res.released} upcoming slot${res.released === 1 ? '' : 's'}, assigned ${res.assigned}` +
+              (res.skipped > 0
+                ? ` · skipped ${res.skipped} already covered`
+                : ''),
+          )
+          await router.invalidate()
+          return
+        }
+        const res = await createCoverageAssignmentRule({ data: ruleInput })
         setModal(null)
         setRuleSummary(
           `Assigned ${res.assigned} slot${res.assigned === 1 ? '' : 's'}` +
@@ -909,9 +948,26 @@ export function CareCalendarPanel({
     year: 'numeric',
   })
 
+  const ruleStartsOn = localDateFromInput(startDate)
+  const rulePreview =
+    modal === 'assignRule' && ruleStartsOn
+      ? upcomingRuleDays(
+          {
+            daysOfWeek,
+            intervalWeeks,
+            startsOn: ruleStartsOn,
+            endsOn: localDateFromInput(endDate),
+          },
+          new Date(),
+          4,
+        )
+      : []
+
   const modalTitle =
     modal === 'assignRule'
-      ? 'Assign recurring coverage'
+      ? editingRuleId
+        ? 'Edit recurring coverage'
+        : 'Assign recurring coverage'
       : modal === 'event'
         ? 'Add event'
         : modal === 'swap'
@@ -1147,8 +1203,9 @@ export function CareCalendarPanel({
           <div className="modal-box max-w-2xl">
             <h3 className="text-lg font-semibold">{modalTitle}</h3>
             <p className="mt-1 text-sm text-base-content/60">
-              Remove a recurring assignment to reopen its upcoming slots. Past
-              and completed slots are kept.
+              Edit an assignment to change who covers which days and how
+              often, or remove it to reopen its upcoming slots. Either way,
+              past and completed slots are kept.
             </p>
             {manageError ? (
               <p className="mt-2 text-sm text-error" role="alert">
@@ -1194,13 +1251,22 @@ export function CareCalendarPanel({
                             {rule.notes ? ` · ${rule.notes}` : ''}
                           </p>
                         </div>
-                        <button
-                          type="button"
-                          className="btn btn-error btn-outline btn-xs"
-                          onClick={() => setConfirmDeleteId(rule.id)}
-                        >
-                          Remove
-                        </button>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            className="btn btn-outline btn-xs"
+                            onClick={() => openEditRule(rule)}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-error btn-outline btn-xs"
+                            onClick={() => setConfirmDeleteId(rule.id)}
+                          >
+                            Remove
+                          </button>
+                        </div>
                       </div>
                     </li>
                   )
@@ -1662,9 +1728,9 @@ export function CareCalendarPanel({
               {modal === 'assignRule' ? (
                 <>
                   <p className="text-sm text-base-content/70">
-                    Assign a person to the loved one&apos;s required open slots on
-                    a recurring basis. Only open slots are filled — slots already
-                    covered by someone else are left as-is.
+                    {editingRuleId
+                      ? 'Saving reopens the upcoming slots this assignment filled and refills them with these settings. Past, completed, invoiced, and swap-pending slots stay as they are, and freed slots are offered to other recurring assignments.'
+                      : 'Assign a person to the loved one\u2019s required open slots on a recurring basis. Only open slots are filled — slots already covered by someone else are left as-is.'}
                   </p>
                   <FormField label="Assignee" htmlFor="rule-assignee">
                     <select
@@ -1771,7 +1837,15 @@ export function CareCalendarPanel({
                       ))}
                     </div>
                   </FormField>
-                  <FormField label="Repeats" htmlFor="rule-interval">
+                  <FormField
+                    label="Repeats"
+                    htmlFor="rule-interval"
+                    hint={
+                      intervalWeeks > 1
+                        ? 'Weeks are counted from the start date. To give someone a different turn in the rotation, move their start date by a week.'
+                        : undefined
+                    }
+                  >
                     <select
                       id="rule-interval"
                       className={FORM_SELECT_CLASS}
@@ -1784,6 +1858,20 @@ export function CareCalendarPanel({
                       <option value={4}>Every 4 weeks</option>
                     </select>
                   </FormField>
+                  {rulePreview.length > 0 ? (
+                    <p className="text-sm text-base-content/70">
+                      Next:{' '}
+                      {rulePreview
+                        .map((d) =>
+                          d.toLocaleDateString(undefined, {
+                            weekday: 'short',
+                            month: 'short',
+                            day: 'numeric',
+                          }),
+                        )
+                        .join(' · ')}
+                    </p>
+                  ) : null}
                   {usesShifts ? (
                     <FormField label="Shifts">
                       <div className="flex flex-col gap-2">
@@ -1873,8 +1961,10 @@ export function CareCalendarPanel({
                 >
                   {saving
                     ? 'Saving…'
-                    : modal === 'assign' || modal === 'assignRule'
-                      ? 'Assign'
+                    : modal === 'assignRule' && editingRuleId
+                      ? 'Save changes'
+                      : modal === 'assign' || modal === 'assignRule'
+                        ? 'Assign'
                       : 'Save'}
                 </button>
               </FormActions>

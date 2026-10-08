@@ -3482,67 +3482,73 @@ export const listCoverageAssignmentRules = createServerFn({
   return rows.map(toAssignmentRuleDto)
 })
 
+/**
+ * Shared by create and update: every field of a recurring assignment is
+ * editable, so both accept exactly the same payload.
+ */
+function parseAssignmentRuleInput(data: unknown) {
+  if (!data || typeof data !== 'object') throw new Error('Invalid payload.')
+  const input = data as Record<string, unknown>
+  const assigneeId =
+    typeof input.assigneeId === 'string' ? input.assigneeId.trim() : ''
+  if (!assigneeId) throw new Error('Assignee is required.')
+  const scopeRaw = input.scope
+  if (
+    typeof scopeRaw !== 'string' ||
+    !ASSIGNMENT_SCOPES.includes(scopeRaw as CareAssignmentScope)
+  ) {
+    throw new Error('Shift scope is invalid.')
+  }
+  const scope = scopeRaw as CareAssignmentScope
+  let shiftIds: string[] = []
+  if (scope === 'SPECIFIC_SHIFTS') {
+    if (!Array.isArray(input.shiftIds) || input.shiftIds.length === 0) {
+      throw new Error('Select at least one shift.')
+    }
+    shiftIds = [
+      ...new Set(
+        input.shiftIds.map((id) => {
+          if (typeof id !== 'string' || !id.trim()) {
+            throw new Error('Shift id is invalid.')
+          }
+          return id.trim()
+        }),
+      ),
+    ]
+  }
+  const endsOnRaw =
+    typeof input.endsOn === 'string' && input.endsOn.trim()
+      ? input.endsOn.trim()
+      : null
+  const notes =
+    typeof input.notes === 'string' && input.notes.trim()
+      ? input.notes.trim()
+      : null
+  let intervalWeeks = 1
+  if (input.intervalWeeks !== undefined && input.intervalWeeks !== null) {
+    const n =
+      typeof input.intervalWeeks === 'number'
+        ? input.intervalWeeks
+        : Number(input.intervalWeeks)
+    if (!Number.isInteger(n) || n < 1 || n > 8) {
+      throw new Error('Repeat interval must be a whole number of 1–8 weeks.')
+    }
+    intervalWeeks = n
+  }
+  return {
+    assigneeId,
+    startsOn: parseDateOnly(input.startsOn, 'Start date'),
+    endsOn: endsOnRaw ? parseDateOnly(endsOnRaw, 'End date') : null,
+    daysOfWeek: parseDaysOfWeek(input.daysOfWeek),
+    intervalWeeks,
+    scope,
+    shiftIds,
+    notes,
+  }
+}
+
 export const createCoverageAssignmentRule = createServerFn({ method: 'POST' })
-  .validator((data: unknown) => {
-    if (!data || typeof data !== 'object') throw new Error('Invalid payload.')
-    const input = data as Record<string, unknown>
-    const assigneeId =
-      typeof input.assigneeId === 'string' ? input.assigneeId.trim() : ''
-    if (!assigneeId) throw new Error('Assignee is required.')
-    const scopeRaw = input.scope
-    if (
-      typeof scopeRaw !== 'string' ||
-      !ASSIGNMENT_SCOPES.includes(scopeRaw as CareAssignmentScope)
-    ) {
-      throw new Error('Shift scope is invalid.')
-    }
-    const scope = scopeRaw as CareAssignmentScope
-    let shiftIds: string[] = []
-    if (scope === 'SPECIFIC_SHIFTS') {
-      if (!Array.isArray(input.shiftIds) || input.shiftIds.length === 0) {
-        throw new Error('Select at least one shift.')
-      }
-      shiftIds = [
-        ...new Set(
-          input.shiftIds.map((id) => {
-            if (typeof id !== 'string' || !id.trim()) {
-              throw new Error('Shift id is invalid.')
-            }
-            return id.trim()
-          }),
-        ),
-      ]
-    }
-    const endsOnRaw =
-      typeof input.endsOn === 'string' && input.endsOn.trim()
-        ? input.endsOn.trim()
-        : null
-    const notes =
-      typeof input.notes === 'string' && input.notes.trim()
-        ? input.notes.trim()
-        : null
-    let intervalWeeks = 1
-    if (input.intervalWeeks !== undefined && input.intervalWeeks !== null) {
-      const n =
-        typeof input.intervalWeeks === 'number'
-          ? input.intervalWeeks
-          : Number(input.intervalWeeks)
-      if (!Number.isInteger(n) || n < 1 || n > 8) {
-        throw new Error('Repeat interval must be a whole number of 1–8 weeks.')
-      }
-      intervalWeeks = n
-    }
-    return {
-      assigneeId,
-      startsOn: parseDateOnly(input.startsOn, 'Start date'),
-      endsOn: endsOnRaw ? parseDateOnly(endsOnRaw, 'End date') : null,
-      daysOfWeek: parseDaysOfWeek(input.daysOfWeek),
-      intervalWeeks,
-      scope,
-      shiftIds,
-      notes,
-    }
-  })
+  .validator(parseAssignmentRuleInput)
   .handler(async ({ data }): Promise<CreateAssignmentRuleResult> => {
     const userId = await requireUserId()
     const person = await prisma.carePerson.findUnique({
@@ -3621,6 +3627,144 @@ export const createCoverageAssignmentRule = createServerFn({ method: 'POST' })
     }
   })
 
+/**
+ * Reopen upcoming, not-yet-completed slots a rule filled; past, completed,
+ * invoiced, and swap/hire-promised ones keep their assignee. Slots someone
+ * reassigned by hand no longer carry assignedByRuleId, so they are never
+ * touched either.
+ */
+async function releaseUpcomingRuleSlots(
+  db: Pick<Prisma.TransactionClient, 'careCoverageOccurrence'>,
+  ruleId: string,
+): Promise<number> {
+  const released = await db.careCoverageOccurrence.updateMany({
+    where: {
+      assignedByRuleId: ruleId,
+      status: 'SCHEDULED',
+      startsAt: { gte: startOfLocalToday() },
+      invoiceLines: { none: {} },
+      ...notPromisedOccurrence,
+    },
+    data: {
+      assigneeId: null,
+      assignedByRuleId: null,
+      billingStatus: 'NOT_BILLABLE',
+    },
+  })
+  return released.count
+}
+
+export type UpdateAssignmentRuleResult = CreateAssignmentRuleResult & {
+  /** Upcoming slots the old version of the rule had filled. */
+  released: number
+}
+
+/**
+ * Change a recurring assignment. Rules only ever fill open slots, so an edit
+ * is "remove, then re-add": the rule's upcoming slots reopen, the new rule
+ * fills whatever now matches, and any other rule gets a pass at the slots it
+ * gave up (e.g. a newcomer's rule waiting on the weeks this one used to take).
+ * History is untouched — see releaseUpcomingRuleSlots for what stays put.
+ */
+export const updateCoverageAssignmentRule = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    const input = (data ?? {}) as Record<string, unknown>
+    const id = typeof input.id === 'string' ? input.id.trim() : ''
+    if (!id) throw new Error('Rule id is required.')
+    return { id, ...parseAssignmentRuleInput(data) }
+  })
+  .handler(async ({ data }): Promise<UpdateAssignmentRuleResult> => {
+    const userId = await requireUserId()
+    const existing = await prisma.careCoverageAssignmentRule.findUnique({
+      where: { id: data.id },
+    })
+    if (!existing) throw new Error('Recurring assignment not found.')
+    const person = await prisma.carePerson.findUnique({
+      where: { id: data.assigneeId },
+    })
+    if (!person || !person.isActive) {
+      throw new Error('Assignee not found or inactive.')
+    }
+    if (data.endsOn && data.endsOn.getTime() < data.startsOn.getTime()) {
+      throw new Error('End date must be on or after the start date.')
+    }
+    if (data.scope === 'SPECIFIC_SHIFTS') {
+      const found = await prisma.careRequiredShift.findMany({
+        where: { id: { in: data.shiftIds } },
+        select: { id: true },
+      })
+      if (found.length !== data.shiftIds.length) {
+        throw new Error('One or more selected shifts no longer exist.')
+      }
+    }
+
+    const { released, updated } = await prisma.$transaction(async (tx) => {
+      const released = await releaseUpcomingRuleSlots(tx, existing.id)
+      const updated = await tx.careCoverageAssignmentRule.update({
+        where: { id: existing.id },
+        data: {
+          assigneeId: data.assigneeId,
+          startsOn: data.startsOn,
+          endsOn: data.endsOn,
+          daysOfWeek: data.daysOfWeek,
+          intervalWeeks: data.intervalWeeks,
+          scope: data.scope,
+          shiftIds: data.shiftIds,
+          notes: data.notes,
+        },
+      })
+      return { released, updated }
+    })
+
+    const now = new Date()
+    const rangeStart = new Date(now)
+    rangeStart.setDate(rangeStart.getDate() - 7)
+    const rangeEnd = new Date(now)
+    rangeEnd.setDate(rangeEnd.getDate() + ROLLING_WINDOW_DAYS)
+    await materializeSeriesInRange(rangeStart, rangeEnd)
+    // This rule first, so it gets back the slots it still wants before other
+    // rules are offered the rest.
+    const applied = await applyAssignmentRules(rangeStart, rangeEnd, updated.id)
+    await applyAssignmentRules(rangeStart, rangeEnd)
+
+    await logActivity({
+      actorUserId: userId,
+      action: 'UPDATE',
+      entityType: ACTIVITY_ENTITY_TYPES.coverage_assignment_rule,
+      entityId: updated.id,
+      summary: `Changed recurring coverage for ${person.name}`,
+      changes: diffChanges(existing, updated, [
+        'assigneeId',
+        'startsOn',
+        'endsOn',
+        'daysOfWeek',
+        'intervalWeeks',
+        'scope',
+        'shiftIds',
+        'notes',
+      ]),
+      linkMeta: { day: toDayKey(updated.startsOn), tab: 'calendar' },
+      visibilityUserId: null,
+    })
+
+    const filledCount = await prisma.careCoverageOccurrence.count({
+      where: { assignedByRuleId: updated.id },
+    })
+    return {
+      rule: toAssignmentRuleDto({
+        ...updated,
+        assignee: { name: person.name },
+        _count: { occurrences: filledCount },
+      }),
+      released,
+      assigned: applied.assigned,
+      skipped:
+        applied.skippedOverlap +
+        applied.alreadyCovered +
+        applied.skippedReleased,
+    }
+  })
+
 export const deleteCoverageAssignmentRule = createServerFn({ method: 'POST' })
   .validator((data: unknown) => {
     if (!data || typeof data !== 'object') throw new Error('Invalid payload.')
@@ -3637,22 +3781,7 @@ export const deleteCoverageAssignmentRule = createServerFn({ method: 'POST' })
     })
     if (!rule) throw new Error('Recurring assignment not found.')
 
-    // Reopen upcoming, not-yet-completed slots this rule filled; preserve past,
-    // completed, invoiced, and pending-swap ones as-is.
-    await prisma.careCoverageOccurrence.updateMany({
-      where: {
-        assignedByRuleId: rule.id,
-        status: 'SCHEDULED',
-        startsAt: { gte: startOfLocalToday() },
-        invoiceLines: { none: {} },
-        ...notPromisedOccurrence,
-      },
-      data: {
-        assigneeId: null,
-        assignedByRuleId: null,
-        billingStatus: 'NOT_BILLABLE',
-      },
-    })
+    await releaseUpcomingRuleSlots(prisma, rule.id)
 
     // Deleting the rule clears assignedByRuleId on any preserved occurrences.
     await prisma.careCoverageAssignmentRule.delete({ where: { id: rule.id } })
