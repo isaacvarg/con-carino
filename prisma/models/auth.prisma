@@ -32,9 +32,27 @@ model User {
   postedContributions CareScheduledContribution[]
   automationAlerts    Automation[] @relation("AutomationNotifyUser")
   automationsCreated  Automation[] @relation("AutomationCreatedBy")
+  emailAliases        UserEmail[]
 
   @@index([archivedAt])
   @@map("users")
+}
+
+/// Extra addresses a user may sign in with by magic link, on top of
+/// `User.email`. The email provider resolves a user by address alone (never
+/// through `Account`), so without this a second address always creates a
+/// second user. Admin-managed only; read by the adapter wrapper in
+/// src/utils/auth.ts. Stored trimmed and lowercased, matching Auth.js's
+/// identifier normalization.
+model UserEmail {
+  email     String   @id
+  userId    String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("user_emails")
 }
 
 model Account {

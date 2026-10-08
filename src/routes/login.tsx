@@ -13,6 +13,11 @@ function errorMessage(code: string): string {
   if (code === 'Verification') {
     return 'That sign-in link has expired or was already used. Request a new one below.'
   }
+  // A new Google/Discord account whose email is already a user's address or
+  // alias. Auth.js refuses to auto-link it rather than create a duplicate.
+  if (code === 'OAuthAccountNotLinked') {
+    return 'That email already belongs to an account here. Sign in the way you did before, or ask an admin to add it to your account.'
+  }
   return 'Something went wrong signing you in. Please try again.'
 }
 

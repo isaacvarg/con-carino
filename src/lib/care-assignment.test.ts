@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   occurrenceMatchesRule,
+  upcomingRuleDays,
   type AssignmentRuleShape,
 } from '#/lib/care-assignment'
 
@@ -87,5 +88,63 @@ describe('occurrenceMatchesRule', () => {
     expect(occurrenceMatchesRule(r, occ(monday, 'shift-a'), NOW)).toBe(true)
     expect(occurrenceMatchesRule(r, occ(monday, 'shift-b'), NOW)).toBe(false)
     expect(occurrenceMatchesRule(r, occ(monday, null), NOW)).toBe(false)
+  })
+})
+
+describe('upcomingRuleDays', () => {
+  const FROM = new Date(2026, 9, 8) // Thu Oct 8, 2026
+
+  it('lists weekly days from the given date', () => {
+    const days = upcomingRuleDays(
+      rule({ daysOfWeek: [1], startsOn: new Date(2026, 0, 5) }),
+      FROM,
+      3,
+    )
+    expect(days.map((d) => d.getDate())).toEqual([12, 19, 26])
+  })
+
+  it('anchors every-4-weeks rotations at the start date', () => {
+    // Mon Oct 12 is week 0 of the rotation; next turns are Nov 9 and Dec 7.
+    const days = upcomingRuleDays(
+      rule({ daysOfWeek: [1], intervalWeeks: 4, startsOn: new Date(2026, 9, 12) }),
+      FROM,
+      3,
+    )
+    expect(days.map((d) => [d.getMonth(), d.getDate()])).toEqual([
+      [9, 12],
+      [10, 9],
+      [11, 7],
+    ])
+  })
+
+  it('offsets rotations by their start week so four people can share one slot', () => {
+    const turns = [0, 1, 2, 3].map(
+      (week) =>
+        upcomingRuleDays(
+          rule({
+            daysOfWeek: [1],
+            intervalWeeks: 4,
+            startsOn: new Date(2026, 9, 12 + 7 * week),
+          }),
+          FROM,
+          1,
+        )[0],
+    )
+    expect(turns.map((d) => d.getTime())).toEqual(
+      [12, 19, 26, 33].map((d) => new Date(2026, 9, d).getTime()),
+    )
+  })
+
+  it('stops at the end date', () => {
+    const days = upcomingRuleDays(
+      rule({ daysOfWeek: [1], startsOn: new Date(2026, 0, 5), endsOn: new Date(2026, 9, 20) }),
+      FROM,
+      5,
+    )
+    expect(days.map((d) => d.getDate())).toEqual([12, 19])
+  })
+
+  it('returns nothing without days', () => {
+    expect(upcomingRuleDays(rule({ daysOfWeek: [] }), FROM, 3)).toEqual([])
   })
 })

@@ -6,6 +6,7 @@ import {
   type ActivityLinkMeta,
 } from '#/lib/activity'
 import { prisma } from '#/lib/prisma'
+import { normalizeEmail, parseEmailInput } from '#/lib/user-email'
 import { resolveUserImageUrl } from '#/lib/user-image'
 import { logActivity } from '#/server/activity-log'
 import type { ActivityListItem } from '#/server/activity'
@@ -22,6 +23,7 @@ import {
   updateCarePerson,
 } from '#/server/care'
 import { ensureCarePersonForUser } from '#/server/ensure-care-person'
+import { mergeUserInto } from '#/server/user-merge'
 
 function parseLinkMeta(value: unknown): ActivityLinkMeta | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
@@ -54,6 +56,10 @@ export type UserDetail = {
   createdAt: string
   carePerson: CarePersonDto | null
   sessions: UserSessionItem[]
+  /** Extra magic-link addresses (UserEmail), oldest first. */
+  emailAliases: string[]
+  /** Linked OAuth providers, e.g. ["google"]. */
+  providers: string[]
 }
 
 export const listUsers = createServerFn({ method: 'GET' }).handler(
@@ -108,6 +114,11 @@ export const getUser = createServerFn({ method: 'GET' })
           orderBy: { expires: 'desc' },
           select: { id: true, expires: true },
         },
+        emailAliases: {
+          orderBy: { createdAt: 'asc' },
+          select: { email: true },
+        },
+        accounts: { select: { provider: true } },
       },
     })
     if (!user) throw new Error('User not found.')
@@ -139,6 +150,8 @@ export const getUser = createServerFn({ method: 'GET' })
         id: s.id,
         expires: s.expires.toISOString(),
       })),
+      emailAliases: user.emailAliases.map((a) => a.email),
+      providers: [...new Set(user.accounts.map((a) => a.provider))].sort(),
     }
   })
 
@@ -485,4 +498,198 @@ export const restoreUser = createServerFn({ method: 'POST' })
       },
       visibilityUserId: null,
     })
+  })
+
+// ---------------------------------------------------------------------------
+// Sign-in email aliases (admin-managed)
+
+function userLabel(user: {
+  id: string
+  name: string | null
+  email: string | null
+}): string {
+  return user.name ?? user.email ?? user.id
+}
+
+/**
+ * Why `email` cannot become an alias of `userId`, or null if it can. An
+ * address may resolve to at most one user, and must not collide with an
+ * offline person's expected sign-in email — that address is meant to create
+ * (and link) a new user on first sign-in, see ensureCarePersonForUser.
+ */
+async function aliasConflict(
+  userId: string,
+  email: string,
+): Promise<string | null> {
+  const owner = await prisma.user.findFirst({
+    where: { email: { equals: email, mode: 'insensitive' } },
+    select: { id: true, name: true, email: true },
+  })
+  if (owner) {
+    return owner.id === userId
+      ? 'That is already this user’s primary email.'
+      : `That address belongs to ${userLabel(owner)}. Use “Merge user” to combine the two accounts.`
+  }
+  const alias = await prisma.userEmail.findUnique({
+    where: { email },
+    select: { user: { select: { id: true, name: true, email: true } } },
+  })
+  if (alias) {
+    return alias.user.id === userId
+      ? 'That address is already on this account.'
+      : `That address is already an alias of ${userLabel(alias.user)}.`
+  }
+  const person = await prisma.carePerson.findUnique({
+    where: { email },
+    select: { name: true, userId: true },
+  })
+  if (person && person.userId !== userId) {
+    return `That address is set as the expected sign-in email for “${person.name}”. Clear it there first.`
+  }
+  return null
+}
+
+export const addUserEmailAlias = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    const input = (data ?? {}) as Record<string, unknown>
+    const userId = typeof input.userId === 'string' ? input.userId.trim() : ''
+    if (!userId) throw new Error('User id is required.')
+    return { userId, email: parseEmailInput(input.email) }
+  })
+  .handler(async ({ data }): Promise<void> => {
+    const adminId = await requireAdminId()
+    const user = await prisma.user.findUnique({
+      where: { id: data.userId },
+      select: { id: true, name: true, email: true },
+    })
+    if (!user) throw new Error('User not found.')
+
+    const conflict = await aliasConflict(user.id, data.email)
+    if (conflict) throw new Error(conflict)
+
+    await prisma.userEmail.create({
+      data: { email: data.email, userId: user.id },
+    })
+    await logActivity({
+      actorUserId: adminId,
+      action: 'UPDATE',
+      entityType: ACTIVITY_ENTITY_TYPES.user,
+      entityId: user.id,
+      summary: `Added sign-in email ${data.email} to ${userLabel(user)}`,
+      visibilityUserId: null,
+    })
+  })
+
+export const removeUserEmailAlias = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    const input = (data ?? {}) as Record<string, unknown>
+    const userId = typeof input.userId === 'string' ? input.userId.trim() : ''
+    if (!userId) throw new Error('User id is required.')
+    const email =
+      typeof input.email === 'string' ? normalizeEmail(input.email) : ''
+    if (!email) throw new Error('Email is required.')
+    return { userId, email }
+  })
+  .handler(async ({ data }): Promise<void> => {
+    const adminId = await requireAdminId()
+    const alias = await prisma.userEmail.findUnique({
+      where: { email: data.email },
+      select: { userId: true, user: { select: { id: true, name: true, email: true } } },
+    })
+    if (!alias || alias.userId !== data.userId) {
+      throw new Error('That address is not an alias of this user.')
+    }
+    // Existing sessions stay valid; the address just stops resolving to this
+    // user, so a later magic link to it would create a new user.
+    await prisma.userEmail.delete({ where: { email: data.email } })
+    await logActivity({
+      actorUserId: adminId,
+      action: 'DELETE',
+      entityType: ACTIVITY_ENTITY_TYPES.user,
+      entityId: alias.user.id,
+      summary: `Removed sign-in email ${data.email} from ${userLabel(alias.user)}`,
+      visibilityUserId: null,
+    })
+  })
+
+// ---------------------------------------------------------------------------
+// Merging users
+
+export type UserMergeCandidate = {
+  id: string
+  name: string | null
+  email: string | null
+  carePersonName: string | null
+  archived: boolean
+}
+
+/**
+ * Everyone who could be folded into `userId` — archived users included, since
+ * an admin may already have removed the duplicate before deciding to merge.
+ */
+export const listUserMergeCandidates = createServerFn({ method: 'GET' })
+  .validator((data: unknown) => {
+    const input = (data ?? {}) as Record<string, unknown>
+    const userId = typeof input.userId === 'string' ? input.userId.trim() : ''
+    if (!userId) throw new Error('User id is required.')
+    return { userId }
+  })
+  .handler(async ({ data }): Promise<UserMergeCandidate[]> => {
+    const adminId = await requireAdminId()
+    const users = await prisma.user.findMany({
+      where: { id: { notIn: [data.userId, adminId] } },
+      orderBy: [{ archivedAt: { sort: 'asc', nulls: 'first' } }, { name: 'asc' }, { email: 'asc' }],
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        archivedAt: true,
+        carePerson: { select: { name: true } },
+      },
+    })
+    return users.map((u) => ({
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      carePersonName: u.carePerson?.name ?? null,
+      archived: u.archivedAt !== null,
+    }))
+  })
+
+/**
+ * Fold user `mergeId` into `keepId` — see mergeUserInto. One transaction: it
+ * either all happens or none of it does.
+ */
+export const mergeUsers = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    if (!data || typeof data !== 'object') throw new Error('Invalid payload.')
+    const input = data as Record<string, unknown>
+    const keepId = typeof input.keepId === 'string' ? input.keepId.trim() : ''
+    const mergeId =
+      typeof input.mergeId === 'string' ? input.mergeId.trim() : ''
+    if (!keepId || !mergeId) throw new Error('Both users are required.')
+    if (keepId === mergeId) {
+      throw new Error('Cannot merge a user into themselves.')
+    }
+    return { keepId, mergeId }
+  })
+  .handler(async ({ data }): Promise<{ movedRows: number }> => {
+    const adminId = await requireAdminId()
+    // Merging away the signed-in admin would delete the session making the
+    // request; do it from the other account instead.
+    if (data.mergeId === adminId) {
+      throw new Error(
+        'You cannot merge away the account you are signed in with. Sign in as the other account, or have another admin do it.',
+      )
+    }
+    return prisma.$transaction(
+      (tx) =>
+        mergeUserInto(tx, {
+          keepId: data.keepId,
+          mergeId: data.mergeId,
+          actorUserId: adminId,
+        }),
+      // Many small updateMany calls; give a large household's history room.
+      { maxWait: 10_000, timeout: 60_000 },
+    )
   })
